@@ -27,7 +27,6 @@ static int8_t eth_get_link_up(void);
 static int8_t eth_udp_init(void);
 static void eth_udp_send_periodic(void);
 static void eth_tcp_receive_periodic(void);
-static void eth_tcp_update(void);
 static void eth_tcp_send_periodic(void);
 static void eth_reset_error(void);
 static void _eth_handle_error(eth_error_t err, int32_t reason);
@@ -90,7 +89,6 @@ void eth_update_periodic(void) {
                 PHAL_writeGPIO(CONNECTION_LED_PORT, CONNECTION_LED_PIN, 1);
                 /* Eth link UP routines */
                 eth_udp_send_periodic();
-                // eth_tcp_update();
             } else {
                 daq_hub.eth_state = ETH_LINK_DOWN;
                 PHAL_writeGPIO(CONNECTION_LED_PORT, CONNECTION_LED_PIN, 0);
