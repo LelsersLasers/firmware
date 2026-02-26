@@ -248,7 +248,7 @@ static void can_rx_irq_handler(CAN_TypeDef* can_h) {
             else msg.StdId = rx->msg_id;
             msg.DLC = rx->dlc;
             memcpy(msg.Data, rx->data, 8);
-            qSendToBack(&q_rx_can, &msg);
+            queue_push(&q_rx_can, &msg);
 
             if(msg.ExtId == GPS_TIME_MSG_ID) rtc_config_cb(&msg);
         } else {
