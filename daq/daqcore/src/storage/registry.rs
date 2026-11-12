@@ -598,6 +598,127 @@ impl Registry {
         Ok(rows.into_iter().map(RawAssetRecord::from).collect())
     }
 
+    /// Insert or update a point or interval [`Annotation`].
+    ///
+    /// Automatically ensures the parent `track_days` record exists so live pit-wall
+    /// bookmarks created before SD card import succeed with foreign-key enforcement.
+    ///
+    /// Precedence rules:
+    /// - Incoming `"auto"` annotations never overwrite an existing annotation with the same `id`
+    ///   (preserving any user edits, promotions to `"manual"`, or soft-deletions).
+    /// - Incoming `"manual"` annotations apply when `updated_at_ms >= existing.updated_at_ms`.
+    pub fn upsert_annotation(&self, annotation: &Annotation) -> Result<bool, RegistryError> {
+        let mut conn = self.pool.get()?;
+        conn.immediate_transaction(|conn| {
+            let end_utc_ms = annotation
+                .end_utc_ms
+                .unwrap_or(annotation.start_utc_ms)
+                .max(annotation.start_utc_ms);
+            let day = TrackDay {
+                id: annotation.track_day_id.clone(),
+                title: default_track_day_title(&annotation.track_day_id),
+                location: String::new(),
+                start_utc_ms: annotation.start_utc_ms,
+                end_utc_ms,
+            };
+            Self::upsert_track_day_in_conn(conn, &day)?;
+            Self::upsert_annotation_in_conn(conn, annotation)
+        })
+        .map_err(RegistryError::from)
+    }
+
+    pub fn get_annotation(&self, annotation_id: &str) -> Result<Option<Annotation>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let row = annotations::table
+            .filter(annotations::id.eq(annotation_id))
+            .select(AnnotationRow::as_select())
+            .first::<AnnotationRow>(&mut conn)
+            .optional()?;
+        Ok(row.map(Annotation::from))
+    }
+
+    /// Soft-delete an annotation (`deleted = true`), preserving a tombstone so re-imports
+    /// do not recreate deleted auto-annotations and cloud sync can propagate the deletion.
+    pub fn soft_delete_annotation(
+        &self,
+        annotation_id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let updated = diesel::update(annotations::table.filter(annotations::id.eq(annotation_id)))
+            .set((
+                annotations::deleted.eq(true),
+                annotations::updated_at_ms.eq(updated_at_ms),
+            ))
+            .execute(&mut conn)?;
+        Ok(updated > 0)
+    }
+
+    pub fn list_annotations_for_day(
+        &self,
+        track_day_id: &str,
+        include_deleted: bool,
+    ) -> Result<Vec<Annotation>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let mut query = annotations::table
+            .filter(annotations::track_day_id.eq(track_day_id))
+            .into_boxed();
+        if !include_deleted {
+            query = query.filter(annotations::deleted.eq(false));
+        }
+        let rows = query
+            .order((annotations::start_utc_ms.asc(), annotations::id.asc()))
+            .select(AnnotationRow::as_select())
+            .load::<AnnotationRow>(&mut conn)?;
+        Ok(rows.into_iter().map(Annotation::from).collect())
+    }
+
+    /// Query all point and interval annotations overlapping `[query_start_utc_ms, query_end_utc_ms]`.
+    pub fn query_annotations_in_range(
+        &self,
+        query_start_utc_ms: i64,
+        query_end_utc_ms: i64,
+        include_deleted: bool,
+    ) -> Result<Vec<Annotation>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let point_in_range = annotations::end_utc_ms.is_null().and(
+            annotations::start_utc_ms
+                .ge(query_start_utc_ms)
+                .and(annotations::start_utc_ms.le(query_end_utc_ms)),
+        );
+        let interval_in_range = annotations::end_utc_ms.is_not_null().and(
+            annotations::start_utc_ms
+                .le(query_end_utc_ms)
+                .and(annotations::end_utc_ms.ge(Some(query_start_utc_ms))),
+        );
+
+        let mut query = annotations::table
+            .filter(point_in_range.or(interval_in_range))
+            .into_boxed();
+        if !include_deleted {
+            query = query.filter(annotations::deleted.eq(false));
+        }
+        let rows = query
+            .order((annotations::start_utc_ms.asc(), annotations::id.asc()))
+            .select(AnnotationRow::as_select())
+            .load::<AnnotationRow>(&mut conn)?;
+        Ok(rows.into_iter().map(Annotation::from).collect())
+    }
+
+    /// List all annotations (including soft-deleted tombstones) modified at or after `since_utc_ms`.
+    pub fn list_annotations_updated_since(
+        &self,
+        since_utc_ms: i64,
+    ) -> Result<Vec<Annotation>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let rows = annotations::table
+            .filter(annotations::updated_at_ms.ge(since_utc_ms))
+            .order((annotations::updated_at_ms.asc(), annotations::id.asc()))
+            .select(AnnotationRow::as_select())
+            .load::<AnnotationRow>(&mut conn)?;
+        Ok(rows.into_iter().map(Annotation::from).collect())
+    }
+
     fn upsert_annotation_in_conn(
         conn: &mut SqliteConnection,
         annotation: &Annotation,
@@ -617,16 +738,12 @@ impl Registry {
                 Ok(true)
             }
             Some(prev) => {
-                // Auto-annotations must never overwrite manual annotations or resurrect soft-deleted annotations
-                if annotation.source == "auto"
-                    && (prev.source != "auto"
-                        || prev.deleted
-                        || prev.name != annotation.name
-                        || prev.notes != annotation.notes)
-                {
+                // Auto-annotations are deterministic; never overwrite an existing row on re-import
+                // so manual edits, promotions to "manual", and soft-deletes are always preserved.
+                if annotation.source == "auto" {
                     return Ok(false);
                 }
-                if annotation.source != "auto" && annotation.updated_at_ms < prev.updated_at_ms {
+                if annotation.updated_at_ms < prev.updated_at_ms {
                     return Ok(false);
                 }
                 diesel::update(annotations::table.filter(annotations::id.eq(&annotation.id)))
