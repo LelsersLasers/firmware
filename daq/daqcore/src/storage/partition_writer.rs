@@ -60,6 +60,7 @@ pub enum ImportError {
     Parquet(parquet::errors::ParquetError),
     Arrow(arrow::error::ArrowError),
     Json(serde_json::Error),
+    Registry(storage::RegistryError),
 }
 
 impl fmt::Display for ImportError {
@@ -69,6 +70,7 @@ impl fmt::Display for ImportError {
             Self::Parquet(e) => write!(f, "Parquet error: {e}"),
             Self::Arrow(e) => write!(f, "Arrow error: {e}"),
             Self::Json(e) => write!(f, "JSON serialization error: {e}"),
+            Self::Registry(e) => write!(f, "Registry error: {e}"),
         }
     }
 }
@@ -96,6 +98,12 @@ impl From<arrow::error::ArrowError> for ImportError {
 impl From<serde_json::Error> for ImportError {
     fn from(value: serde_json::Error) -> Self {
         Self::Json(value)
+    }
+}
+
+impl From<storage::RegistryError> for ImportError {
+    fn from(value: storage::RegistryError) -> Self {
+        Self::Registry(value)
     }
 }
 
@@ -188,6 +196,7 @@ pub fn write_correlated_epochs_to_store(
 ) -> Result<ImportSummary, ImportError> {
     let partitions_root = store_dir.join("partitions");
     fs::create_dir_all(&partitions_root)?;
+    let registry = storage::Registry::open_store(store_dir)?;
 
     let mut summary = ImportSummary {
         log_files_parsed: log_files.len(),
@@ -240,6 +249,7 @@ pub fn write_correlated_epochs_to_store(
                 log_files,
                 database,
             )?;
+            registry.register_manifest(&manifest, true)?;
             if was_written {
                 summary.partitions_written += 1;
             } else {

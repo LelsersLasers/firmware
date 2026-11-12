@@ -317,6 +317,40 @@ impl Registry {
         &self.pool
     }
 
+    /// Scan `<store_dir>/partitions/*/manifest.json` and ensure all on-disk partitions
+    /// are registered in this [`Registry`]. Returns the count of newly inserted partitions.
+    pub fn sync_from_store_dir(
+        &self,
+        store_dir: impl AsRef<path::Path>,
+    ) -> Result<usize, RegistryError> {
+        let partitions_dir = store_dir.as_ref().join("partitions");
+        if !partitions_dir.exists() {
+            return Ok(0);
+        }
+
+        let mut entries: Vec<path::PathBuf> = fs::read_dir(&partitions_dir)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect();
+        entries.sort();
+
+        let mut newly_inserted = 0usize;
+        for dir in entries {
+            let manifest_path = dir.join("manifest.json");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let bytes = fs::read(&manifest_path)?;
+            let manifest: PartitionManifest = serde_json::from_slice(&bytes)?;
+            if self.register_manifest(&manifest, true)? {
+                newly_inserted += 1;
+            }
+        }
+
+        Ok(newly_inserted)
+    }
+
     /// Insert a new track day or widen the `[start_utc_ms, end_utc_ms]` bounds of an existing one.
     pub fn upsert_track_day(&self, day: &TrackDay) -> Result<TrackDay, RegistryError> {
         let mut conn = self.pool.get()?;
