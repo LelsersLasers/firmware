@@ -7,8 +7,7 @@ pub use partition_writer::{
     write_correlated_epochs_to_store,
 };
 pub use registry::{
-    LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, Registry, RegistryError,
-    TrackDay,
+    LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, Registry, RegistryError, TrackDay,
 };
 
 pub type SignalId = String;
