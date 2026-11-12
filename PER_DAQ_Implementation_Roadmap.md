@@ -29,6 +29,17 @@ Before writing new code, here is the exact inventory of what exists in `daq/` to
 | `daqapp/src/workspace.rs`, `app.rs` | Renders `egui_tiles::Tree<Widget>` with no serialization or view management | **Refactor / Rewrite** around serializable `.daqview.json` workspaces and repo-bundled subteam presets |
 | `plot_factory/` (Python) | Standalone Python TOML plot & expression scripts | **Delete completely** once formulas, workspace presets, and export presets are in `daq/` |
 
+### Local Test-Day Datasets (`PER26/` Directory)
+The gitignored `/PER26/` folder in the workspace root contains real raw SD card binaries (`raw/*.log`) and legacy parsed wide CSV exports (`parsed/*.csv`) across several historical test runs:
+- `PER26/2026-06-14/` — Legacy parsed `out_*.csv` sample window
+- `PER26/2026-09-06/1_no_cooling/{raw,parsed}` — `log-0.log` plus 30 RTC-named `.log` files (`log-2026-09-06--18-36-02.log` .. `19-05-06.log`) and parsed CSVs
+- `PER26/2026-09-06/2_regen/{raw,parsed}` — `log-0.log` plus 12 RTC-named `.log` files and parsed CSVs
+- `PER26/2026-09-06/3_happy_laps_endurance_regen/{raw,parsed,parsed.old}` — Multi-hour endurance dataset spanning `2026-09-06` to `2026-09-07`
+
+> [!NOTE]
+> **Historical CAN Schema Drift in `PER26/`:**  
+> The CAN message definitions (message IDs, bit layouts, signal names, and the raw `.log` bus-ID bitmask offset before commit `e90c0af3`) from those June–September 2026 test days differ significantly from current `HEAD`. When importing `PER26/` raw logs against a SuperDBC generated from current `HEAD`, frames with unchanged IDs still decode cleanly while frames whose IDs or bus bits changed since September 2026 will be reported as skipped/undecoded. To decode 100% of frames from those September 2026 logs when needed, generate a historical SuperDBC from the September 2026 `firmware/can_library/can_json` definitions (with `BUS_ID_OFFSET = 30`).
+
 ---
 
 ## Dependency Additions Overview (`daq/Cargo.toml`)

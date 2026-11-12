@@ -60,3 +60,6 @@ daq/daqcloud/daqcloud.db
 daq/daqcloud/daqcloud.db-shm
 daq/daqcloud/daqcloud.db-wal
 daq/daqcloud/migrations/.diesel_lock
+
+# Local PER26 historical test-day raw & parsed data
+/PER26/
