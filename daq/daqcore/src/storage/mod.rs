@@ -1,8 +1,14 @@
 pub mod partition_writer;
+pub mod registry;
+pub mod schema;
 
 pub use partition_writer::{
     ImportError, ImportSummary, PartitionManifest, SignalManifestEntry,
     write_correlated_epochs_to_store,
+};
+pub use registry::{
+    LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, Registry, RegistryError,
+    TrackDay,
 };
 
 pub type SignalId = String;
