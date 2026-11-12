@@ -21,14 +21,13 @@ CREATE TABLE partitions (
 );
 
 CREATE TABLE raw_assets (
-    sha256_hex      TEXT PRIMARY KEY NOT NULL,
-    track_day_id    TEXT NOT NULL REFERENCES track_days(id) ON DELETE CASCADE,
-    file_name       TEXT NOT NULL,
-    size_bytes      BIGINT NOT NULL,
-    rtc_unix_ms     BIGINT,
-    mtime_unix_ms   BIGINT NOT NULL,
-    relative_path   TEXT NOT NULL DEFAULT '',
-    is_local        BOOLEAN NOT NULL DEFAULT 1
+    sha256_hex       TEXT PRIMARY KEY NOT NULL,
+    track_day_id     TEXT NOT NULL REFERENCES track_days(id) ON DELETE CASCADE,
+    file_name        TEXT NOT NULL,
+    rtc_timestamp_ms BIGINT,
+    mtime_unix_ms    BIGINT NOT NULL,
+    relative_path    TEXT NOT NULL DEFAULT '',
+    is_local         BOOLEAN NOT NULL DEFAULT 1
 );
 
 CREATE TABLE annotations (
