@@ -24,7 +24,7 @@ Before writing new code, here is the exact inventory of what exists in `daq/` to
 | `daqcore/src/log_parse/` (`parse.rs`, `correlate.rs`, `table.rs`) | Reads `.log` files, chunks by tick jumps, fits GPS line, writes wide CSV (`table.rs`) | **Rewrite** into `daqcore::ingest`: add 3-tier clock correlation + auto-annotation detector; **delete `table.rs`** and replace with Parquet pyramid writer |
 | `daqcore/src/cache.rs`, `timeline.rs`, `session.rs` | Frame-oriented `Vec<ParsedFrame>` in RAM (`RamCache`); rolling-only `Timeline` | **Tear down & Rewrite** into `VirtualTimelineRouter` + columnar `TileCache` + `LiveRingBuffer` (do not keep frame-by-frame UI iteration) |
 | `daqapp/src/telemetry.rs` | `TelemetryView` slices raw `ParsedFrame` arrays on every frame render | **Tear down & Replace** with columnar/series-based `WorkspaceDataView` backed by `VirtualTimelineRouter` + `FormulaEngine` |
-| `daqcloud/` (`migrations/`, `src/db/`, Diesel setup) | Row-per-sample `message_samples` & `signal_samples` tables | **Tear down & Rewrite**: delete existing migration and sample tables; replace with clean metadata/manifest/annotation registry |
+| `daqcloud/` (`migrations/`, `src/db/`, Diesel setup) | Row-per-sample `message_samples` & `signal_samples` tables | **Tear down & Rewrite**: nuke existing `daqcloud` migrations and sample tables; move clean Diesel metadata/manifest/annotation schema & embedded migrations into `daqcore::storage::registry` shared by both local storage and `daqcloud` |
 | `daqapp/src/widgets.rs`, `ui/*` | Mix of operational tools (`Bootloader`, `Hil`, `SendUi`) and hardcoded/placeholder plots (`BatteryVoltage`, `BatteryTemps`, `Dynamics`, `GgPlot`, `Scope`) | **Keep** operational widgets (`Bootloader`, `Hil`, `SendUi`, `ViewerTable`); **tear down & replace** hardcoded plot widgets (`BatteryVoltage`, `BatteryTemps`, `Dynamics`, `GgPlot`, old `Scope`) with unified `Scope`, `StateLane`, `XYScatter`, and `GpsPlot` powered by presets |
 | `daqapp/src/workspace.rs`, `app.rs` | Renders `egui_tiles::Tree<Widget>` with no serialization or view management | **Refactor / Rewrite** around serializable `.daqview.json` workspaces and repo-bundled subteam presets |
 | `plot_factory/` (Python) | Standalone Python TOML plot & expression scripts | **Delete completely** once formulas, workspace presets, and export presets are in `daq/` |
@@ -48,10 +48,12 @@ Across the milestones below, add these workspace dependencies to `daq/Cargo.toml
 
 ```toml
 [workspace.dependencies]
-# Columnar storage & export
+# Columnar storage, Diesel SQLite registry & export
 arrow = { version = "54", default-features = false, features = ["ipc"] }
 parquet = { version = "54", default-features = false, features = ["arrow", "zstd"] }
-rusqlite = { version = "0.33", features = ["bundled"] } # Lightweight shared local/cloud metadata & manifest queries
+diesel = { version = "2.3.14", default-features = false, features = ["sqlite", "r2d2"] }
+diesel_migrations = { version = "2.3.2", features = ["sqlite"] }
+libsqlite3-sys = { version = "0.38.2", features = ["bundled"] }
 sha2 = "0.10"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 base64 = "0.22"
@@ -139,12 +141,12 @@ Convert `daqcli` from a single-flag binary into a subcommand CLI (`clap::Subcomm
 ---
 
 ## Milestone 2: Local & Cloud Metadata Registry (`local_registry.sqlite` & `daqcloud` Schema)
-**Goal:** Replace the row-per-sample `signal_samples` database schema with a fast, unified SQLite metadata & annotation registry used identically by local storage, USB drives, and `daqcloud`.
+**Goal:** Nuke the legacy row-per-sample `signal_samples` database schema and migrations, replacing them with a fast, unified Diesel + SQLite metadata & annotation registry (`daqcore::storage::Registry`) used identically by local storage, USB drives, and `daqcloud`.
 
-### Step 2.1: Create the Shared Registry Module (`daq/daqcore/src/storage/registry.rs`)
-Create `daqcore::storage::Registry` backed by `rusqlite`:
+### Step 2.1: Create the Shared Diesel Registry & Migrations (`daq/daqcore/src/storage/registry.rs` & `daq/daqcore/migrations/`)
+Create `daqcore::storage::Registry` backed by `diesel` (`sqlite`, `r2d2`) and `diesel_migrations`:
 ```sql
-CREATE TABLE IF NOT EXISTS track_days (
+CREATE TABLE track_days (
     id              TEXT PRIMARY KEY NOT NULL, -- e.g. "2026-11-12"
     title           TEXT NOT NULL,
     location        TEXT NOT NULL DEFAULT '',
@@ -152,21 +154,33 @@ CREATE TABLE IF NOT EXISTS track_days (
     end_utc_ms      BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS partitions (
-    partition_id    TEXT PRIMARY KEY NOT NULL, -- deterministic content hash ID
-    track_day_id    TEXT NOT NULL REFERENCES track_days(id),
-    start_utc_ms    BIGINT NOT NULL,
-    end_utc_ms      BIGINT NOT NULL,
-    clock_confidence TEXT NOT NULL,            -- JSON of ClockMapping
-    superdbc_hash   TEXT NOT NULL,
-    relative_path   TEXT NOT NULL,             -- e.g. "partitions/epoch_.../"
-    is_local        BOOLEAN NOT NULL DEFAULT 1,
-    manifest_json   TEXT NOT NULL
+CREATE TABLE partitions (
+    partition_id     TEXT PRIMARY KEY NOT NULL, -- deterministic content hash ID
+    track_day_id     TEXT NOT NULL REFERENCES track_days(id) ON DELETE CASCADE,
+    start_utc_ms     BIGINT NOT NULL,
+    end_utc_ms       BIGINT NOT NULL,
+    clock_confidence TEXT NOT NULL,             -- JSON of ClockMapping
+    superdbc_hash    TEXT NOT NULL,
+    relative_path    TEXT NOT NULL,             -- e.g. "partitions/epoch_.../"
+    is_local         BOOLEAN NOT NULL DEFAULT 1,
+    manifest_json    TEXT NOT NULL,
+    CHECK(end_utc_ms >= start_utc_ms)
 );
 
-CREATE TABLE IF NOT EXISTS annotations (
+CREATE TABLE raw_assets (
+    sha256_hex      TEXT PRIMARY KEY NOT NULL,
+    track_day_id    TEXT NOT NULL REFERENCES track_days(id) ON DELETE CASCADE,
+    file_name       TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL,
+    rtc_unix_ms     BIGINT,
+    mtime_unix_ms   BIGINT NOT NULL,
+    relative_path   TEXT NOT NULL DEFAULT '',
+    is_local        BOOLEAN NOT NULL DEFAULT 1
+);
+
+CREATE TABLE annotations (
     id              TEXT PRIMARY KEY NOT NULL, -- UUID v4 or deterministic auto-ID
-    track_day_id    TEXT NOT NULL REFERENCES track_days(id),
+    track_day_id    TEXT NOT NULL REFERENCES track_days(id) ON DELETE CASCADE,
     name            TEXT NOT NULL,
     category        TEXT NOT NULL,             -- 'event', 'lap', 'driving_stint', 'fault', 'note'
     color           TEXT NOT NULL,
@@ -176,16 +190,20 @@ CREATE TABLE IF NOT EXISTS annotations (
     source          TEXT NOT NULL DEFAULT 'manual', -- 'manual' | 'auto'
     notes           TEXT NOT NULL DEFAULT '',
     updated_at_ms   BIGINT NOT NULL,
-    deleted         BOOLEAN NOT NULL DEFAULT 0
+    deleted         BOOLEAN NOT NULL DEFAULT 0,
+    CHECK(end_utc_ms IS NULL OR end_utc_ms >= start_utc_ms)
 );
 
-CREATE INDEX IF NOT EXISTS idx_partitions_time ON partitions(start_utc_ms, end_utc_ms);
-CREATE INDEX IF NOT EXISTS idx_annotations_time ON annotations(start_utc_ms, end_utc_ms);
+CREATE INDEX idx_partitions_track_day ON partitions(track_day_id, start_utc_ms, end_utc_ms);
+CREATE INDEX idx_partitions_time ON partitions(start_utc_ms, end_utc_ms);
+CREATE INDEX idx_raw_assets_track_day ON raw_assets(track_day_id);
+CREATE INDEX idx_annotations_track_day ON annotations(track_day_id, start_utc_ms, end_utc_ms);
+CREATE INDEX idx_annotations_time ON annotations(start_utc_ms, end_utc_ms);
 ```
-- **Crucial Rule:** `upsert_partition()` is idempotent by `partition_id`. Re-importing an SD card that still contains yesterday's `.log` files + 5 new `.log` files automatically skips already-registered partitions and only imports the new epoch!
+- **Crucial Rule:** `upsert_partition()` / `register_manifest()` is idempotent by `partition_id`. Re-importing an SD card that still contains yesterday's `.log` files + 5 new `.log` files automatically skips already-registered partitions and only imports the new epoch!
 
-### Step 2.2: Replace `daqcloud` Migration (`daq/daqcloud/migrations/`)
-Replace [`daq/daqcloud/migrations/2026-10-16-161301-0000_create_daq_tables/up.sql`](file:///home/millankumar/Documents/PER/daqstuff/monorepo_daqstuff_a/daq/daqcloud/migrations/2026-10-16-161301-0000_create_daq_tables/up.sql) with the exact same `track_days`, `partitions`, `raw_assets`, and `annotations` tables (dropping `message_samples` and `signal_samples`).
+### Step 2.2: Nuke Old `daqcloud` Migrations & Unify on `daqcore::storage::Registry`
+Delete the un-deployed legacy `daq/daqcloud/migrations/2026-10-16-161301-0000_create_daq_tables/` directory, `daq/daqcloud/src/db/schema.rs`, and `daqcloud_tables.drawio.png` completely, and wire `daqcloud` to use `daqcore::storage::Registry` (which embeds and runs the clean Diesel migrations from scratch).
 
 - **Milestone 2 Verification:** Unit test `Registry` in `daqcore`: insert multiple partitions across a day, query overlapping partitions for `[t0, t1]`, insert/edit/soft-delete annotations, and verify `auto` annotations do not overwrite `manual` annotations on re-import.
 
