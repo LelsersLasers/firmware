@@ -788,3 +788,280 @@ impl Registry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{log_parse::parse::SourceLogFile, storage::SignalManifestEntry};
+
+    fn sample_manifest(
+        partition_id: &str,
+        track_day_id: &str,
+        start_utc_ms: i64,
+        end_utc_ms: i64,
+        raw_hash: &str,
+        annotations: Vec<Annotation>,
+    ) -> PartitionManifest {
+        PartitionManifest {
+            partition_id: partition_id.to_owned(),
+            track_day_id: track_day_id.to_owned(),
+            start_utc_ms,
+            end_utc_ms,
+            clock_mapping: correlate::ClockMapping {
+                slope: 1.0,
+                intercept_ms: start_utc_ms as f64,
+                confidence: correlate::ClockConfidence::RtcEstimated,
+            },
+            superdbc_hash: "deadbeef".to_owned(),
+            raw_log_hashes: vec![SourceLogFile {
+                file_name: format!("log-{partition_id}.log"),
+                sha256_hex: raw_hash.to_owned(),
+                rtc_timestamp_ms: Some(start_utc_ms),
+                mtime_unix_ms: start_utc_ms,
+            }],
+            signals: vec![SignalManifestEntry {
+                signal_id: "imu.accel_y_g".to_owned(),
+                unit: "g".to_owned(),
+                is_discrete: false,
+                sample_count: 100,
+                min_utc_ms: start_utc_ms,
+                max_utc_ms: end_utc_ms,
+                min_val: -1.5,
+                max_val: 1.5,
+            }],
+            annotations,
+        }
+    }
+
+    #[test]
+    fn test_register_multiple_partitions_idempotency_and_range_queries() {
+        let registry = Registry::open_in_memory().expect("in-memory registry");
+
+        // Customize track day metadata upfront
+        registry
+            .upsert_track_day(&TrackDay {
+                id: "2026-11-12".to_owned(),
+                title: "Putnam Park Test Day".to_owned(),
+                location: "Putnam Park Road Course".to_owned(),
+                start_utc_ms: 150_000,
+                end_utc_ms: 180_000,
+            })
+            .unwrap();
+
+        let m1 = sample_manifest(
+            "epoch_100000_aaa",
+            "2026-11-12",
+            100_000,
+            200_000,
+            "hash_a",
+            vec![],
+        );
+        let m2 = sample_manifest(
+            "epoch_300000_bbb",
+            "2026-11-12",
+            300_000,
+            450_000,
+            "hash_b",
+            vec![],
+        );
+        let m3 = sample_manifest(
+            "epoch_900000_ccc",
+            "2026-11-13",
+            900_000,
+            950_000,
+            "hash_c",
+            vec![],
+        );
+
+        assert!(registry.register_manifest(&m1, true).unwrap());
+        assert!(registry.register_manifest(&m2, false).unwrap());
+        assert!(registry.register_manifest(&m3, true).unwrap());
+
+        // Re-registering m1 must be idempotent (returns false)
+        assert!(!registry.register_manifest(&m1, true).unwrap());
+        assert!(registry.has_partition("epoch_100000_aaa").unwrap());
+        assert!(!registry.has_partition("epoch_nonexistent").unwrap());
+
+        // Verify track day bounds widened to [100_000 .. 450_000] while preserving custom title/location
+        let day = registry
+            .get_track_day("2026-11-12")
+            .unwrap()
+            .expect("track day exists");
+        assert_eq!(day.title, "Putnam Park Test Day");
+        assert_eq!(day.location, "Putnam Park Road Course");
+        assert_eq!(day.start_utc_ms, 100_000);
+        assert_eq!(day.end_utc_ms, 450_000);
+
+        let all_days = registry.list_track_days().unwrap();
+        assert_eq!(all_days.len(), 2);
+
+        // Verify partitions per day & raw assets
+        let day_parts = registry.list_partitions_for_day("2026-11-12").unwrap();
+        assert_eq!(day_parts.len(), 2);
+        assert_eq!(day_parts[0].partition_id, "epoch_100000_aaa");
+        assert!(day_parts[0].is_local);
+        assert_eq!(day_parts[1].partition_id, "epoch_300000_bbb");
+        assert!(!day_parts[1].is_local);
+
+        registry
+            .set_partition_local("epoch_300000_bbb", true)
+            .unwrap();
+        assert!(
+            registry
+                .get_partition("epoch_300000_bbb")
+                .unwrap()
+                .unwrap()
+                .is_local
+        );
+
+        let raw_assets = registry.list_raw_assets_for_day("2026-11-12").unwrap();
+        assert_eq!(raw_assets.len(), 2);
+        assert_eq!(raw_assets[0].sha256_hex, "hash_a");
+        assert_eq!(raw_assets[1].sha256_hex, "hash_b");
+
+        // Verify overlapping time-range queries for [t0, t1]
+        let overlap_m1 = registry
+            .query_partitions_in_range(150_000, 250_000)
+            .unwrap();
+        assert_eq!(overlap_m1.len(), 1);
+        assert_eq!(overlap_m1[0].partition_id, "epoch_100000_aaa");
+
+        let overlap_both = registry
+            .query_partitions_in_range(190_000, 310_000)
+            .unwrap();
+        assert_eq!(overlap_both.len(), 2);
+
+        let overlap_gap = registry
+            .query_partitions_in_range(210_000, 290_000)
+            .unwrap();
+        assert!(overlap_gap.is_empty());
+    }
+
+    #[test]
+    fn test_annotations_crud_soft_delete_and_auto_vs_manual_precedence() {
+        let registry = Registry::open_in_memory().expect("in-memory registry");
+
+        // 1. Live pit-wall bookmark created BEFORE any SD partition is imported for 2026-11-12
+        let pit_bookmark = Annotation {
+            id: "manual_bookmark_1".to_owned(),
+            track_day_id: "2026-11-12".to_owned(),
+            name: "Weird inverter derate here".to_owned(),
+            category: "note".to_owned(),
+            color: "#eab308".to_owned(),
+            start_utc_ms: 125_000,
+            end_utc_ms: None,
+            author: "pitwall".to_owned(),
+            source: "manual".to_owned(),
+            notes: "Driver reported brief torque cut".to_owned(),
+            updated_at_ms: 100,
+            deleted: false,
+        };
+        assert!(registry.upsert_annotation(&pit_bookmark).unwrap());
+
+        // 2. Import partition containing two auto-annotations
+        let auto_stint = Annotation {
+            id: "auto_stint_p1_110000".to_owned(),
+            track_day_id: "2026-11-12".to_owned(),
+            name: "Driving Stint #1".to_owned(),
+            category: "driving_stint".to_owned(),
+            color: "#22c55e".to_owned(),
+            start_utc_ms: 110_000,
+            end_utc_ms: Some(190_000),
+            author: "daqcore".to_owned(),
+            source: "auto".to_owned(),
+            notes: "Auto-detected motion stint".to_owned(),
+            updated_at_ms: 200,
+            deleted: false,
+        };
+        let auto_fault = Annotation {
+            id: "auto_fault_p1_140000".to_owned(),
+            track_day_id: "2026-11-12".to_owned(),
+            name: "Fault: imd_fault".to_owned(),
+            category: "fault".to_owned(),
+            color: "#ef4444".to_owned(),
+            start_utc_ms: 140_000,
+            end_utc_ms: Some(145_000),
+            author: "daqcore".to_owned(),
+            source: "auto".to_owned(),
+            notes: "Auto-detected fault".to_owned(),
+            updated_at_ms: 200,
+            deleted: false,
+        };
+        let manifest = sample_manifest(
+            "epoch_100000_p1",
+            "2026-11-12",
+            100_000,
+            200_000,
+            "hash_p1",
+            vec![auto_stint.clone(), auto_fault.clone()],
+        );
+        registry.register_manifest(&manifest, true).unwrap();
+
+        let active = registry
+            .list_annotations_for_day("2026-11-12", false)
+            .unwrap();
+        assert_eq!(active.len(), 3);
+
+        // 3. Engineer renames/promotes auto_stint to a manual event, and soft-deletes auto_fault
+        let mut promoted_stint = auto_stint.clone();
+        promoted_stint.name = "Skidpad Run 1 (Wet)".to_owned();
+        promoted_stint.category = "event".to_owned();
+        promoted_stint.source = "manual".to_owned();
+        promoted_stint.author = "vd_lead".to_owned();
+        promoted_stint.updated_at_ms = 500;
+        assert!(registry.upsert_annotation(&promoted_stint).unwrap());
+
+        assert!(
+            registry
+                .soft_delete_annotation(&auto_fault.id, 600)
+                .unwrap()
+        );
+
+        // 4. Re-import the partition with newer auto timestamps (updated_at_ms = 9999)
+        // Verify that `auto` annotations do NOT overwrite `manual` edits or resurrect soft-deleted annotations!
+        let mut reimport_stint = auto_stint.clone();
+        reimport_stint.updated_at_ms = 9_999;
+        let mut reimport_fault = auto_fault.clone();
+        reimport_fault.updated_at_ms = 9_999;
+        let manifest_reimport = sample_manifest(
+            "epoch_100000_p1",
+            "2026-11-12",
+            100_000,
+            200_000,
+            "hash_p1",
+            vec![reimport_stint, reimport_fault],
+        );
+        registry
+            .register_manifest(&manifest_reimport, true)
+            .unwrap();
+
+        let fetched_stint = registry
+            .get_annotation(&auto_stint.id)
+            .unwrap()
+            .expect("stint exists");
+        assert_eq!(fetched_stint.name, "Skidpad Run 1 (Wet)");
+        assert_eq!(fetched_stint.source, "manual");
+        assert_eq!(fetched_stint.updated_at_ms, 500);
+
+        let fetched_fault = registry
+            .get_annotation(&auto_fault.id)
+            .unwrap()
+            .expect("fault tombstone exists");
+        assert!(fetched_fault.deleted);
+
+        // 5. Query range [120_000 .. 130_000]: should return promoted_stint (interval) + pit_bookmark (point), excluding soft-deleted fault
+        let in_window = registry
+            .query_annotations_in_range(120_000, 130_000, false)
+            .unwrap();
+        assert_eq!(in_window.len(), 2);
+        assert_eq!(in_window[0].id, "auto_stint_p1_110000");
+        assert_eq!(in_window[1].id, "manual_bookmark_1");
+
+        // 6. Delta query for cloud sync (`list_annotations_updated_since(500)`)
+        let delta = registry.list_annotations_updated_since(500).unwrap();
+        assert_eq!(delta.len(), 2);
+        assert_eq!(delta[0].id, "auto_stint_p1_110000");
+        assert_eq!(delta[1].id, "auto_fault_p1_140000");
+        assert!(delta[1].deleted);
+    }
+}

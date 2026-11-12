@@ -1093,6 +1093,40 @@ mod tests {
         assert_eq!(summary2.partitions_written, 0);
         assert_eq!(summary2.partitions_skipped_existing, 1);
 
+        // 5. Verify local_registry.sqlite was automatically populated and matches the manifest
+        let registry_path = store_dir.join(storage::LOCAL_REGISTRY_FILENAME);
+        assert!(registry_path.is_file());
+        let registry = storage::Registry::open_store(&store_dir).expect("open store registry");
+        let days = registry.list_track_days().unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].id, manifest.track_day_id);
+
+        let registered_parts = registry
+            .list_partitions_for_day(&manifest.track_day_id)
+            .unwrap();
+        assert_eq!(registered_parts.len(), 1);
+        assert_eq!(registered_parts[0].partition_id, manifest.partition_id);
+        assert_eq!(registered_parts[0].manifest, *manifest);
+
+        let registered_annotations = registry
+            .list_annotations_for_day(&manifest.track_day_id, false)
+            .unwrap();
+        assert_eq!(registered_annotations.len(), manifest.annotations.len());
+
+        // 6. If local_registry.sqlite is deleted, sync_from_store_dir reconstructs it from manifest.json files
+        drop(registry);
+        fs::remove_file(&registry_path).unwrap();
+        let rebuilt_registry = storage::Registry::open_store(&store_dir).unwrap();
+        let synced_count = rebuilt_registry.sync_from_store_dir(&store_dir).unwrap();
+        assert_eq!(synced_count, 1);
+        assert_eq!(
+            rebuilt_registry
+                .list_partitions_for_day(&manifest.track_day_id)
+                .unwrap()
+                .len(),
+            1
+        );
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
