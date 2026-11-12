@@ -1,24 +1,21 @@
 use std::path;
 
+pub mod auto_annotate;
 pub mod consts;
 pub mod correlate;
 pub mod parse;
-pub mod table;
-use crate::superdbc;
+use crate::{storage, superdbc};
 
-pub fn parse_logs_to_tables(
+/// Parse a directory of raw `.log` files, stitch them into contiguous MCU boot epochs,
+/// apply 3-tier wall-clock correlation, auto-detect driving stints and fault transitions,
+/// and write multi-resolution Parquet partition pyramids into `<store_dir>/partitions/`.
+pub fn import_logs_to_store(
     logs_dir: &path::Path,
-    output_dir: &path::Path,
-    output_prefix: &str,
+    store_dir: &path::Path,
     database: &superdbc::database::Database,
-) -> Result<(), csv::Error> {
-    let parsed = parse::parse_log_files(logs_dir, database)?;
-    let chunked = parse::chunk_parsed(parsed);
-    let correlated = correlate::time_correlate_chunks(chunked);
-
-    let mut table_builder = table::TableBuilder::default();
-    for bus in [0, 1].into_iter().filter_map(|id| database.bus_by_id(id)) {
-        table_builder.create_header(bus);
-    }
-    table_builder.create_and_write_tables(output_dir, output_prefix, correlated)
+) -> Result<storage::ImportSummary, storage::ImportError> {
+    let parsed_set = parse::parse_log_files(logs_dir, database)?;
+    let chunked = parse::chunk_parsed_with_files(&parsed_set.files, parsed_set.messages);
+    let correlated = correlate::time_correlate_chunks(chunked, &parsed_set.files);
+    storage::write_correlated_epochs_to_store(store_dir, &parsed_set.files, correlated, database)
 }
