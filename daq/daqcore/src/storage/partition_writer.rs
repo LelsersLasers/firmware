@@ -138,16 +138,35 @@ fn format_track_day_id(utc_ms: i64) -> String {
 
 fn compute_partition_id(
     start_utc_ms: i64,
+    end_utc_ms: i64,
     sub_partition_idx: usize,
+    slice: &[(i64, parse::ParsedMessage)],
     raw_logs: &[parse::SourceLogFile],
     superdbc_hash: &str,
 ) -> String {
     let mut hasher = sha2::Sha256::new();
     hasher.update(start_utc_ms.to_le_bytes());
+    hasher.update(end_utc_ms.to_le_bytes());
     hasher.update((sub_partition_idx as u64).to_le_bytes());
+    hasher.update((slice.len() as u64).to_le_bytes());
     hasher.update(superdbc_hash.as_bytes());
     for file in raw_logs {
         hasher.update(file.sha256_hex.as_bytes());
+    }
+    if let Some((_, first_msg)) = slice.first() {
+        hasher.update(first_msg.timestamp.to_le_bytes());
+        hasher.update(first_msg.decoded.name().as_bytes());
+    }
+    if let Some((_, last_msg)) = slice.last() {
+        hasher.update(last_msg.timestamp.to_le_bytes());
+        hasher.update(last_msg.decoded.name().as_bytes());
+    }
+    // Sample up to 64 evenly-spaced messages across the slice so distinct epochs
+    // within the same multi-boot file (e.g. log-0.log) never collide.
+    let step = (slice.len() / 64).max(1);
+    for (_, msg) in slice.iter().step_by(step) {
+        hasher.update(msg.timestamp.to_le_bytes());
+        hasher.update(msg.decoded.name().as_bytes());
     }
     let digest = hasher.finalize();
     let mut prefix = String::with_capacity(12);
@@ -254,7 +273,9 @@ fn write_single_partition(
     let superdbc_hash = database.content_hash().to_owned();
     let partition_id = compute_partition_id(
         start_utc_ms,
+        end_utc_ms,
         sub_partition_idx,
+        slice,
         &raw_log_hashes,
         &superdbc_hash,
     );

@@ -59,10 +59,30 @@ pub fn time_correlate_chunks(
     chunks: Vec<Vec<log_parse::parse::ParsedMessage>>,
     files: &[log_parse::parse::SourceLogFile],
 ) -> Vec<CorrelationChunkResult> {
-    chunks
-        .into_iter()
-        .map(|chunk| time_correlate_chunk(chunk, files))
-        .collect()
+    let mut results = Vec::with_capacity(chunks.len());
+    let mut prev_tier3_end_utc_ms: Option<i64> = None;
+
+    for chunk in chunks {
+        let mut res = time_correlate_chunk(chunk, files);
+        if res.clock_mapping.confidence == ClockConfidence::FileMtimeEstimated
+            && let (Some(first_msg), Some(last_msg)) =
+                (res.parsed_msgs.first(), res.parsed_msgs.last())
+        {
+            let start_utc = res.clock_mapping.ticks_to_utc_ms(first_msg.timestamp);
+            if let Some(prev_end) = prev_tier3_end_utc_ms
+                && start_utc <= prev_end
+            {
+                let adjusted_start = prev_end + 1_000;
+                res.clock_mapping.intercept_ms =
+                    (adjusted_start as f64) - f64::from(first_msg.timestamp);
+            }
+            let new_end = res.clock_mapping.ticks_to_utc_ms(last_msg.timestamp);
+            prev_tier3_end_utc_ms = Some(new_end);
+        }
+        results.push(res);
+    }
+
+    results
 }
 
 pub fn physical_to_u64(dsv: &superdbc::decode::DecodedSignalValue) -> u64 {

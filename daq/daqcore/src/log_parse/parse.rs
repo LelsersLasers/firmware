@@ -198,6 +198,8 @@ fn parse_log_file(
         .map(bytemuck::pod_read_unaligned)
         .collect();
     let mut parsed = Vec::with_capacity(frames.len());
+    let mut unknown_bus_count = 0usize;
+    let mut undecoded_count = 0usize;
 
     for (i, frame) in frames.iter().enumerate() {
         if added_padding && i == frames.len() - 1 {
@@ -212,7 +214,8 @@ fn parse_log_file(
         let bus_id = frame.bus_id();
 
         let Some(bus) = database.bus_by_id(bus_id) else {
-            log::error!("Unknown bus {bus_id} in {}", in_file.display());
+            unknown_bus_count += 1;
+            log::debug!("Unknown bus {bus_id} in {}", in_file.display());
             continue;
         };
 
@@ -224,7 +227,8 @@ fn parse_log_file(
                 source_file_idx,
             });
         } else {
-            log::error!(
+            undecoded_count += 1;
+            log::debug!(
                 "Failed to decode message at {} ms with CAN ID {:X} and data {:?} on bus {}",
                 frame.ticks_ms,
                 identity,
@@ -233,15 +237,26 @@ fn parse_log_file(
             );
         }
     }
+
+    if unknown_bus_count > 0 || undecoded_count > 0 {
+        log::warn!(
+            "File {}: decoded {} frames ({} unknown-bus frames, {} undecoded frames skipped)",
+            in_file.display(),
+            parsed.len(),
+            unknown_bus_count,
+            undecoded_count
+        );
+    }
+
     Ok((file_meta, parsed))
 }
 
-pub fn chunk_parsed(parsed: Vec<ParsedMessage>) -> Vec<Vec<ParsedMessage>> {
+fn split_monotonic_segments(messages: Vec<ParsedMessage>) -> Vec<Vec<ParsedMessage>> {
     let mut chunks = Vec::new();
     let mut current_chunk = Vec::new();
     let mut last_timestamp = None;
 
-    for msg in parsed {
+    for msg in messages {
         if let Some(last_ts) = last_timestamp
             && (msg.timestamp < last_ts || msg.timestamp - last_ts > log_parse::consts::MAX_JUMP_MS)
             && !current_chunk.is_empty()
@@ -257,7 +272,142 @@ pub fn chunk_parsed(parsed: Vec<ParsedMessage>) -> Vec<Vec<ParsedMessage>> {
         chunks.push(current_chunk);
     }
 
-    // Sort messages within each chunk by timestamp (stable sort preserves arrival order)
+    chunks
+}
+
+pub fn chunk_parsed(parsed: Vec<ParsedMessage>) -> Vec<Vec<ParsedMessage>> {
+    let mut chunks = split_monotonic_segments(parsed);
+    for chunk in &mut chunks {
+        chunk.sort_by_key(|m| m.timestamp);
+    }
+    chunks
+}
+
+/// Stitch decoded messages into contiguous MCU boot epochs, pairing initial `log-0.log`
+/// segments (`FA_OPEN_APPEND` first-minute boot logs written before RTC sync) with their
+/// corresponding RTC-named continuation files (`log-20YY-MM-DD--HH-MM-SS.log`).
+pub fn chunk_parsed_with_files(
+    files: &[SourceLogFile],
+    parsed: Vec<ParsedMessage>,
+) -> Vec<Vec<ParsedMessage>> {
+    let has_non_rtc_files = files.iter().any(|f| f.rtc_timestamp_ms.is_none());
+    let has_rtc_files = files.iter().any(|f| f.rtc_timestamp_ms.is_some());
+
+    if !has_non_rtc_files || !has_rtc_files {
+        return chunk_parsed(parsed);
+    }
+
+    let mut non_rtc_msgs = Vec::new();
+    let mut msgs_by_file: Vec<Vec<ParsedMessage>> = vec![Vec::new(); files.len()];
+
+    for msg in parsed {
+        if files
+            .get(msg.source_file_idx)
+            .and_then(|f| f.rtc_timestamp_ms)
+            .is_some()
+        {
+            if let Some(bucket) = msgs_by_file.get_mut(msg.source_file_idx) {
+                bucket.push(msg);
+            }
+        } else {
+            non_rtc_msgs.push(msg);
+        }
+    }
+
+    let non_rtc_segments = split_monotonic_segments(non_rtc_msgs);
+
+    struct RtcBootGroup {
+        first_file_idx: usize,
+        messages: Vec<ParsedMessage>,
+    }
+
+    let mut rtc_boots: Vec<RtcBootGroup> = Vec::new();
+    let mut prev_rtc_ms: Option<i64> = None;
+
+    for (file_idx, file_meta) in files.iter().enumerate() {
+        let Some(rtc_ms) = file_meta.rtc_timestamp_ms else {
+            continue;
+        };
+        let file_msgs = mem::take(&mut msgs_by_file[file_idx]);
+        let file_first_ts = file_msgs.first().map(|m| m.timestamp);
+
+        let starts_new_boot = match rtc_boots.last() {
+            None => true,
+            Some(cur_boot) => {
+                let rtc_gap_exceeded = prev_rtc_ms.is_some_and(|prev| {
+                    rtc_ms - prev > log_parse::consts::RTC_FILE_ROTATION_MAX_GAP_MS
+                });
+                let tick_jump_exceeded = match (cur_boot.messages.last(), file_first_ts) {
+                    (Some(last_m), Some(first_t)) => {
+                        first_t < last_m.timestamp
+                            || first_t - last_m.timestamp > log_parse::consts::MAX_JUMP_MS
+                    }
+                    _ => false,
+                };
+                rtc_gap_exceeded || tick_jump_exceeded
+            }
+        };
+
+        if starts_new_boot {
+            rtc_boots.push(RtcBootGroup {
+                first_file_idx: file_idx,
+                messages: file_msgs,
+            });
+        } else if let Some(cur_boot) = rtc_boots.last_mut() {
+            cur_boot.messages.extend(file_msgs);
+        }
+
+        prev_rtc_ms = Some(rtc_ms);
+    }
+
+    let mut chunks = Vec::new();
+
+    if non_rtc_segments.len() == rtc_boots.len() {
+        for (mut seg, boot) in non_rtc_segments.into_iter().zip(rtc_boots) {
+            if boot.messages.is_empty() {
+                // The boot ended right as log-0.log rotated to an empty 0-byte RTC file;
+                // attribute the final message's file index to that RTC file so Tier 2
+                // correlation anchors the end of the segment to its RTC timestamp.
+                if let Some(last_msg) = seg.last_mut() {
+                    last_msg.source_file_idx = boot.first_file_idx;
+                }
+                chunks.push(seg);
+            } else {
+                seg.extend(boot.messages);
+                // Split further only if there was an internal tick reset inside the RTC group
+                chunks.extend(split_monotonic_segments(seg));
+            }
+        }
+    } else {
+        // Fallback when counts differ: match greedily by tick continuity
+        let mut used_boots = vec![false; rtc_boots.len()];
+        for mut seg in non_rtc_segments {
+            let seg_last_ts = seg.last().map(|m| m.timestamp).unwrap_or(0);
+            let matched_boot_idx = rtc_boots.iter().enumerate().position(|(idx, boot)| {
+                !used_boots[idx]
+                    && boot.messages.first().is_some_and(|first_m| {
+                        first_m.timestamp >= seg_last_ts
+                            && first_m.timestamp - seg_last_ts
+                                <= log_parse::consts::CONTINUATION_MAX_GAP_MS
+                    })
+            });
+
+            if let Some(idx) = matched_boot_idx {
+                used_boots[idx] = true;
+                seg.extend(mem::take(&mut rtc_boots[idx].messages));
+                chunks.extend(split_monotonic_segments(seg));
+            } else {
+                chunks.push(seg);
+            }
+        }
+
+        for (idx, boot) in rtc_boots.into_iter().enumerate() {
+            if !used_boots[idx] && !boot.messages.is_empty() {
+                chunks.extend(split_monotonic_segments(boot.messages));
+            }
+        }
+    }
+
     for chunk in &mut chunks {
         chunk.sort_by_key(|m| m.timestamp);
     }

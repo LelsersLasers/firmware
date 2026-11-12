@@ -15,7 +15,7 @@ pub fn import_logs_to_store(
     database: &superdbc::database::Database,
 ) -> Result<storage::ImportSummary, storage::ImportError> {
     let parsed_set = parse::parse_log_files(logs_dir, database)?;
-    let chunked = parse::chunk_parsed(parsed_set.messages);
+    let chunked = parse::chunk_parsed_with_files(&parsed_set.files, parsed_set.messages);
     let correlated = correlate::time_correlate_chunks(chunked, &parsed_set.files);
     storage::write_correlated_epochs_to_store(store_dir, &parsed_set.files, correlated, database)
 }
