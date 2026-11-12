@@ -1,24 +1,24 @@
 var bootloader__common_8h =
 [
-    [ "BootlaoderSharedMemory_t", "structBootlaoderSharedMemory__t.html", "structBootlaoderSharedMemory__t" ],
-    [ "BOOTLOADER_SHARED_MEMORY_MAGIC", "bootloader__common_8h.html#aa3d886b276cfdd77345b2a625d633d47", null ],
-    [ "BLCmd_t", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9", [
-      [ "BLCMD_START", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9aeea1f6f578326dfcf3fd8d8982f4f49c", null ],
-      [ "BLCMD_CRC", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9a29fabc0cc57f675dd0dcb7ff449e18e4", null ],
-      [ "BLCMD_CRC_BACKUP", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9a4a2612ab806d7fda308284876ffca850", null ],
-      [ "BLCMD_JUMP", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9a029985a41f73b0c74d214b5fec125d6f", null ],
-      [ "BLCMD_RST", "bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9aae10d247c73975ced56a32521495d402", null ]
+    [ "BL_FLASH_WRITE_SIZE", "bootloader__common_8h.html#adb4b5c4c761dcd1ac683150106a020e3", null ],
+    [ "BL_METADATA_SIZE", "bootloader__common_8h.html#a1edae68e01798e7c6dfc679f8cf758ca", null ],
+    [ "BL_WORD_SIZE", "bootloader__common_8h.html#a5f4d32381eb0de52369b8ec1136196a5", null ],
+    [ "BOOTLOADER_INFO_FLAG_BOOTLOADABLE", "bootloader__common_8h.html#ac1b6fc2322428b2ab44bf777171a36e2", null ],
+    [ "BOOTLOADER_INFO_FLAG_READY", "bootloader__common_8h.html#ace6bd629992892496fe87101c7d95ec9", null ],
+    [ "BOOTLOADER_INFO_PERIOD_MS", "bootloader__common_8h.html#a661807e35b284f5a67fe1514d9bdbd66", null ],
+    [ "BOOTLOADER_METADATA_FLAG_INSTALLED_BY_BOOTLOADER", "bootloader__common_8h.html#ac71eaa321f750cf52afd393c25381dc0", null ],
+    [ "BOOTLOADER_METADATA_FORMAT_VERSION", "bootloader__common_8h.html#a7a27a9c04dc8e4811a22cccbfcad5bd6", null ],
+    [ "BOOTLOADER_METADATA_MAGIC", "bootloader__common_8h.html#aa2d86bf8cb0088ec39ac896fbedf0a9a", null ],
+    [ "BOOTLOADER_PROTOCOL_VERSION", "bootloader__common_8h.html#a067d19c47a4dea86bbca034bfa34e502", null ],
+    [ "BLError_t", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497b", [
+      [ "BLERROR_NONE", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497ba99e71d377de69d51f41974bfafdacabb", null ],
+      [ "BLERROR_LOCKED", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497ba3cac94ffcf78e0abcb49676fe0177e58", null ],
+      [ "BLERROR_SEQUENCE", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497baf71c4b1aa4d22ee2eb28ae0d91e244ff", null ],
+      [ "BLERROR_FLASH", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497ba2c108765ca82da58b0ca8e6e3acb0645", null ],
+      [ "BLERROR_SIZE", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497ba6ea67487fe8beb1b1a082cf506bf1238", null ],
+      [ "BLERROR_ADDRESS", "bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497bac93a8445b2f7051140b4abdb7433a86e", null ]
     ] ],
-    [ "ResetReason_t", "bootloader__common_8h.html#a5478393e55066343361845bc05550407", [
-      [ "RESET_REASON_INVALID", "bootloader__common_8h.html#a5478393e55066343361845bc05550407a8716a82283391c75aece8e1a3ad90ddf", null ],
-      [ "RESET_REASON_BUTTON", "bootloader__common_8h.html#a5478393e55066343361845bc05550407a80340037491ec53e0ef57e3e27a701d8", null ],
-      [ "RESET_REASON_DOWNLOAD_FW", "bootloader__common_8h.html#a5478393e55066343361845bc05550407ac82f87a57d0c0053fdc31651361f2f3b", null ],
-      [ "RESET_REASON_APP_WATCHDOG", "bootloader__common_8h.html#a5478393e55066343361845bc05550407ab38361a6c3df9f74af87161055310e73", null ],
-      [ "RESET_REASON_POR", "bootloader__common_8h.html#a5478393e55066343361845bc05550407a5216bc6b8b1b9befaf8c90f810bb415b", null ],
-      [ "RESET_REASON_BAD_FIRMWARE", "bootloader__common_8h.html#a5478393e55066343361845bc05550407a43367e12f7caeff18527f43301cdabaf", null ]
-    ] ],
-    [ "Bootloader_ConfirmApplicationLaunch", "bootloader__common_8h.html#abb64c8d86dc7491a8a4b8d8572876f9f", null ],
-    [ "Bootloader_ResetForFirmwareDownload", "bootloader__common_8h.html#a443344bf7e06df6e838aeb443a60da70", null ],
-    [ "Bootloader_ResetForWatchdog", "bootloader__common_8h.html#ab5d7783aaf9d876b8eb95d2a961a47be", null ],
-    [ "bootloader_shared_memory", "bootloader__common_8h.html#a72e644ff4b997b20959a4e7049b105ea", null ]
+    [ "__attribute__", "bootloader__common_8h.html#a8910d953753398e17a5d6be650c4556c", null ],
+    [ "BL_getGitHash", "bootloader__common_8h.html#a5d7c3b0dc10ab1943b39fb2c3e297e27", null ],
+    [ "BootloaderMetadata_t", "bootloader__common_8h.html#a8027b02dbdfa9cff3db3e8114f0ff60a", null ]
 ];

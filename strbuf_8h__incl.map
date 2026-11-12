@@ -1,0 +1,7 @@
+<map id="firmware/common/strbuf/strbuf.h" name="firmware/common/strbuf/strbuf.h">
+<area shape="rect" id="Node000001" title="Fixed&#45;size string builder. Useful for building large CMD strings before transmission." alt="" coords="5,5,167,46"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="10,94,74,120"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="77,48,58,82,54,79,73,45"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="98,94,165,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="100,45,119,79,114,82,95,48"/>
+</map>

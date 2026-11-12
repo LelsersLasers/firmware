@@ -1,0 +1,9 @@
+<map id="PHAL_SPI_priv_handleTxComplete" name="PHAL_SPI_priv_handleTxComplete">
+<area shape="rect" id="Node000001" title="Handle TCIF interrupt signaling end of TX transaction." alt="" coords="400,31,628,56"/>
+<area shape="rect" id="Node000002" href="$phal__F4_2spi_2spi_8c.html#a69ff6bfb4062ba171cfaeb45ed976b95" title=" " alt="" coords="164,5,352,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="384,33,352,30,353,25,384,28"/>
+<area shape="rect" id="Node000003" href="$phal__G4_2spi_2spi_8c.html#a62359d3216b693b8424ea18e74724d5a" title=" " alt="" coords="187,55,329,80"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="385,58,330,63,329,58,384,53"/>
+<area shape="rect" id="Node000004" href="$phal__G4_2spi_2spi_8c.html#a0a4524eb6715f19d2d2128ad7f410269" title="Initilize SPI peripheral with the configuired structure." alt="" coords="5,55,116,80"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="171,70,116,70,116,65,171,65"/>
+</map>

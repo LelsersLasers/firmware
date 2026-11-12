@@ -1,0 +1,15 @@
+<map id="firmware/common/phal_G4/rcc/rcc_priv.c" name="firmware/common/phal_G4/rcc/rcc_priv.c">
+<area shape="rect" id="Node000001" title="G4 RCC private/register level implementation." alt="" coords="63,5,216,46"/>
+<area shape="rect" id="Node000002" href="$rcc__priv_8h.html" title="G4 RCC private/register level implementation." alt="" coords="67,94,212,135"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="142,47,142,78,137,78,137,47"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,271,69,297"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="106,137,80,158,58,184,44,220,40,256,34,255,39,219,53,181,76,154,103,133"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="197,271,304,297"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="176,133,203,154,227,181,244,219,251,255,246,256,238,220,223,184,200,158,173,137"/>
+<area shape="rect" id="Node000005" href="$phal__G4_2rcc_2rcc_8h.html" title="G4 RCC public API implementation." alt="" coords="67,183,212,223"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="142,135,142,167,137,167,137,135"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="116,226,66,264,63,259,113,222"/>
+<area shape="poly" id="edge7_Node000005_Node000004" title=" " alt="" coords="169,222,222,260,219,264,165,226"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="99,271,172,297"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="141,224,140,256,134,256,136,224"/>
+</map>

@@ -1,0 +1,8 @@
+<map id="firmware/can_library/generated/TEST_CAN.h" name="firmware/can_library/generated/TEST_CAN.h">
+<area shape="rect" id="Node000001" title="Auto&#45;generated CAN bus definitions for TEST_CAN." alt="" coords="5,5,170,46"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="56,183,119,208"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="79,47,69,70,61,95,58,114,61,134,74,168,69,170,56,135,53,114,56,93,64,68,74,45"/>
+<area shape="rect" id="Node000003" href="$can__types_8h.html" title="Auto&#45;generated custom types and enums for the CAN library." alt="" coords="70,94,214,135"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="102,45,124,79,119,82,98,48"/>
+<area shape="poly" id="edge3_Node000003_Node000002" title=" " alt="" coords="131,137,107,171,102,168,126,134"/>
+</map>

@@ -1,8 +1,14 @@
 var searchData=
 [
-  ['g4_5ftesting_2eh_0',['g4_testing.h',['../g4__testing_8h.html',1,'']]],
-  ['gpio_2ec_1',['gpio.c',['../phal__F4__F7_2gpio_2gpio_8c.html',1,'(Global Namespace)'],['../phal__G4_2gpio_2gpio_8c.html',1,'(Global Namespace)'],['../phal__L4_2gpio_2gpio_8c.html',1,'(Global Namespace)']]],
-  ['gpio_2eh_2',['gpio.h',['../phal_2gpio_8h.html',1,'(Global Namespace)'],['../phal__F4__F7_2gpio_2gpio_8h.html',1,'(Global Namespace)'],['../phal__G4_2gpio_2gpio_8h.html',1,'(Global Namespace)'],['../phal__L4_2gpio_2gpio_8h.html',1,'(Global Namespace)']]],
-  ['gps_2ec_3',['gps.c',['../gps_8c.html',1,'']]],
-  ['gps_2eh_4',['gps.h',['../gps_8h.html',1,'']]]
+  ['g474ret6_2eh_0',['g474ret6.h',['../g474ret6_8h.html',1,'']]],
+  ['g4_5ftesting_2eh_1',['G4_TESTING.h',['../G4__TESTING_8h.html',1,'']]],
+  ['g4_5ftesting_2eh_2',['g4_testing.h',['../g4__testing_8h.html',1,'']]],
+  ['geodetic_2eh_3',['geodetic.h',['../geodetic_8h.html',1,'']]],
+  ['geometry_2eh_4',['geometry.h',['../geometry_8h.html',1,'']]],
+  ['gpio_2ec_5',['gpio.c',['../phal__F4_2gpio_2gpio_8c.html',1,'(Global Namespace)'],['../phal__G4_2gpio_2gpio_8c.html',1,'(Global Namespace)']]],
+  ['gpio_2eh_6',['gpio.h',['../phal__F4_2gpio_2gpio_8h.html',1,'(Global Namespace)'],['../phal__G4_2gpio_2gpio_8h.html',1,'(Global Namespace)']]],
+  ['gpio_5fpriv_2ec_7',['gpio_priv.c',['../gpio__priv_8c.html',1,'']]],
+  ['gpio_5fpriv_2eh_8',['gpio_priv.h',['../gpio__priv_8h.html',1,'']]],
+  ['gpio_5ftest_2ec_9',['gpio_test.c',['../gpio__test_8c.html',1,'']]],
+  ['gps_2ec_10',['gps.c',['../gps_8c.html',1,'']]]
 ];

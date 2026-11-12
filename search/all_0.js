@@ -1,6 +1,13 @@
 var searchData=
 [
-  ['1_20schema_20validation_0',['1. Schema Validation',['..//github/workspace/common/can_library/canpiler/README.md#autotoc_md19',1,'']]],
-  ['1_20tools_1',['1. Tools',['../md_docs_2setup.html#autotoc_md61',1,'']]],
-  ['1_20wiznet_20socket_20apis_2',['1. WIZnet socket APIs',['../group__WIZnet__socket__APIs.html',1,'']]]
+  ['1_201_20install_20git_0',['1.1 Install Git',['../md_docs_2setup.html#autotoc_md118',1,'']]],
+  ['1_202_20clone_20the_20repository_1',['1.2 Clone the Repository',['../md_docs_2setup.html#autotoc_md119',1,'']]],
+  ['1_20build_20all_20firmware_2',['7.1 Build All Firmware',['../md_docs_2setup.html#autotoc_md142',1,'']]],
+  ['1_20clone_20the_20repository_3',['1. Clone the Repository',['../md_docs_2setup.html#autotoc_md117',1,'']]],
+  ['1_20install_20git_4',['1.1 Install Git',['../md_docs_2setup.html#autotoc_md118',1,'']]],
+  ['1_20install_20homebrew_5',['3A.1 Install Homebrew',['../md_docs_2setup.html#autotoc_md124',1,'']]],
+  ['1_20install_20recommended_20extensions_6',['2.1 Install Recommended Extensions',['../md_docs_2setup.html#autotoc_md121',1,'']]],
+  ['1_20install_20wsl_7',['3C.1 Install WSL',['../md_docs_2setup.html#autotoc_md131',1,'']]],
+  ['1_20rust_8',['5.1 Rust',['../md_docs_2setup.html#autotoc_md137',1,'']]],
+  ['1_20update_20the_20system_9',['3B.1 Update the System',['../md_docs_2setup.html#autotoc_md128',1,'']]]
 ];

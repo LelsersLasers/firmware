@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/a_box/adbms/adbms6380.h File Reference</title>
+<title>PER Firmware: firmware/source/a_box/adbms/adbms6380.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -97,8 +98,9 @@ $(function(){initNavTree('adbms6380_8h.html',''); initResizable(true); });
 
 <div class="header">
   <div class="summary">
-<a href="#define-members">Macros</a> &#124;
-<a href="#func-members">Functions</a>  </div>
+<a href="#nested-classes">Classes</a> &#124;
+<a href="#func-members">Functions</a> &#124;
+<a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">adbms6380.h File Reference</div></div>
 </div><!--header-->
 <div class="contents">
@@ -108,961 +110,876 @@ $(function(){initNavTree('adbms6380_8h.html',''); initResizable(true); });
 <div class="textblock"><code>#include &lt;stdbool.h&gt;</code><br />
 <code>#include &lt;stddef.h&gt;</code><br />
 <code>#include &lt;stdint.h&gt;</code><br />
-<code>#include &quot;<a class="el" href="phal_2spi_8h_source.html">common/phal/spi.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="adbms__config_8h_source.html">adbms_config.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2spi_2spi_8h_source.html">common/phal_G4/spi/spi.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="strbuf_8h_source.html">common/strbuf/strbuf.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for adbms6380.h:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h__incl.svg" width="100%" height="593"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+</div><div class="textblock"><div class="dynheader">
+This graph shows which files directly or indirectly include this file:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h__dep__incl.svg" width="608" height="318"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 </div>
 <p><a href="adbms6380_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
-<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
-Macros</h2></td></tr>
-<tr class="memitem:a9e8247a946b3c04fac7b53fe6ac5649b" id="r_a9e8247a946b3c04fac7b53fe6ac5649b"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9e8247a946b3c04fac7b53fe6ac5649b">ADBMS6380_CELL_COUNT</a>&#160;&#160;&#160;(16)</td></tr>
-<tr class="separator:a9e8247a946b3c04fac7b53fe6ac5649b"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a15701e54939b221eae87fa42632efcc8" id="r_a15701e54939b221eae87fa42632efcc8"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15701e54939b221eae87fa42632efcc8">ADBMS6380_GPIO_COUNT</a>&#160;&#160;&#160;(10)</td></tr>
-<tr class="separator:a15701e54939b221eae87fa42632efcc8"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a17110e45f17ace625a624499ef3fdf8a" id="r_a17110e45f17ace625a624499ef3fdf8a"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a17110e45f17ace625a624499ef3fdf8a">ADBMS6380_PEC_SIZE</a>&#160;&#160;&#160;(2)</td></tr>
-<tr class="separator:a17110e45f17ace625a624499ef3fdf8a"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abb0d4748227668be895e371af4b96454" id="r_abb0d4748227668be895e371af4b96454"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abb0d4748227668be895e371af4b96454">ADBMS6380_COMMAND_RAW_SIZE</a>&#160;&#160;&#160;(2)</td></tr>
-<tr class="separator:abb0d4748227668be895e371af4b96454"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ab8248c41f0c4b71fea53867726fa3b87" id="r_ab8248c41f0c4b71fea53867726fa3b87"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab8248c41f0c4b71fea53867726fa3b87">ADBMS6380_COMMAND_PKT_SIZE</a>&#160;&#160;&#160;(<a class="el" href="#abb0d4748227668be895e371af4b96454">ADBMS6380_COMMAND_RAW_SIZE</a> + <a class="el" href="#a17110e45f17ace625a624499ef3fdf8a">ADBMS6380_PEC_SIZE</a>)</td></tr>
-<tr class="separator:ab8248c41f0c4b71fea53867726fa3b87"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a05594a85d957953e99e26e8e75d9c9d7" id="r_a05594a85d957953e99e26e8e75d9c9d7"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a05594a85d957953e99e26e8e75d9c9d7">ADBMS6380_SINGLE_DATA_RAW_SIZE</a>&#160;&#160;&#160;(6)</td></tr>
-<tr class="separator:a05594a85d957953e99e26e8e75d9c9d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a77528740d7d216095cacce72abb4918c" id="r_a77528740d7d216095cacce72abb4918c"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77528740d7d216095cacce72abb4918c">ADBMS6380_SINGLE_DATA_PKT_SIZE</a>&#160;&#160;&#160;(<a class="el" href="#a05594a85d957953e99e26e8e75d9c9d7">ADBMS6380_SINGLE_DATA_RAW_SIZE</a> + <a class="el" href="#a17110e45f17ace625a624499ef3fdf8a">ADBMS6380_PEC_SIZE</a>)</td></tr>
-<tr class="separator:a77528740d7d216095cacce72abb4918c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ad47b8f14ed18c53ee180477fdf87bdbf" id="r_ad47b8f14ed18c53ee180477fdf87bdbf"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad47b8f14ed18c53ee180477fdf87bdbf">ADBMS6380_WAKE_DELAY_MS</a>&#160;&#160;&#160;(1)</td></tr>
-<tr class="memdesc:ad47b8f14ed18c53ee180477fdf87bdbf"><td class="mdescLeft">&#160;</td><td class="mdescRight">Wake pulse duration per CS toggle in milliseconds.  <br /></td></tr>
-<tr class="separator:ad47b8f14ed18c53ee180477fdf87bdbf"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__rega__config__t.html">adbms6380_rega_config_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configuration parameters for the CFGA register group.  <a href="structadbms6380__rega__config__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__regb__config__t.html">adbms6380_regb_config_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configuration parameters for the CFGB register group.  <a href="structadbms6380__regb__config__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__adcv__config__t.html">adbms6380_adcv_config_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configuration parameters for the ADCV command.  <a href="structadbms6380__adcv__config__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__adax__config__t.html">adbms6380_adax_config_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configuration parameters for the ADAX (aux) command.  <a href="structadbms6380__adax__config__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__chip__t.html">adbms6380_chip_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Per-chip device-level measurements, register cache, and mismatch flags.  <a href="structadbms6380__chip__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structadbms6380__t.html">adbms6380_t</a></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Daisy-chain ADBMS6380 device driver state, SPI transport, buffers, and error flags.  <a href="structadbms6380__t.html#details">More...</a><br /></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a12a7403f2f6b47af40cc7d278909ebe7" id="r_a12a7403f2f6b47af40cc7d278909ebe7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a12a7403f2f6b47af40cc7d278909ebe7">adbms6380_set_cs_low</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi)</td></tr>
-<tr class="memdesc:a12a7403f2f6b47af40cc7d278909ebe7"><td class="mdescLeft">&#160;</td><td class="mdescRight">Drive the ADBMS CS line low.  <br /></td></tr>
-<tr class="separator:a12a7403f2f6b47af40cc7d278909ebe7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ae50a5200f4ab61124ab070e8898f0cc9" id="r_ae50a5200f4ab61124ab070e8898f0cc9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae50a5200f4ab61124ab070e8898f0cc9">adbms6380_set_cs_high</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi)</td></tr>
-<tr class="memdesc:ae50a5200f4ab61124ab070e8898f0cc9"><td class="mdescLeft">&#160;</td><td class="mdescRight">Drive the ADBMS CS line to high.  <br /></td></tr>
-<tr class="separator:ae50a5200f4ab61124ab070e8898f0cc9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a98d7e305df1794e6146e9aa0e885bf65" id="r_a98d7e305df1794e6146e9aa0e885bf65"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a98d7e305df1794e6146e9aa0e885bf65">adbms6380_wake</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi, size_t module_count)</td></tr>
-<tr class="memdesc:a98d7e305df1794e6146e9aa0e885bf65"><td class="mdescLeft">&#160;</td><td class="mdescRight">Wake a daisy-chained set of ADBMS devices.  <br /></td></tr>
-<tr class="separator:a98d7e305df1794e6146e9aa0e885bf65"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7dba9c62715355f360c6e4f1b150d334" id="r_a7dba9c62715355f360c6e4f1b150d334"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7dba9c62715355f360c6e4f1b150d334">adbms6380_get_threshold_voltage_cfg</a> (float threshold_voltage)</td></tr>
-<tr class="memdesc:a7dba9c62715355f360c6e4f1b150d334"><td class="mdescLeft">&#160;</td><td class="mdescRight">Convert a voltage threshold (V) into 12-bit REG_B threshold encoding.  <br /></td></tr>
-<tr class="separator:a7dba9c62715355f360c6e4f1b150d334"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a5015be743738347dcf5a108a0fd276d6" id="r_a5015be743738347dcf5a108a0fd276d6"><td class="memItemLeft" align="right" valign="top">int16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5015be743738347dcf5a108a0fd276d6">adbms6380_extract_i16</a> (uint8_t *data, int idx)</td></tr>
-<tr class="memdesc:a5015be743738347dcf5a108a0fd276d6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Extract a little-endian 16-bit signed value from a byte buffer.  <br /></td></tr>
-<tr class="separator:a5015be743738347dcf5a108a0fd276d6"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2e9f567aae9798e09e92280c8919a184" id="r_a2e9f567aae9798e09e92280c8919a184"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2e9f567aae9798e09e92280c8919a184">adbms6380_raw_to_v</a> (int16_t raw)</td></tr>
-<tr class="memdesc:a2e9f567aae9798e09e92280c8919a184"><td class="mdescLeft">&#160;</td><td class="mdescRight">Convert raw voltage measurement from the ADBMS6380 to volts.  <br /></td></tr>
-<tr class="separator:a2e9f567aae9798e09e92280c8919a184"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a68294afc45f8feebfc0ab59731020386" id="r_a68294afc45f8feebfc0ab59731020386"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a68294afc45f8feebfc0ab59731020386">adbms6380_adcv</a> (uint8_t *output_cmd, bool rd, bool cont, bool dcp, bool rstf, uint8_t ow)</td></tr>
-<tr class="memdesc:a68294afc45f8feebfc0ab59731020386"><td class="mdescLeft">&#160;</td><td class="mdescRight">Build ADCV command bytes.  <br /></td></tr>
-<tr class="separator:a68294afc45f8feebfc0ab59731020386"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ac9129a8aa646326915e609fa3fef3502" id="r_ac9129a8aa646326915e609fa3fef3502"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac9129a8aa646326915e609fa3fef3502">adbms6380_adsv</a> (uint8_t *output_cmd, bool cont, bool dcp, uint8_t ow)</td></tr>
-<tr class="memdesc:ac9129a8aa646326915e609fa3fef3502"><td class="mdescLeft">&#160;</td><td class="mdescRight">Build ADSV command bytes.  <br /></td></tr>
-<tr class="separator:ac9129a8aa646326915e609fa3fef3502"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ac69d8d846f45a7f90c5514b12ce8cfe5" id="r_ac69d8d846f45a7f90c5514b12ce8cfe5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac69d8d846f45a7f90c5514b12ce8cfe5">adbms6380_adax</a> (uint8_t output_cmd[(2)], bool ow, bool pup, uint8_t ch)</td></tr>
-<tr class="memdesc:ac69d8d846f45a7f90c5514b12ce8cfe5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Build ADAX (aux) command bytes.  <br /></td></tr>
-<tr class="separator:ac69d8d846f45a7f90c5514b12ce8cfe5"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a18c312ba06fc054f6f27818fa9b7d895" id="r_a18c312ba06fc054f6f27818fa9b7d895"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a18c312ba06fc054f6f27818fa9b7d895">adbms6380_prepare_command</a> (<a class="el" href="structstrbuf__t.html">strbuf_t</a> *output_buffer, const uint8_t command[(2)])</td></tr>
-<tr class="memdesc:a18c312ba06fc054f6f27818fa9b7d895"><td class="mdescLeft">&#160;</td><td class="mdescRight">Append a command and its PEC to an output buffer.  <br /></td></tr>
-<tr class="separator:a18c312ba06fc054f6f27818fa9b7d895"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3fefb6f2303fb85b44efd3c6f61493fa" id="r_a3fefb6f2303fb85b44efd3c6f61493fa"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3fefb6f2303fb85b44efd3c6f61493fa">adbms6380_prepare_data_packet</a> (<a class="el" href="structstrbuf__t.html">strbuf_t</a> *output_buffer, const uint8_t data[(6)])</td></tr>
-<tr class="memdesc:a3fefb6f2303fb85b44efd3c6f61493fa"><td class="mdescLeft">&#160;</td><td class="mdescRight">Append a data payload and its PEC to an output buffer.  <br /></td></tr>
-<tr class="separator:a3fefb6f2303fb85b44efd3c6f61493fa"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2aac24bf20dd17b4e395c21915b58f4e" id="r_a2aac24bf20dd17b4e395c21915b58f4e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2aac24bf20dd17b4e395c21915b58f4e">adbms6380_calculate_cfg_rega</a> (uint8_t output_cfg_rega[(6)], bool refon, uint8_t cth)</td></tr>
-<tr class="memdesc:a2aac24bf20dd17b4e395c21915b58f4e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Calculate the REG_A configuration register value.  <br /></td></tr>
-<tr class="separator:a2aac24bf20dd17b4e395c21915b58f4e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a84a2416ebc169fa056e052866634a496" id="r_a84a2416ebc169fa056e052866634a496"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a84a2416ebc169fa056e052866634a496">adbms6380_calculate_cfg_regb</a> (uint8_t output_cfg_regb[(6)], float overvoltage_threshold, float undervoltage_threshold, const bool is_discharging[(16)])</td></tr>
-<tr class="memdesc:a84a2416ebc169fa056e052866634a496"><td class="mdescLeft">&#160;</td><td class="mdescRight">Calculate the REG_B configuration register value.  <br /></td></tr>
-<tr class="separator:a84a2416ebc169fa056e052866634a496"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a4c2b206fbd701af7967f97b2cf307466" id="r_a4c2b206fbd701af7967f97b2cf307466"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4c2b206fbd701af7967f97b2cf307466">adbms6380_read</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi, size_t module_count, const uint8_t cmd_buffer[((2)+(2))], uint8_t *<a class="el" href="test__buffer_8c.html#a66edb4b53b890b8bcdf61a2fb98f0d2d">rx_buffer</a>, size_t rx_length)</td></tr>
-<tr class="memdesc:a4c2b206fbd701af7967f97b2cf307466"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read a fixed-length response from all modules after a command.  <br /></td></tr>
-<tr class="separator:a4c2b206fbd701af7967f97b2cf307466"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aebc44cb2339ae53b3a3a223c6c9a0dd2" id="r_aebc44cb2339ae53b3a3a223c6c9a0dd2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aebc44cb2339ae53b3a3a223c6c9a0dd2">adbms6380_read_data</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi, size_t module_count, const uint8_t cmd_buffer[((2)+(2))], uint8_t *<a class="el" href="test__buffer_8c.html#a66edb4b53b890b8bcdf61a2fb98f0d2d">rx_buffer</a>)</td></tr>
-<tr class="memdesc:aebc44cb2339ae53b3a3a223c6c9a0dd2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read a single-data-packet response per module.  <br /></td></tr>
-<tr class="separator:aebc44cb2339ae53b3a3a223c6c9a0dd2"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a38be58f4cc5cc9b3c0cfd9cfa4feba90" id="r_a38be58f4cc5cc9b3c0cfd9cfa4feba90"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a38be58f4cc5cc9b3c0cfd9cfa4feba90">adbms6380_read_cell_voltages</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi, <a class="el" href="structstrbuf__t.html">strbuf_t</a> *cmd_buffer, uint8_t *<a class="el" href="test__buffer_8c.html#a66edb4b53b890b8bcdf61a2fb98f0d2d">rx_buffer</a>, float **cell_voltages, int16_t **cell_voltages_raw, size_t module_count)</td></tr>
-<tr class="memdesc:a38be58f4cc5cc9b3c0cfd9cfa4feba90"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read all cell voltages from each module.  <br /></td></tr>
-<tr class="separator:a38be58f4cc5cc9b3c0cfd9cfa4feba90"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a17d1d330c36b5b73b328d8376cdc4a1a" id="r_a17d1d330c36b5b73b328d8376cdc4a1a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a17d1d330c36b5b73b328d8376cdc4a1a">adbms6380_read_gpio_voltages</a> (<a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi, <a class="el" href="structstrbuf__t.html">strbuf_t</a> *cmd_buffer, uint8_t *<a class="el" href="test__buffer_8c.html#a66edb4b53b890b8bcdf61a2fb98f0d2d">rx_buffer</a>, float **gpio_voltages, size_t module_count)</td></tr>
-<tr class="memdesc:a17d1d330c36b5b73b328d8376cdc4a1a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read all GPIO/aux voltages from each module.  <br /></td></tr>
-<tr class="separator:a17d1d330c36b5b73b328d8376cdc4a1a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad44be82376949cf91d9b4a0216f7ba26" id="r_ad44be82376949cf91d9b4a0216f7ba26"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad44be82376949cf91d9b4a0216f7ba26">ADBMS6380_init</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, <a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *spi)</td></tr>
+<tr class="memdesc:ad44be82376949cf91d9b4a0216f7ba26"><td class="mdescLeft">&#160;</td><td class="mdescRight">Initialize the ADBMS6380 device driver instance, SPI buffers, and CS line.  <br /></td></tr>
+<tr class="separator:ad44be82376949cf91d9b4a0216f7ba26"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a092e9d0a8566b9f48e23ce2efe66d2af" id="r_a092e9d0a8566b9f48e23ce2efe66d2af"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a092e9d0a8566b9f48e23ce2efe66d2af">ADBMS6380_wake</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:a092e9d0a8566b9f48e23ce2efe66d2af"><td class="mdescLeft">&#160;</td><td class="mdescRight">Wake the daisy-chained set of ADBMS6380 devices.  <br /></td></tr>
+<tr class="separator:a092e9d0a8566b9f48e23ce2efe66d2af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4790855abf91e0638244eae6f1d3b168" id="r_a4790855abf91e0638244eae6f1d3b168"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4790855abf91e0638244eae6f1d3b168">ADBMS6380_write_rega</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, const <a class="el" href="structadbms6380__rega__config__t.html">adbms6380_rega_config_t</a> *cfg)</td></tr>
+<tr class="memdesc:a4790855abf91e0638244eae6f1d3b168"><td class="mdescLeft">&#160;</td><td class="mdescRight">Encode and write REGA configuration to all chips in the daisy chain.  <br /></td></tr>
+<tr class="separator:a4790855abf91e0638244eae6f1d3b168"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0963dcf6690f0adb7561f61b472427e8" id="r_a0963dcf6690f0adb7561f61b472427e8"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0963dcf6690f0adb7561f61b472427e8">ADBMS6380_verify_rega</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:a0963dcf6690f0adb7561f61b472427e8"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read back REGA from all chips and compare with cached configuration.  <br /></td></tr>
+<tr class="separator:a0963dcf6690f0adb7561f61b472427e8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0cdbd620cf34a8065b37c2eeab6a8ab6" id="r_a0cdbd620cf34a8065b37c2eeab6a8ab6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0cdbd620cf34a8065b37c2eeab6a8ab6">ADBMS6380_write_regb</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, const <a class="el" href="structadbms6380__regb__config__t.html">adbms6380_regb_config_t</a> *cfg)</td></tr>
+<tr class="memdesc:a0cdbd620cf34a8065b37c2eeab6a8ab6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Encode and write REGB configuration (OV/UV thresholds + discharge bits) to all chips.  <br /></td></tr>
+<tr class="separator:a0cdbd620cf34a8065b37c2eeab6a8ab6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab8ca2a5aa91fd37ad09a7f7285bfd5f8" id="r_ab8ca2a5aa91fd37ad09a7f7285bfd5f8"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab8ca2a5aa91fd37ad09a7f7285bfd5f8">ADBMS6380_verify_regb</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:ab8ca2a5aa91fd37ad09a7f7285bfd5f8"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read back REGB from all chips and compare with cached configuration.  <br /></td></tr>
+<tr class="separator:ab8ca2a5aa91fd37ad09a7f7285bfd5f8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7a300ff96432feb9fae89bd29e4d0919" id="r_a7a300ff96432feb9fae89bd29e4d0919"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7a300ff96432feb9fae89bd29e4d0919">ADBMS6380_has_rega_mismatch</a> (const <a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:a7a300ff96432feb9fae89bd29e4d0919"><td class="mdescLeft">&#160;</td><td class="mdescRight">Check whether any chip in the chain has a REGA mismatch error.  <br /></td></tr>
+<tr class="separator:a7a300ff96432feb9fae89bd29e4d0919"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:afd953d8559ba00f614313e52d6e9bb4c" id="r_afd953d8559ba00f614313e52d6e9bb4c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afd953d8559ba00f614313e52d6e9bb4c">ADBMS6380_has_regb_mismatch</a> (const <a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:afd953d8559ba00f614313e52d6e9bb4c"><td class="mdescLeft">&#160;</td><td class="mdescRight">Check whether any chip in the chain has a REGB mismatch error.  <br /></td></tr>
+<tr class="separator:afd953d8559ba00f614313e52d6e9bb4c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa09b3f9f5c953309bb1b5fa61f310d54" id="r_aa09b3f9f5c953309bb1b5fa61f310d54"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa09b3f9f5c953309bb1b5fa61f310d54">ADBMS6380_start_adcv</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, const <a class="el" href="structadbms6380__adcv__config__t.html">adbms6380_adcv_config_t</a> *cfg)</td></tr>
+<tr class="memdesc:aa09b3f9f5c953309bb1b5fa61f310d54"><td class="mdescLeft">&#160;</td><td class="mdescRight">Issue the ADCV command to start cell voltage conversions across all chips.  <br /></td></tr>
+<tr class="separator:aa09b3f9f5c953309bb1b5fa61f310d54"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a797933ebb8aeaf7dc228e5f9f51e47e2" id="r_a797933ebb8aeaf7dc228e5f9f51e47e2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a797933ebb8aeaf7dc228e5f9f51e47e2">ADBMS6380_start_adax</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, const <a class="el" href="structadbms6380__adax__config__t.html">adbms6380_adax_config_t</a> *cfg)</td></tr>
+<tr class="memdesc:a797933ebb8aeaf7dc228e5f9f51e47e2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Issue the ADAX command to start GPIO/aux voltage conversions across all chips.  <br /></td></tr>
+<tr class="separator:a797933ebb8aeaf7dc228e5f9f51e47e2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4011d4493881a897342178e4e04f150a" id="r_a4011d4493881a897342178e4e04f150a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4011d4493881a897342178e4e04f150a">ADBMS6380_read_cell_voltages</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:a4011d4493881a897342178e4e04f150a"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read all cell voltages from each chip.  <br /></td></tr>
+<tr class="separator:a4011d4493881a897342178e4e04f150a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a74b0ad1cee164427d5c561a707f72675" id="r_a74b0ad1cee164427d5c561a707f72675"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a74b0ad1cee164427d5c561a707f72675">ADBMS6380_read_gpio_voltages</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev)</td></tr>
+<tr class="memdesc:a74b0ad1cee164427d5c561a707f72675"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read all GPIO/aux voltages from each chip.  <br /></td></tr>
+<tr class="separator:a74b0ad1cee164427d5c561a707f72675"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3032c5c23786e6e09339992bd8ba8d84" id="r_a3032c5c23786e6e09339992bd8ba8d84"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3032c5c23786e6e09339992bd8ba8d84">ADBMS6380_read_temperatures</a> (<a class="el" href="structadbms6380__t.html">adbms6380_t</a> *dev, const <a class="el" href="structadbms6380__adax__config__t.html">adbms6380_adax_config_t</a> *cfg)</td></tr>
+<tr class="memdesc:a3032c5c23786e6e09339992bd8ba8d84"><td class="mdescLeft">&#160;</td><td class="mdescRight">Read all GPIO voltages, start the next ADAX conversion, and convert to cell and onboard temperatures.  <br /></td></tr>
+<tr class="separator:a3032c5c23786e6e09339992bd8ba8d84"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
+Variables</h2></td></tr>
+<tr class="memitem:a0b8962c63f063854a32cbaba04bdb769" id="r_a0b8962c63f063854a32cbaba04bdb769"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b8962c63f063854a32cbaba04bdb769">ADBMS6380_CELL_COUNT</a> = 16U</td></tr>
+<tr class="separator:a0b8962c63f063854a32cbaba04bdb769"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4d10269c05bdf56ab339f0584658eeb1" id="r_a4d10269c05bdf56ab339f0584658eeb1"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d10269c05bdf56ab339f0584658eeb1">ADBMS6380_GPIO_COUNT</a> = 10U</td></tr>
+<tr class="separator:a4d10269c05bdf56ab339f0584658eeb1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae8db5f42b17ed79bfc248e5075c6ddd4" id="r_ae8db5f42b17ed79bfc248e5075c6ddd4"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8db5f42b17ed79bfc248e5075c6ddd4">ADBMS6380_ADAX_ALL_CONV_TIME_MS</a> = 20U</td></tr>
+<tr class="separator:ae8db5f42b17ed79bfc248e5075c6ddd4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adb0744d06f17240e253c2a7c640f2894" id="r_adb0744d06f17240e253c2a7c640f2894"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adb0744d06f17240e253c2a7c640f2894">ADBMS6380_PEC_SIZE</a> = 2U</td></tr>
+<tr class="separator:adb0744d06f17240e253c2a7c640f2894"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a25f5885607f9f8c5ee85cc53d34354eb" id="r_a25f5885607f9f8c5ee85cc53d34354eb"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a25f5885607f9f8c5ee85cc53d34354eb">ADBMS6380_COMMAND_RAW_SIZE</a> = 2U</td></tr>
+<tr class="separator:a25f5885607f9f8c5ee85cc53d34354eb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6cb3c62b3ead5b846dd2a821774e222e" id="r_a6cb3c62b3ead5b846dd2a821774e222e"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6cb3c62b3ead5b846dd2a821774e222e">ADBMS6380_COMMAND_PKT_SIZE</a> = <a class="el" href="#a25f5885607f9f8c5ee85cc53d34354eb">ADBMS6380_COMMAND_RAW_SIZE</a> + <a class="el" href="#adb0744d06f17240e253c2a7c640f2894">ADBMS6380_PEC_SIZE</a></td></tr>
+<tr class="separator:a6cb3c62b3ead5b846dd2a821774e222e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9b1746883bcd70ca4ce4349eab1df962" id="r_a9b1746883bcd70ca4ce4349eab1df962"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9b1746883bcd70ca4ce4349eab1df962">ADBMS6380_SINGLE_DATA_RAW_SIZE</a> = 6U</td></tr>
+<tr class="separator:a9b1746883bcd70ca4ce4349eab1df962"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af70094c50548a0d38dbe8e28f54a8508" id="r_af70094c50548a0d38dbe8e28f54a8508"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af70094c50548a0d38dbe8e28f54a8508">ADBMS6380_SINGLE_DATA_PKT_SIZE</a></td></tr>
+<tr class="separator:af70094c50548a0d38dbe8e28f54a8508"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2d96746d261bf1f2bac7eea35da7964a" id="r_a2d96746d261bf1f2bac7eea35da7964a"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2d96746d261bf1f2bac7eea35da7964a">ADBMS6380_RDCV_CMD_COUNT</a> = 6U</td></tr>
+<tr class="separator:a2d96746d261bf1f2bac7eea35da7964a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad0e0310364918e6c3b4385d92a986903" id="r_ad0e0310364918e6c3b4385d92a986903"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad0e0310364918e6c3b4385d92a986903">ADBMS6380_RDAUX_CMD_COUNT</a> = 4U</td></tr>
+<tr class="separator:ad0e0310364918e6c3b4385d92a986903"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0cd7bdc76cf148c656db6c9e813ff6c7" id="r_a0cd7bdc76cf148c656db6c9e813ff6c7"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0cd7bdc76cf148c656db6c9e813ff6c7">ADBMS6380_SPI_TX_BUFFER_SIZE</a></td></tr>
+<tr class="separator:a0cd7bdc76cf148c656db6c9e813ff6c7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa9df37f95df5429d05c606b24498b9e6" id="r_aa9df37f95df5429d05c606b24498b9e6"><td class="memItemLeft" align="right" valign="top">static constexpr size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9df37f95df5429d05c606b24498b9e6">ADBMS6380_SPI_RX_BUFFER_SIZE</a></td></tr>
+<tr class="separator:aa9df37f95df5429d05c606b24498b9e6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Low level BMS driver specific to ADBMS6380 chip. </p>
 <dl class="section author"><dt>Author</dt><dd>Millan Kumar (<a href="#" onclick="location.href='mai'+'lto:'+'kum'+'ar'+'798'+'@p'+'urd'+'ue'+'.ed'+'u'; return false;">kumar<span class="obfuscator">.nosp@m.</span>798@<span class="obfuscator">.nosp@m.</span>purdu<span class="obfuscator">.nosp@m.</span>e.ed<span class="obfuscator">.nosp@m.</span>u</a>) </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-</div><h2 class="groupheader">Macro Definition Documentation</h2>
-<a id="a9e8247a946b3c04fac7b53fe6ac5649b" name="a9e8247a946b3c04fac7b53fe6ac5649b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9e8247a946b3c04fac7b53fe6ac5649b">&#9670;&#160;</a></span>ADBMS6380_CELL_COUNT</h2>
+</div><h2 class="groupheader">Function Documentation</h2>
+<a id="a7a300ff96432feb9fae89bd29e4d0919" name="a7a300ff96432feb9fae89bd29e4d0919"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7a300ff96432feb9fae89bd29e4d0919">&#9670;&#160;</a></span>ADBMS6380_has_rega_mismatch()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define ADBMS6380_CELL_COUNT&#160;&#160;&#160;(16)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00019">19</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00117">adbms6380_calculate_cfg_regb()</a>, <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, <a class="el" href="adbms_8c_source.html#l00174">adbms_calculate_balance_cells()</a>, <a class="el" href="adbms_8c_source.html#l00021">adbms_init()</a>, and <a class="el" href="adbms_8c_source.html#l00220">adbms_read_cells()</a>.</p>
-
-</div>
-</div>
-<a id="ab8248c41f0c4b71fea53867726fa3b87" name="ab8248c41f0c4b71fea53867726fa3b87"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab8248c41f0c4b71fea53867726fa3b87">&#9670;&#160;</a></span>ADBMS6380_COMMAND_PKT_SIZE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_COMMAND_PKT_SIZE&#160;&#160;&#160;(<a class="el" href="#abb0d4748227668be895e371af4b96454">ADBMS6380_COMMAND_RAW_SIZE</a> + <a class="el" href="#a17110e45f17ace625a624499ef3fdf8a">ADBMS6380_PEC_SIZE</a>)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00028">28</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00154">adbms6380_read()</a>.</p>
-
-</div>
-</div>
-<a id="abb0d4748227668be895e371af4b96454" name="abb0d4748227668be895e371af4b96454"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abb0d4748227668be895e371af4b96454">&#9670;&#160;</a></span>ADBMS6380_COMMAND_RAW_SIZE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_COMMAND_RAW_SIZE&#160;&#160;&#160;(2)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00026">26</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00082">adbms6380_prepare_command()</a>.</p>
-
-</div>
-</div>
-<a id="a15701e54939b221eae87fa42632efcc8" name="a15701e54939b221eae87fa42632efcc8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a15701e54939b221eae87fa42632efcc8">&#9670;&#160;</a></span>ADBMS6380_GPIO_COUNT</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_GPIO_COUNT&#160;&#160;&#160;(10)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00021">21</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>.</p>
-
-</div>
-</div>
-<a id="a17110e45f17ace625a624499ef3fdf8a" name="a17110e45f17ace625a624499ef3fdf8a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a17110e45f17ace625a624499ef3fdf8a">&#9670;&#160;</a></span>ADBMS6380_PEC_SIZE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_PEC_SIZE&#160;&#160;&#160;(2)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00024">24</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00082">adbms6380_prepare_command()</a>, and <a class="el" href="adbms6380_8c_source.html#l00090">adbms6380_prepare_data_packet()</a>.</p>
-
-</div>
-</div>
-<a id="a77528740d7d216095cacce72abb4918c" name="a77528740d7d216095cacce72abb4918c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a77528740d7d216095cacce72abb4918c">&#9670;&#160;</a></span>ADBMS6380_SINGLE_DATA_PKT_SIZE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_SINGLE_DATA_PKT_SIZE&#160;&#160;&#160;(<a class="el" href="#a05594a85d957953e99e26e8e75d9c9d7">ADBMS6380_SINGLE_DATA_RAW_SIZE</a> + <a class="el" href="#a17110e45f17ace625a624499ef3fdf8a">ADBMS6380_PEC_SIZE</a>)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00032">32</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, <a class="el" href="adbms6380_8c_source.html#l00146">adbms6380_read_data()</a>, <a class="el" href="adbms6380_8c_source.html#l00214">adbms6380_read_gpio_voltages()</a>, <a class="el" href="adbms_8c_source.html#l00088">adbms_read_and_check_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00108">adbms_read_and_check_regb()</a>.</p>
-
-</div>
-</div>
-<a id="a05594a85d957953e99e26e8e75d9c9d7" name="a05594a85d957953e99e26e8e75d9c9d7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a05594a85d957953e99e26e8e75d9c9d7">&#9670;&#160;</a></span>ADBMS6380_SINGLE_DATA_RAW_SIZE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_SINGLE_DATA_RAW_SIZE&#160;&#160;&#160;(6)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00030">30</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00098">adbms6380_calculate_cfg_rega()</a>, <a class="el" href="adbms6380_8c_source.html#l00117">adbms6380_calculate_cfg_regb()</a>, <a class="el" href="adbms6380_8c_source.html#l00090">adbms6380_prepare_data_packet()</a>, <a class="el" href="adbms_8c_source.html#l00088">adbms_read_and_check_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00108">adbms_read_and_check_regb()</a>.</p>
-
-</div>
-</div>
-<a id="ad47b8f14ed18c53ee180477fdf87bdbf" name="ad47b8f14ed18c53ee180477fdf87bdbf"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad47b8f14ed18c53ee180477fdf87bdbf">&#9670;&#160;</a></span>ADBMS6380_WAKE_DELAY_MS</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define ADBMS6380_WAKE_DELAY_MS&#160;&#160;&#160;(1)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Wake pulse duration per CS toggle in milliseconds. </p>
-<p>Note: usage of this expects the FreeRTOS tick rate to be 1000 Hz (1 tick = 1 ms). </p>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8h_source.html#l00039">39</a> of file <a class="el" href="adbms6380_8h_source.html">adbms6380.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00029">adbms6380_wake()</a>.</p>
-
-</div>
-</div>
-<h2 class="groupheader">Function Documentation</h2>
-<a id="ac69d8d846f45a7f90c5514b12ce8cfe5" name="ac69d8d846f45a7f90c5514b12ce8cfe5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac69d8d846f45a7f90c5514b12ce8cfe5">&#9670;&#160;</a></span>adbms6380_adax()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void adbms6380_adax </td>
+          <td class="memname">bool ADBMS6380_has_rega_mismatch </td>
           <td>(</td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>output_cmd</em></span>[(2)], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>ow</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>pup</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>ch</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Build ADAX (aux) command bytes. </p>
+<p>Check whether any chip in the chain has a REGA mismatch error. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_cmd</td><td>Output buffer for 2-byte command. </td></tr>
-    <tr><td class="paramname">ow</td><td>Open-wire detection enable. </td></tr>
-    <tr><td class="paramname">pup</td><td>Pull-up enable for open-wire detection. </td></tr>
-    <tr><td class="paramname">ch</td><td>Channel selection (5-bit). 0 for all. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00076">76</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>true if any chip has <a class="el" href="structadbms6380__chip__t.html#a6544691a7f52cfaeeba48e4efa737897">adbms6380_chip_t::err_rega_mismatch</a> set. </dd></dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a7a300ff96432feb9fae89bd29e4d0919_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a68294afc45f8feebfc0ab59731020386" name="a68294afc45f8feebfc0ab59731020386"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a68294afc45f8feebfc0ab59731020386">&#9670;&#160;</a></span>adbms6380_adcv()</h2>
+<a id="afd953d8559ba00f614313e52d6e9bb4c" name="afd953d8559ba00f614313e52d6e9bb4c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afd953d8559ba00f614313e52d6e9bb4c">&#9670;&#160;</a></span>ADBMS6380_has_regb_mismatch()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_adcv </td>
+          <td class="memname">bool ADBMS6380_has_regb_mismatch </td>
           <td>(</td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output_cmd</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>rd</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>cont</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>dcp</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>rstf</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>ow</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Build ADCV command bytes. </p>
+<p>Check whether any chip in the chain has a REGB mismatch error. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_cmd</td><td>Output buffer for 2-byte command. </td></tr>
-    <tr><td class="paramname">rd</td><td>Redundant mode. </td></tr>
-    <tr><td class="paramname">cont</td><td>Continuous conversion enable. </td></tr>
-    <tr><td class="paramname">dcp</td><td>Discharge permitted during conversion (only affects PWM balancing, not DCC). </td></tr>
-    <tr><td class="paramname">rstf</td><td>Reset filter. </td></tr>
-    <tr><td class="paramname">ow</td><td>Open-wire setting (2-bit). </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
+<dl class="section return"><dt>Returns</dt><dd>true if any chip has <a class="el" href="structadbms6380__chip__t.html#a5f018433556a03c50ed1a579bbd76301">adbms6380_chip_t::err_regb_mismatch</a> set. </dd></dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_afd953d8559ba00f614313e52d6e9bb4c_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="ac9129a8aa646326915e609fa3fef3502" name="ac9129a8aa646326915e609fa3fef3502"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac9129a8aa646326915e609fa3fef3502">&#9670;&#160;</a></span>adbms6380_adsv()</h2>
+<a id="ad44be82376949cf91d9b4a0216f7ba26" name="ad44be82376949cf91d9b4a0216f7ba26"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad44be82376949cf91d9b4a0216f7ba26">&#9670;&#160;</a></span>ADBMS6380_init()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_adsv </td>
+          <td class="memname">void ADBMS6380_init </td>
           <td>(</td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>output_cmd</em></span>, </td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>cont</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>dcp</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>ow</em></span>&#160;)</td>
+          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Build ADSV command bytes. </p>
+<p>Initialize the ADBMS6380 device driver instance, SPI buffers, and CS line. </p>
+<p>Deasserts CS high, initializes the internal TX strbuf, and clears discharge and error flags across all chips.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_cmd</td><td>Output buffer for 2-byte command. </td></tr>
-    <tr><td class="paramname">cont</td><td>Continuous conversion enable. </td></tr>
-    <tr><td class="paramname">dcp</td><td>Discharge permitted during conversion (only affects PWM balancing, not DCC). </td></tr>
-    <tr><td class="paramname">ow</td><td>Open-wire setting (2-bit). </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state to initialize. </td></tr>
+    <tr><td class="paramname">spi</td><td>Non-null SPI configuration used for ADBMS transactions. </td></tr>
   </table>
   </dd>
 </dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_ad44be82376949cf91d9b4a0216f7ba26_cgraph.svg" width="451" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_ad44be82376949cf91d9b4a0216f7ba26_icgraph.svg" width="370" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a2aac24bf20dd17b4e395c21915b58f4e" name="a2aac24bf20dd17b4e395c21915b58f4e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2aac24bf20dd17b4e395c21915b58f4e">&#9670;&#160;</a></span>adbms6380_calculate_cfg_rega()</h2>
+<a id="a4011d4493881a897342178e4e04f150a" name="a4011d4493881a897342178e4e04f150a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4011d4493881a897342178e4e04f150a">&#9670;&#160;</a></span>ADBMS6380_read_cell_voltages()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_calculate_cfg_rega </td>
+          <td class="memname">void ADBMS6380_read_cell_voltages </td>
           <td>(</td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>output_cfg_rega</em></span>[(6)], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>refon</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>cth</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Calculate the REG_A configuration register value. </p>
-<p>Populates GPIO pull-downs, reference behavior, and comparator threshold.</p>
+<p>Read all cell voltages from each chip. </p>
+<p>Converts raw values to volts and populates each chip's cell_voltages array. If any command fails with a PEC error after retries, the successfully read cell voltages are still updated and the corresponding flag in err_cell_voltage_pecs is set.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_cfg_rega</td><td>Output buffer for REG_A configuration (6 bytes). </td></tr>
-    <tr><td class="paramname">refon</td><td>1 = reference remains powered up until watchdog timeout. </td></tr>
-    <tr><td class="paramname">cth</td><td>C-ADC vs. S-ADC comparison voltage threshold. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00098">98</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00030">ADBMS6380_SINGLE_DATA_RAW_SIZE</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00046">adbms_write_rega()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a4011d4493881a897342178e4e04f150a_cgraph.svg" width="100%" height="495"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a4011d4493881a897342178e4e04f150a_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a84a2416ebc169fa056e052866634a496" name="a84a2416ebc169fa056e052866634a496"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a84a2416ebc169fa056e052866634a496">&#9670;&#160;</a></span>adbms6380_calculate_cfg_regb()</h2>
+<a id="a74b0ad1cee164427d5c561a707f72675" name="a74b0ad1cee164427d5c561a707f72675"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a74b0ad1cee164427d5c561a707f72675">&#9670;&#160;</a></span>ADBMS6380_read_gpio_voltages()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_calculate_cfg_regb </td>
+          <td class="memname">void ADBMS6380_read_gpio_voltages </td>
           <td>(</td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>output_cfg_regb</em></span>[(6)], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>overvoltage_threshold</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>undervoltage_threshold</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>is_discharging</em></span>[(16)]&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Calculate the REG_B configuration register value. </p>
-<p>Encodes VOV/VUV thresholds and discharge control bits.</p>
+<p>Read all GPIO/aux voltages from each chip. </p>
+<p>Converts raw values to volts and populates each chip's gpio_voltages array. If any command fails with a PEC error after retries, the successfully read GPIO voltages are still updated and the corresponding flag in err_gpio_voltage_pecs is set.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_cfg_regb</td><td>Output buffer for REG_B configuration (6 bytes). </td></tr>
-    <tr><td class="paramname">overvoltage_threshold</td><td>Overvoltage threshold in volts. </td></tr>
-    <tr><td class="paramname">undervoltage_threshold</td><td>Undervoltage threshold in volts. </td></tr>
-    <tr><td class="paramname">is_discharging</td><td>Per-cell discharge enable flags. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00117">117</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00019">ADBMS6380_CELL_COUNT</a>, <a class="el" href="adbms6380_8c_source.html#l00038">adbms6380_get_threshold_voltage_cfg()</a>, and <a class="el" href="adbms6380_8h_source.html#l00030">ADBMS6380_SINGLE_DATA_RAW_SIZE</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00066">adbms_write_regb()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a74b0ad1cee164427d5c561a707f72675_cgraph.svg" width="100%" height="495"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a74b0ad1cee164427d5c561a707f72675_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a5015be743738347dcf5a108a0fd276d6" name="a5015be743738347dcf5a108a0fd276d6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5015be743738347dcf5a108a0fd276d6">&#9670;&#160;</a></span>adbms6380_extract_i16()</h2>
+<a id="a3032c5c23786e6e09339992bd8ba8d84" name="a3032c5c23786e6e09339992bd8ba8d84"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3032c5c23786e6e09339992bd8ba8d84">&#9670;&#160;</a></span>ADBMS6380_read_temperatures()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">int16_t adbms6380_extract_i16 </td>
+          <td class="memname">void ADBMS6380_read_temperatures </td>
           <td>(</td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>data</em></span>, </td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>idx</em></span>&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__adax__config__t.html">adbms6380_adax_config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cfg</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Extract a little-endian 16-bit signed value from a byte buffer. </p>
+<p>Read all GPIO voltages, start the next ADAX conversion, and convert to cell and onboard temperatures. </p>
+<p>Populates each chip's gpio_voltages, cell_temps, and board_temp fields.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">data</td><td>Pointer to byte buffer containing 16-bit words. </td></tr>
-    <tr><td class="paramname">idx</td><td>Index of the 16-bit word to extract. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
+    <tr><td class="paramname">cfg</td><td>Non-null pointer to ADAX command parameters. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>Signed 16-bit value. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00047">47</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, and <a class="el" href="adbms6380_8c_source.html#l00214">adbms6380_read_gpio_voltages()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a3032c5c23786e6e09339992bd8ba8d84_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a3032c5c23786e6e09339992bd8ba8d84_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a7dba9c62715355f360c6e4f1b150d334" name="a7dba9c62715355f360c6e4f1b150d334"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7dba9c62715355f360c6e4f1b150d334">&#9670;&#160;</a></span>adbms6380_get_threshold_voltage_cfg()</h2>
+<a id="a797933ebb8aeaf7dc228e5f9f51e47e2" name="a797933ebb8aeaf7dc228e5f9f51e47e2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a797933ebb8aeaf7dc228e5f9f51e47e2">&#9670;&#160;</a></span>ADBMS6380_start_adax()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint16_t adbms6380_get_threshold_voltage_cfg </td>
+          <td class="memname">void ADBMS6380_start_adax </td>
           <td>(</td>
-          <td class="paramtype">float</td>          <td class="paramname"><span class="paramname"><em>threshold_voltage</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__adax__config__t.html">adbms6380_adax_config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cfg</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Convert a voltage threshold (V) into 12-bit REG_B threshold encoding. </p>
+<p>Issue the ADAX command to start GPIO/aux voltage conversions across all chips. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">threshold_voltage</td><td>Threshold voltage in volts. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
+    <tr><td class="paramname">cfg</td><td>Non-null pointer to ADAX command parameters. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>12-bit configuration value suitable for VOV/VUV fields. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00038">38</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00117">adbms6380_calculate_cfg_regb()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a797933ebb8aeaf7dc228e5f9f51e47e2_cgraph.svg" width="100%" height="477"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a797933ebb8aeaf7dc228e5f9f51e47e2_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a18c312ba06fc054f6f27818fa9b7d895" name="a18c312ba06fc054f6f27818fa9b7d895"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a18c312ba06fc054f6f27818fa9b7d895">&#9670;&#160;</a></span>adbms6380_prepare_command()</h2>
+<a id="aa09b3f9f5c953309bb1b5fa61f310d54" name="aa09b3f9f5c953309bb1b5fa61f310d54"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa09b3f9f5c953309bb1b5fa61f310d54">&#9670;&#160;</a></span>ADBMS6380_start_adcv()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_prepare_command </td>
+          <td class="memname">void ADBMS6380_start_adcv </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structstrbuf__t.html">strbuf_t</a> *</td>          <td class="paramname"><span class="paramname"><em>output_buffer</em></span>, </td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const uint8_t</td>          <td class="paramname"><span class="paramname"><em>command</em></span>[(2)]&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__adcv__config__t.html">adbms6380_adcv_config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cfg</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Append a command and its PEC to an output buffer. </p>
+<p>Issue the ADCV command to start cell voltage conversions across all chips. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_buffer</td><td>Buffer to append into. </td></tr>
-    <tr><td class="paramname">command</td><td>2-byte command payload. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
+    <tr><td class="paramname">cfg</td><td>Non-null pointer to ADCV command parameters. </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00082">82</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00026">ADBMS6380_COMMAND_RAW_SIZE</a>, <a class="el" href="adbms6380_8h_source.html#l00024">ADBMS6380_PEC_SIZE</a>, <a class="el" href="pec_8c_source.html#l00075">adbms_pec_get_pec15()</a>, and <a class="el" href="strbuf_8c_source.html#l00025">strbuf_append()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, <a class="el" href="adbms6380_8c_source.html#l00214">adbms6380_read_gpio_voltages()</a>, <a class="el" href="adbms_8c_source.html#l00128">adbms_connect()</a>, <a class="el" href="adbms_8c_source.html#l00088">adbms_read_and_check_rega()</a>, <a class="el" href="adbms_8c_source.html#l00108">adbms_read_and_check_regb()</a>, <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>, <a class="el" href="adbms_8c_source.html#l00046">adbms_write_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00066">adbms_write_regb()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_aa09b3f9f5c953309bb1b5fa61f310d54_cgraph.svg" width="100%" height="477"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_aa09b3f9f5c953309bb1b5fa61f310d54_icgraph.svg" width="567" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a3fefb6f2303fb85b44efd3c6f61493fa" name="a3fefb6f2303fb85b44efd3c6f61493fa"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3fefb6f2303fb85b44efd3c6f61493fa">&#9670;&#160;</a></span>adbms6380_prepare_data_packet()</h2>
+<a id="a0963dcf6690f0adb7561f61b472427e8" name="a0963dcf6690f0adb7561f61b472427e8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0963dcf6690f0adb7561f61b472427e8">&#9670;&#160;</a></span>ADBMS6380_verify_rega()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_prepare_data_packet </td>
+          <td class="memname">bool ADBMS6380_verify_rega </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structstrbuf__t.html">strbuf_t</a> *</td>          <td class="paramname"><span class="paramname"><em>output_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">const uint8_t</td>          <td class="paramname"><span class="paramname"><em>data</em></span>[(6)]&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Append a data payload and its PEC to an output buffer. </p>
+<p>Read back REGA from all chips and compare with cached configuration. </p>
+<p>Sets per-chip mismatch or PEC flags when the read-back fails or does not match the cached REGA data.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">output_buffer</td><td>Buffer to append into. </td></tr>
-    <tr><td class="paramname">data</td><td>6-byte data payload. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00090">90</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00024">ADBMS6380_PEC_SIZE</a>, <a class="el" href="adbms6380_8h_source.html#l00030">ADBMS6380_SINGLE_DATA_RAW_SIZE</a>, <a class="el" href="pec_8c_source.html#l00086">adbms_pec_get_pec10()</a>, and <a class="el" href="strbuf_8c_source.html#l00025">strbuf_append()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00046">adbms_write_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00066">adbms_write_regb()</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>false on PEC error or when there is a mismatch; true otherwise. </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a0963dcf6690f0adb7561f61b472427e8_cgraph.svg" width="100%" height="478"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a0963dcf6690f0adb7561f61b472427e8_icgraph.svg" width="570" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a2e9f567aae9798e09e92280c8919a184" name="a2e9f567aae9798e09e92280c8919a184"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2e9f567aae9798e09e92280c8919a184">&#9670;&#160;</a></span>adbms6380_raw_to_v()</h2>
+<a id="ab8ca2a5aa91fd37ad09a7f7285bfd5f8" name="ab8ca2a5aa91fd37ad09a7f7285bfd5f8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab8ca2a5aa91fd37ad09a7f7285bfd5f8">&#9670;&#160;</a></span>ADBMS6380_verify_regb()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">float adbms6380_raw_to_v </td>
+          <td class="memname">bool ADBMS6380_verify_regb </td>
           <td>(</td>
-          <td class="paramtype">int16_t</td>          <td class="paramname"><span class="paramname"><em>raw</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Convert raw voltage measurement from the ADBMS6380 to volts. </p>
+<p>Read back REGB from all chips and compare with cached configuration. </p>
+<p>Sets per-chip mismatch or PEC flags when the read-back fails or does not match the cached REGB data.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">raw</td><td>Raw code from ADBMS. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>Corresponding voltage in volts. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00051">51</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, and <a class="el" href="adbms6380_8c_source.html#l00214">adbms6380_read_gpio_voltages()</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>false on PEC error or when there is a mismatch; true otherwise. </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_ab8ca2a5aa91fd37ad09a7f7285bfd5f8_cgraph.svg" width="100%" height="478"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_ab8ca2a5aa91fd37ad09a7f7285bfd5f8_icgraph.svg" width="570" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a4c2b206fbd701af7967f97b2cf307466" name="a4c2b206fbd701af7967f97b2cf307466"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4c2b206fbd701af7967f97b2cf307466">&#9670;&#160;</a></span>adbms6380_read()</h2>
+<a id="a092e9d0a8566b9f48e23ce2efe66d2af" name="a092e9d0a8566b9f48e23ce2efe66d2af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a092e9d0a8566b9f48e23ce2efe66d2af">&#9670;&#160;</a></span>ADBMS6380_wake()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool adbms6380_read </td>
+          <td class="memname">void ADBMS6380_wake </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>module_count</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const uint8_t</td>          <td class="paramname"><span class="paramname"><em>cmd_buffer</em></span>[((2)+(2))], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>rx_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>rx_length</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Read a fixed-length response from all modules after a command. </p>
-<p>Sends the command to the daisy chain, then reads <code>rx_length</code> bytes into <code>rx_buffer</code>. Data is returned in module order (0..N-1).</p>
+<p>Wake the daisy-chained set of ADBMS6380 devices. </p>
+<p>Toggles CS with blocking delays to bring each chip out of sleep.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration used for the transfer. </td></tr>
-    <tr><td class="paramname">module_count</td><td>Number of modules in the daisy chain. </td></tr>
-    <tr><td class="paramname">cmd_buffer</td><td>Command buffer including PEC. </td></tr>
-    <tr><td class="paramname">rx_buffer</td><td>Output buffer for received bytes. </td></tr>
-    <tr><td class="paramname">rx_length</td><td>Total number of bytes to read. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>True on successful SPI transfers, false otherwise. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00154">154</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00028">ADBMS6380_COMMAND_PKT_SIZE</a>, <a class="el" href="adbms6380_8c_source.html#l00025">adbms6380_set_cs_high()</a>, <a class="el" href="adbms6380_8c_source.html#l00021">adbms6380_set_cs_low()</a>, <a class="el" href="common_2phal__F4__F7_2spi_2spi_8c_source.html#l00087">PHAL_SPI_transfer_noDMA()</a>, and <a class="el" href="test__buffer_8c_source.html#l00019">rx_buffer</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00146">adbms6380_read_data()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a092e9d0a8566b9f48e23ce2efe66d2af_cgraph.svg" width="494" height="135"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a092e9d0a8566b9f48e23ce2efe66d2af_icgraph.svg" width="538" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a38be58f4cc5cc9b3c0cfd9cfa4feba90" name="a38be58f4cc5cc9b3c0cfd9cfa4feba90"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a38be58f4cc5cc9b3c0cfd9cfa4feba90">&#9670;&#160;</a></span>adbms6380_read_cell_voltages()</h2>
+<a id="a4790855abf91e0638244eae6f1d3b168" name="a4790855abf91e0638244eae6f1d3b168"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4790855abf91e0638244eae6f1d3b168">&#9670;&#160;</a></span>ADBMS6380_write_rega()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool adbms6380_read_cell_voltages </td>
+          <td class="memname">void ADBMS6380_write_rega </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>, </td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="structstrbuf__t.html">strbuf_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cmd_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>rx_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float **</td>          <td class="paramname"><span class="paramname"><em>cell_voltages</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int16_t **</td>          <td class="paramname"><span class="paramname"><em>cell_voltages_raw</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>module_count</em></span>&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__rega__config__t.html">adbms6380_rega_config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cfg</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Read all cell voltages from each module. </p>
-<p>Issues the RDCVALL command, converts raw values to volts, and fills the provided per-module cell voltage arrays.</p>
+<p>Encode and write REGA configuration to all chips in the daisy chain. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration used for the transfer. </td></tr>
-    <tr><td class="paramname">cmd_buffer</td><td>Scratch buffer for command + PEC. </td></tr>
-    <tr><td class="paramname">rx_buffer</td><td>RX buffer for raw bytes. </td></tr>
-    <tr><td class="paramname">cell_voltages</td><td>Per-module arrays of cell voltages to populate. </td></tr>
-    <tr><td class="paramname">cell_voltages_raw</td><td>Per-module arrays of raw cell voltage codes to populate. </td></tr>
-    <tr><td class="paramname">module_count</td><td>Number of modules in the daisy chain. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
+    <tr><td class="paramname">cfg</td><td>Non-null pointer to REGA configuration parameters. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>True on success, false on SPI failure. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00175">175</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8h_source.html#l00019">ADBMS6380_CELL_COUNT</a>, <a class="el" href="adbms6380_8c_source.html#l00047">adbms6380_extract_i16()</a>, <a class="el" href="adbms6380_8c_source.html#l00082">adbms6380_prepare_command()</a>, <a class="el" href="adbms6380_8c_source.html#l00051">adbms6380_raw_to_v()</a>, <a class="el" href="adbms6380_8c_source.html#l00146">adbms6380_read_data()</a>, <a class="el" href="adbms6380_8h_source.html#l00032">ADBMS6380_SINGLE_DATA_PKT_SIZE</a>, <a class="el" href="strbuf_8h_source.html#l00016">strbuf_t::data</a>, <a class="el" href="commands_8c_source.html#l00019">RDCVA</a>, <a class="el" href="commands_8c_source.html#l00020">RDCVB</a>, <a class="el" href="commands_8c_source.html#l00021">RDCVC</a>, <a class="el" href="commands_8c_source.html#l00022">RDCVD</a>, <a class="el" href="commands_8c_source.html#l00023">RDCVE</a>, <a class="el" href="commands_8c_source.html#l00024">RDCVF</a>, <a class="el" href="test__buffer_8c_source.html#l00019">rx_buffer</a>, and <a class="el" href="strbuf_8c_source.html#l00017">strbuf_clear()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00220">adbms_read_cells()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a4790855abf91e0638244eae6f1d3b168_cgraph.svg" width="100%" height="514"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a4790855abf91e0638244eae6f1d3b168_icgraph.svg" width="567" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="aebc44cb2339ae53b3a3a223c6c9a0dd2" name="aebc44cb2339ae53b3a3a223c6c9a0dd2"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aebc44cb2339ae53b3a3a223c6c9a0dd2">&#9670;&#160;</a></span>adbms6380_read_data()</h2>
+<a id="a0cdbd620cf34a8065b37c2eeab6a8ab6" name="a0cdbd620cf34a8065b37c2eeab6a8ab6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0cdbd620cf34a8065b37c2eeab6a8ab6">&#9670;&#160;</a></span>ADBMS6380_write_regb()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool adbms6380_read_data </td>
+          <td class="memname">void ADBMS6380_write_regb </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>, </td>
+          <td class="paramtype"><a class="el" href="structadbms6380__t.html">adbms6380_t</a> *</td>          <td class="paramname"><span class="paramname"><em>dev</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>module_count</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const uint8_t</td>          <td class="paramname"><span class="paramname"><em>cmd_buffer</em></span>[((2)+(2))], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>rx_buffer</em></span>&#160;)</td>
+          <td class="paramtype">const <a class="el" href="structadbms6380__regb__config__t.html">adbms6380_regb_config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cfg</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Read a single-data-packet response per module. </p>
-<p>Convenience wrapper around <a class="el" href="#a4c2b206fbd701af7967f97b2cf307466" title="Read a fixed-length response from all modules after a command.">adbms6380_read()</a> with (module_count * ADBMS6380_SINGLE_DATA_PKT_SIZE) bytes.</p>
+<p>Encode and write REGB configuration (OV/UV thresholds + discharge bits) to all chips. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration used for the transfer. </td></tr>
-    <tr><td class="paramname">module_count</td><td>Number of modules in the daisy chain. </td></tr>
-    <tr><td class="paramname">cmd_buffer</td><td>Command buffer including PEC. </td></tr>
-    <tr><td class="paramname">rx_buffer</td><td>Output buffer for received bytes. </td></tr>
+    <tr><td class="paramname">dev</td><td>Non-null pointer to device state. </td></tr>
+    <tr><td class="paramname">cfg</td><td>Non-null pointer to REGB configuration parameters. </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>True on successful SPI transfers, false otherwise. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00146">146</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8c_source.html#l00154">adbms6380_read()</a>, <a class="el" href="adbms6380_8h_source.html#l00032">ADBMS6380_SINGLE_DATA_PKT_SIZE</a>, and <a class="el" href="test__buffer_8c_source.html#l00019">rx_buffer</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00175">adbms6380_read_cell_voltages()</a>, <a class="el" href="adbms6380_8c_source.html#l00214">adbms6380_read_gpio_voltages()</a>, <a class="el" href="adbms_8c_source.html#l00088">adbms_read_and_check_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00108">adbms_read_and_check_regb()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a0cdbd620cf34a8065b37c2eeab6a8ab6_cgraph.svg" width="100%" height="551"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="adbms6380_8h_a0cdbd620cf34a8065b37c2eeab6a8ab6_icgraph.svg" width="567" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a17d1d330c36b5b73b328d8376cdc4a1a" name="a17d1d330c36b5b73b328d8376cdc4a1a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a17d1d330c36b5b73b328d8376cdc4a1a">&#9670;&#160;</a></span>adbms6380_read_gpio_voltages()</h2>
+<h2 class="groupheader">Variable Documentation</h2>
+<a id="ae8db5f42b17ed79bfc248e5075c6ddd4" name="ae8db5f42b17ed79bfc248e5075c6ddd4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae8db5f42b17ed79bfc248e5075c6ddd4">&#9670;&#160;</a></span>ADBMS6380_ADAX_ALL_CONV_TIME_MS</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">bool adbms6380_read_gpio_voltages </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="structstrbuf__t.html">strbuf_t</a> *</td>          <td class="paramname"><span class="paramname"><em>cmd_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t *</td>          <td class="paramname"><span class="paramname"><em>rx_buffer</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">float **</td>          <td class="paramname"><span class="paramname"><em>gpio_voltages</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>module_count</em></span>&#160;)</td>
+          <td class="memname">uint32_t ADBMS6380_ADAX_ALL_CONV_TIME_MS = 20U</td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p>Read all GPIO/aux voltages from each module. </p>
-<p>Issues RDAUXA/B/C/D commands, converts raw values to volts, and fills the provided per-module GPIO voltage arrays.</p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration used for the transfer. </td></tr>
-    <tr><td class="paramname">cmd_buffer</td><td>Scratch buffer for command + PEC. </td></tr>
-    <tr><td class="paramname">rx_buffer</td><td>RX buffer for raw bytes. </td></tr>
-    <tr><td class="paramname">gpio_voltages</td><td>Per-module arrays of GPIO voltages to populate. </td></tr>
-    <tr><td class="paramname">module_count</td><td>Number of modules in the daisy chain. </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>True on success, false on SPI failure. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00214">214</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="adbms6380_8c_source.html#l00047">adbms6380_extract_i16()</a>, <a class="el" href="adbms6380_8c_source.html#l00082">adbms6380_prepare_command()</a>, <a class="el" href="adbms6380_8c_source.html#l00051">adbms6380_raw_to_v()</a>, <a class="el" href="adbms6380_8c_source.html#l00146">adbms6380_read_data()</a>, <a class="el" href="adbms6380_8h_source.html#l00032">ADBMS6380_SINGLE_DATA_PKT_SIZE</a>, <a class="el" href="strbuf_8h_source.html#l00016">strbuf_t::data</a>, <a class="el" href="commands_8c_source.html#l00062">RDAUXA</a>, <a class="el" href="commands_8c_source.html#l00063">RDAUXB</a>, <a class="el" href="commands_8c_source.html#l00064">RDAUXC</a>, <a class="el" href="commands_8c_source.html#l00065">RDAUXD</a>, <a class="el" href="test__buffer_8c_source.html#l00019">rx_buffer</a>, and <a class="el" href="strbuf_8c_source.html#l00017">strbuf_clear()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>.</p>
-
 </div>
 </div>
-<a id="ae50a5200f4ab61124ab070e8898f0cc9" name="ae50a5200f4ab61124ab070e8898f0cc9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae50a5200f4ab61124ab070e8898f0cc9">&#9670;&#160;</a></span>adbms6380_set_cs_high()</h2>
+<a id="a0b8962c63f063854a32cbaba04bdb769" name="a0b8962c63f063854a32cbaba04bdb769"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0b8962c63f063854a32cbaba04bdb769">&#9670;&#160;</a></span>ADBMS6380_CELL_COUNT</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_set_cs_high </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span></td><td>)</td>
-          <td></td>
+          <td class="memname">size_t ADBMS6380_CELL_COUNT = 16U</td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p>Drive the ADBMS CS line to high. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration containing the CS GPIO. </td></tr>
-  </table>
-  </dd>
-</dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00025">25</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2spi_2spi_8h_source.html#l00031">SPI_InitConfig_t::nss_gpio_pin</a>, <a class="el" href="phal__F4__F7_2spi_2spi_8h_source.html#l00030">SPI_InitConfig_t::nss_gpio_port</a>, and <a class="el" href="phal__F4__F7_2gpio_2gpio_8h_source.html#l00282">PHAL_writeGPIO()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00154">adbms6380_read()</a>, <a class="el" href="adbms6380_8c_source.html#l00029">adbms6380_wake()</a>, <a class="el" href="adbms_8c_source.html#l00128">adbms_connect()</a>, <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>, <a class="el" href="adbms_8c_source.html#l00046">adbms_write_rega()</a>, <a class="el" href="adbms_8c_source.html#l00066">adbms_write_regb()</a>, and <a class="el" href="a__box_2main_8c_source.html#l00083">main()</a>.</p>
-
 </div>
 </div>
-<a id="a12a7403f2f6b47af40cc7d278909ebe7" name="a12a7403f2f6b47af40cc7d278909ebe7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a12a7403f2f6b47af40cc7d278909ebe7">&#9670;&#160;</a></span>adbms6380_set_cs_low()</h2>
+<a id="a6cb3c62b3ead5b846dd2a821774e222e" name="a6cb3c62b3ead5b846dd2a821774e222e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6cb3c62b3ead5b846dd2a821774e222e">&#9670;&#160;</a></span>ADBMS6380_COMMAND_PKT_SIZE</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_set_cs_low </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span></td><td>)</td>
-          <td></td>
+          <td class="memname">size_t ADBMS6380_COMMAND_PKT_SIZE = <a class="el" href="#a25f5885607f9f8c5ee85cc53d34354eb">ADBMS6380_COMMAND_RAW_SIZE</a> + <a class="el" href="#adb0744d06f17240e253c2a7c640f2894">ADBMS6380_PEC_SIZE</a></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p>Drive the ADBMS CS line low. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration containing the CS GPIO. </td></tr>
-  </table>
-  </dd>
-</dl>
-
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00021">21</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2spi_2spi_8h_source.html#l00031">SPI_InitConfig_t::nss_gpio_pin</a>, <a class="el" href="phal__F4__F7_2spi_2spi_8h_source.html#l00030">SPI_InitConfig_t::nss_gpio_port</a>, and <a class="el" href="phal__F4__F7_2gpio_2gpio_8h_source.html#l00282">PHAL_writeGPIO()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00154">adbms6380_read()</a>, <a class="el" href="adbms6380_8c_source.html#l00029">adbms6380_wake()</a>, <a class="el" href="adbms_8c_source.html#l00128">adbms_connect()</a>, <a class="el" href="adbms_8c_source.html#l00270">adbms_read_therms()</a>, <a class="el" href="adbms_8c_source.html#l00046">adbms_write_rega()</a>, and <a class="el" href="adbms_8c_source.html#l00066">adbms_write_regb()</a>.</p>
-
 </div>
 </div>
-<a id="a98d7e305df1794e6146e9aa0e885bf65" name="a98d7e305df1794e6146e9aa0e885bf65"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a98d7e305df1794e6146e9aa0e885bf65">&#9670;&#160;</a></span>adbms6380_wake()</h2>
+<a id="a25f5885607f9f8c5ee85cc53d34354eb" name="a25f5885607f9f8c5ee85cc53d34354eb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a25f5885607f9f8c5ee85cc53d34354eb">&#9670;&#160;</a></span>ADBMS6380_COMMAND_RAW_SIZE</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void adbms6380_wake </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structSPI__InitConfig__t.html">SPI_InitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>spi</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>module_count</em></span>&#160;)</td>
+          <td class="memname">size_t ADBMS6380_COMMAND_RAW_SIZE = 2U</td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p>Wake a daisy-chained set of ADBMS devices. </p>
-<p>Toggles CS with blocking delays to bring each module out of sleep.</p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">spi</td><td>SPI configuration containing the CS GPIO. </td></tr>
-    <tr><td class="paramname">module_count</td><td>Number of modules in the daisy chain. </td></tr>
-  </table>
-  </dd>
-</dl>
+</div>
+</div>
+<a id="a4d10269c05bdf56ab339f0584658eeb1" name="a4d10269c05bdf56ab339f0584658eeb1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4d10269c05bdf56ab339f0584658eeb1">&#9670;&#160;</a></span>ADBMS6380_GPIO_COUNT</h2>
 
-<p class="definition">Definition at line <a class="el" href="adbms6380_8c_source.html#l00029">29</a> of file <a class="el" href="adbms6380_8c_source.html">adbms6380.c</a>.</p>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_GPIO_COUNT = 10U</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
-<p class="reference">References <a class="el" href="adbms6380_8c_source.html#l00025">adbms6380_set_cs_high()</a>, <a class="el" href="adbms6380_8c_source.html#l00021">adbms6380_set_cs_low()</a>, and <a class="el" href="adbms6380_8h_source.html#l00039">ADBMS6380_WAKE_DELAY_MS</a>.</p>
+</div>
+</div>
+<a id="adb0744d06f17240e253c2a7c640f2894" name="adb0744d06f17240e253c2a7c640f2894"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adb0744d06f17240e253c2a7c640f2894">&#9670;&#160;</a></span>ADBMS6380_PEC_SIZE</h2>
 
-<p class="reference">Referenced by <a class="el" href="adbms_8c_source.html#l00343">adbms_periodic()</a>.</p>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_PEC_SIZE = 2U</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
+</div>
+</div>
+<a id="ad0e0310364918e6c3b4385d92a986903" name="ad0e0310364918e6c3b4385d92a986903"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad0e0310364918e6c3b4385d92a986903">&#9670;&#160;</a></span>ADBMS6380_RDAUX_CMD_COUNT</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_RDAUX_CMD_COUNT = 4U</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2d96746d261bf1f2bac7eea35da7964a" name="a2d96746d261bf1f2bac7eea35da7964a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2d96746d261bf1f2bac7eea35da7964a">&#9670;&#160;</a></span>ADBMS6380_RDCV_CMD_COUNT</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_RDCV_CMD_COUNT = 6U</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af70094c50548a0d38dbe8e28f54a8508" name="af70094c50548a0d38dbe8e28f54a8508"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af70094c50548a0d38dbe8e28f54a8508">&#9670;&#160;</a></span>ADBMS6380_SINGLE_DATA_PKT_SIZE</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_SINGLE_DATA_PKT_SIZE</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">=</div>
+<div class="line">    <a class="code hl_variable" href="#a9b1746883bcd70ca4ce4349eab1df962">ADBMS6380_SINGLE_DATA_RAW_SIZE</a> + <a class="code hl_variable" href="#adb0744d06f17240e253c2a7c640f2894">ADBMS6380_PEC_SIZE</a></div>
+<div class="ttc" id="aadbms6380_8h_html_a9b1746883bcd70ca4ce4349eab1df962"><div class="ttname"><a href="#a9b1746883bcd70ca4ce4349eab1df962">ADBMS6380_SINGLE_DATA_RAW_SIZE</a></div><div class="ttdeci">static constexpr size_t ADBMS6380_SINGLE_DATA_RAW_SIZE</div><div class="ttdef"><b>Definition</b> adbms6380.h:38</div></div>
+<div class="ttc" id="aadbms6380_8h_html_adb0744d06f17240e253c2a7c640f2894"><div class="ttname"><a href="#adb0744d06f17240e253c2a7c640f2894">ADBMS6380_PEC_SIZE</a></div><div class="ttdeci">static constexpr size_t ADBMS6380_PEC_SIZE</div><div class="ttdef"><b>Definition</b> adbms6380.h:32</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+<a id="a9b1746883bcd70ca4ce4349eab1df962" name="a9b1746883bcd70ca4ce4349eab1df962"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9b1746883bcd70ca4ce4349eab1df962">&#9670;&#160;</a></span>ADBMS6380_SINGLE_DATA_RAW_SIZE</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_SINGLE_DATA_RAW_SIZE = 6U</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa9df37f95df5429d05c606b24498b9e6" name="aa9df37f95df5429d05c606b24498b9e6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa9df37f95df5429d05c606b24498b9e6">&#9670;&#160;</a></span>ADBMS6380_SPI_RX_BUFFER_SIZE</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_SPI_RX_BUFFER_SIZE</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">=</div>
+<div class="line">    <a class="code hl_variable" href="#af70094c50548a0d38dbe8e28f54a8508">ADBMS6380_SINGLE_DATA_PKT_SIZE</a> * <a class="code hl_variable" href="adbms__config_8h.html#aa1a279c187a35cbe461f78ef64d4d9c1">ADBMS_CHIP_COUNT</a></div>
+<div class="ttc" id="aadbms6380_8h_html_af70094c50548a0d38dbe8e28f54a8508"><div class="ttname"><a href="#af70094c50548a0d38dbe8e28f54a8508">ADBMS6380_SINGLE_DATA_PKT_SIZE</a></div><div class="ttdeci">static constexpr size_t ADBMS6380_SINGLE_DATA_PKT_SIZE</div><div class="ttdef"><b>Definition</b> adbms6380.h:40</div></div>
+<div class="ttc" id="aadbms__config_8h_html_aa1a279c187a35cbe461f78ef64d4d9c1"><div class="ttname"><a href="adbms__config_8h.html#aa1a279c187a35cbe461f78ef64d4d9c1">ADBMS_CHIP_COUNT</a></div><div class="ttdeci">static constexpr size_t ADBMS_CHIP_COUNT</div><div class="ttdef"><b>Definition</b> adbms_config.h:20</div></div>
+</div><!-- fragment -->
+</div>
+</div>
+<a id="a0cd7bdc76cf148c656db6c9e813ff6c7" name="a0cd7bdc76cf148c656db6c9e813ff6c7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0cd7bdc76cf148c656db6c9e813ff6c7">&#9670;&#160;</a></span>ADBMS6380_SPI_TX_BUFFER_SIZE</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t ADBMS6380_SPI_TX_BUFFER_SIZE</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<b>Initial value:</b><div class="fragment"><div class="line">=</div>
+<div class="line">    <a class="code hl_variable" href="#a6cb3c62b3ead5b846dd2a821774e222e">ADBMS6380_COMMAND_PKT_SIZE</a> + (<a class="code hl_variable" href="adbms__config_8h.html#aa1a279c187a35cbe461f78ef64d4d9c1">ADBMS_CHIP_COUNT</a> * <a class="code hl_variable" href="#af70094c50548a0d38dbe8e28f54a8508">ADBMS6380_SINGLE_DATA_PKT_SIZE</a>)</div>
+<div class="ttc" id="aadbms6380_8h_html_a6cb3c62b3ead5b846dd2a821774e222e"><div class="ttname"><a href="#a6cb3c62b3ead5b846dd2a821774e222e">ADBMS6380_COMMAND_PKT_SIZE</a></div><div class="ttdeci">static constexpr size_t ADBMS6380_COMMAND_PKT_SIZE</div><div class="ttdef"><b>Definition</b> adbms6380.h:36</div></div>
+</div><!-- fragment -->
 </div>
 </div>
 </div><!-- contents -->
@@ -1070,7 +987,7 @@ Functions</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_463a06e8c8df3dfb8722b56866f4fb0c.html">a_box</a></li><li class="navelem"><a class="el" href="dir_b9ac109653960c1c094259a09df46e85.html">adbms</a></li><li class="navelem"><a class="el" href="adbms6380_8h.html">adbms6380.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_c5ffd08ff9aa00277f014903005f1bc0.html">a_box</a></li><li class="navelem"><a class="el" href="dir_ea9193e9e86f9bc4ee2f809bd800c685.html">adbms</a></li><li class="navelem"><a class="el" href="adbms6380_8h.html">adbms6380.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

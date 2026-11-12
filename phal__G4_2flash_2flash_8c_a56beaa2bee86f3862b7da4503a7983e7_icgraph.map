@@ -1,0 +1,39 @@
+<map id="flash_range_is_valid" name="flash_range_is_valid">
+<area shape="rect" id="Node000001" title=" " alt="" coords="1430,145,1568,171"/>
+<area shape="rect" id="Node000002" href="$phal__G4_2flash_2flash_8c.html#af6bbb048a9a066ae1f1b6a5c8a5155f9" title=" " alt="" coords="1239,59,1378,100"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1451,142,1359,103,1361,98,1453,137"/>
+<area shape="rect" id="Node000012" href="$phal__G4_2flash_2flash_8c.html#ae5452e7ac6c1fd154de448cc8403653d" title="Erase every internal flash page touched by a range." alt="" coords="1235,145,1382,171"/>
+<area shape="poly" id="edge13_Node000001_Node000012" title=" " alt="" coords="1414,161,1382,161,1382,156,1414,156"/>
+<area shape="rect" id="Node000015" href="$phal__G4_2flash_2flash_8c.html#a3b76c399c317f06b6463778aec2aaa10" title="Copy bytes from internal flash into a buffer." alt="" coords="1238,195,1378,220"/>
+<area shape="poly" id="edge18_Node000001_Node000015" title=" " alt="" coords="1432,178,1362,197,1360,191,1431,173"/>
+<area shape="rect" id="Node000003" href="$phal__G4_2flash_2flash_8c.html#a5c15aad9202332ef0384fafe9620e0ce" title="Program bytes into erased internal flash." alt="" coords="1038,55,1181,80"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="1223,77,1182,74,1182,69,1224,72"/>
+<area shape="rect" id="Node000004" href="$bootloader_8c.html#a1ee6d33267fac00c9b40a73b2092384d" title=" " alt="" coords="832,5,984,31"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="1039,53,963,34,964,29,1040,48"/>
+<area shape="rect" id="Node000010" href="$bootloader_8c.html#a3c2e98b614b2928512c9575943fa286a" title=" " alt="" coords="844,55,972,80"/>
+<area shape="poly" id="edge9_Node000003_Node000010" title=" " alt="" coords="1022,70,972,70,972,65,1022,65"/>
+<area shape="rect" id="Node000011" href="$bootloader_8c.html#ac67d8f3c1b3d2c648d6a5ac3489eb654" title=" " alt="" coords="670,105,771,131"/>
+<area shape="poly" id="edge11_Node000003_Node000011" title=" " alt="" coords="1035,87,985,95,870,109,771,118,771,112,870,104,984,90,1034,81"/>
+<area shape="rect" id="Node000005" href="$bootloader_8c.html#ac2d28de1668a1ef30b63868db0e8516b" title=" " alt="" coords="657,55,784,80"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="842,38,773,57,772,51,841,33"/>
+<area shape="rect" id="Node000006" href="$bootloader_8c.html#abf75df907f2cb56139815b8adb7c195e" title=" " alt="" coords="464,112,609,138"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="663,88,581,114,579,109,661,83"/>
+<area shape="rect" id="Node000007" href="$bootloader_8c.html#a3267de5d4f419fad89acf507722d341e" title=" " alt="" coords="216,124,416,150"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="449,132,417,134,417,129,449,127"/>
+<area shape="rect" id="Node000008" href="$bootloader_8c.html#afbd1b6f14da46bdc0a6e199e0a84aeb2" title="Process every frame currently queued by the FDCAN receive interrupt." alt="" coords="103,131,168,156"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="201,144,169,145,168,140,201,138"/>
+<area shape="rect" id="Node000009" href="$bootloader_2main_8c.html#a840291bc02cba5474a4cb46a9b9566fe" title=" " alt="" coords="5,156,55,182"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="88,158,55,166,54,160,87,152"/>
+<area shape="poly" id="edge10_Node000010_Node000005" title=" " alt="" coords="829,70,784,70,784,65,829,65"/>
+<area shape="poly" id="edge12_Node000011_Node000006" title=" " alt="" coords="654,123,609,125,609,120,654,118"/>
+<area shape="rect" id="Node000013" href="$bootloader_8c.html#a973838ef3e1c22ca2fcd449941bf2198" title=" " alt="" coords="850,156,966,182"/>
+<area shape="poly" id="edge14_Node000012_Node000013" title=" " alt="" coords="1219,149,1186,146,1109,142,1033,146,963,158,962,153,1032,141,1109,137,1187,141,1220,144"/>
+<area shape="rect" id="Node000014" href="$bootloader_8c.html#a3c02683280523e18e3a1093eb4dac971" title=" " alt="" coords="1032,156,1187,182"/>
+<area shape="poly" id="edge16_Node000012_Node000014" title=" " alt="" coords="1220,166,1187,167,1187,162,1219,160"/>
+<area shape="poly" id="edge15_Node000013_Node000006" title=" " alt="" coords="835,165,656,146,608,139,609,134,657,141,835,160"/>
+<area shape="poly" id="edge17_Node000014_Node000013" title=" " alt="" coords="1017,172,966,172,966,166,1017,166"/>
+<area shape="rect" id="Node000016" href="$bootloader_8c.html#a29a8510cf432cd0aff5dd15073f561bb" title="Validate the committed image and transfer control to it." alt="" coords="251,181,381,207"/>
+<area shape="poly" id="edge19_Node000015_Node000016" title=" " alt="" coords="1223,214,1077,219,910,222,719,222,535,216,382,203,382,198,536,210,719,217,909,217,1076,214,1223,209"/>
+<area shape="poly" id="edge20_Node000016_Node000008" title=" " alt="" coords="252,179,168,155,169,150,254,174"/>
+<area shape="poly" id="edge21_Node000016_Node000009" title=" " alt="" coords="235,190,55,174,55,168,236,184"/>
+</map>

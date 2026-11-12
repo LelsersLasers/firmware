@@ -1,0 +1,5 @@
+<map id="firmware/common/phal_G4/dma/dma_wiring.h" name="firmware/common/phal_G4/dma/dma_wiring.h">
+<area shape="rect" id="Node000001" title="G4 DMA Peripheral wiring configuration and definitions." alt="" coords="5,5,160,46"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="29,94,136,120"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="85,46,85,78,80,78,80,46"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="MS_incrementValue" name="MS_incrementValue">
+<area shape="rect" id="Node000001" title="Increments the value of a menu element and updates its display." alt="" coords="301,5,439,31"/>
+<area shape="rect" id="Node000002" href="$menu__system_8c.html#abb6e83f43c566270750060807da99fa4" title="Moves menu selection up or increments selected element value." alt="" coords="156,5,253,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="286,21,253,21,253,16,286,16"/>
+<area shape="rect" id="Node000003" href="$vcu_8c.html#a7584d411418c72e61404ff410c27acc3" title=" " alt="" coords="5,5,108,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="140,21,108,21,108,16,140,16"/>
+</map>

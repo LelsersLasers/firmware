@@ -1,0 +1,16 @@
+<map id="geodetic_to_local" name="geodetic_to_local">
+<area shape="rect" id="Node000001" title="Project a coordinate onto a local east&#45;north plane about an origin." alt="" coords="865,31,987,56"/>
+<area shape="rect" id="Node000002" href="$lap__timer_8c.html#a922bb1fc5c4fe5ec8f82bc735890ee69" title=" " alt="" coords="663,31,817,56"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="850,46,818,46,818,41,850,41"/>
+<area shape="rect" id="Node000003" href="$lap__timer_8c.html#a7220f3edbfb4c8e5b3956ab663092676" title=" " alt="" coords="487,5,615,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="647,34,615,29,615,24,647,28"/>
+<area shape="rect" id="Node000007" href="$lap__timer_8c.html#a382636387f4db3d2b08c71b5e7c03f2b" title=" " alt="" coords="313,56,439,82"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="647,53,440,67,440,62,647,47"/>
+<area shape="rect" id="Node000004" href="$driver__interface_8c.html#a6ec7bb211c49e211d008f7c9bcdb2b8d" title=" " alt="" coords="314,5,438,31"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="472,21,438,21,438,16,472,16"/>
+<area shape="rect" id="Node000005" href="$driver__interface_8c.html#ac599c66976c348cb0287266b60aa49c5" title=" " alt="" coords="103,5,265,31"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="299,21,266,21,266,16,299,16"/>
+<area shape="rect" id="Node000006" href="$dashboard_2main_8c.html#a840291bc02cba5474a4cb46a9b9566fe" title=" " alt="" coords="5,31,55,56"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="87,37,55,42,55,37,86,32"/>
+<area shape="poly" id="edge7_Node000007_Node000006" title=" " alt="" coords="297,66,55,48,55,43,298,60"/>
+</map>

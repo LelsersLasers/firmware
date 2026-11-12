@@ -1,5 +1,21 @@
 var searchData=
 [
-  ['year_0',['year',['../structNAV__PVT__t.html#a2f475e7294173b7951de91a883007c54',1,'NAV_PVT_t']]],
-  ['year_5fbcd_1',['year_bcd',['../structRTC__date__t.html#aa4e963fd0afe128ba6b328d3d2330d17',1,'RTC_date_t']]]
+  ['wake_5faddr_0',['wake_addr',['../structusart__init__t.html#a72b5f7df2bcce44b8d47c08e616df66f',1,'usart_init_t']]],
+  ['watchdog_5fpet_5fperiod_5fms_1',['WATCHDOG_PET_PERIOD_MS',['../watchdog_8h.html#ae9d77b28b3ce449e8e33d9879332d407',1,'watchdog.h']]],
+  ['watchdog_5ftimeout_5fms_2',['WATCHDOG_TIMEOUT_MS',['../watchdog_8h.html#a48f9b6ab9ba7b61703d6c7e4415ef574',1,'watchdog.h']]],
+  ['wb_3',['wb',['../structpVCU__struct.html#a1dd4b65799d0fadffc1ec9926d4a8113',1,'pVCU_struct']]],
+  ['weekday_4',['weekday',['../structRTC__date__t.html#a992e635ababc6ba6c5d921eb5653ca10',1,'RTC_date_t']]],
+  ['wheel_5fcircumference_5fin_5',['WHEEL_CIRCUMFERENCE_IN',['../torque__controller_8c.html#a284846036ea71dd362de4fd2608bd9dc',1,'torque_controller.c']]],
+  ['wheel_5fradius_5fin_6',['WHEEL_RADIUS_IN',['../torque__controller_8c.html#aa0ffa8a098be39f4206ea8290a138f60',1,'torque_controller.c']]],
+  ['white_7',['WHITE',['../colors_8h.html#a01ca0b8d16a19254e9afaafe8a4653aa',1,'colors.h']]],
+  ['wiring_8',['wiring',['../structPHAL__DMA__Handle__t.html#ab5815f270fe8d8548e8c70e34e93eae0',1,'PHAL_DMA_Handle_t']]],
+  ['wm_9',['WM',['../structyVCU__struct.html#a4106077379b126d0530b97aa785c0df5',1,'yVCU_struct']]],
+  ['wm_5fraw_10',['WM_RAW',['../structxVCU__struct.html#ab2eca154ead37d6d8d278341d5b81cc5',1,'xVCU_struct']]],
+  ['word_5flength_11',['word_length',['../structusart__init__t.html#a05cc99e8162f284a52d93388d800c782',1,'usart_init_t']]],
+  ['wrblockmisalign_12',['WrBlockMisalign',['../structSD__CSD.html#a54d08d114ba504e72f0001fa922ec919',1,'SD_CSD']]],
+  ['writeblockpapartial_13',['WriteBlockPaPartial',['../structSD__CSD.html#a27824f576bf5d6a01dd7602aae8dad96',1,'SD_CSD']]],
+  ['wrprotectgrenable_14',['WrProtectGrEnable',['../structSD__CSD.html#a7cf93c94ebd2f9092b62e791f1565d30',1,'SD_CSD']]],
+  ['wrprotectgrsize_15',['WrProtectGrSize',['../structSD__CSD.html#a03486966abee0e50401e2a56d33bf1bb',1,'SD_CSD']]],
+  ['wrspeedfact_16',['WrSpeedFact',['../structSD__CSD.html#a471bde59e37efab5eb960510d4d94aca',1,'SD_CSD']]],
+  ['ww_17',['WW',['../structyVCU__struct.html#ac3f218cb71a5c73a0e215af91f0e53df',1,'yVCU_struct']]]
 ];

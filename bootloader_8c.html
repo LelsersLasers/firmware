@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/bootloader/bootloader.c File Reference</title>
+<title>PER Firmware: firmware/source/bootloader/bootloader/bootloader.c File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -98,295 +99,293 @@ $(function(){initNavTree('bootloader_8c.html',''); initResizable(true); });
 <div class="header">
   <div class="summary">
 <a href="#define-members">Macros</a> &#124;
+<a href="#enum-members">Enumerations</a> &#124;
 <a href="#func-members">Functions</a> &#124;
 <a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">bootloader.c File Reference</div></div>
 </div><!--header-->
 <div class="contents">
-
-<p>CAN Bootloader:  
-<a href="#details">More...</a></p>
-<div class="textblock"><code>#include &quot;<a class="el" href="bootloader_8h_source.html">bootloader.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="phal_2crc_8h_source.html">common/phal/crc.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="phal_2flash_8h_source.html">common/phal/flash.h</a>&quot;</code><br />
-<code>#include &quot;<a class="el" href="phal_2gpio_8h_source.html">common/phal/gpio.h</a>&quot;</code><br />
+<div class="textblock"><code>#include &quot;<a class="el" href="bootloader_8h_source.html">bootloader/bootloader.h</a>&quot;</code><br />
+<code>#include &lt;string.h&gt;</code><br />
+<code>#include &quot;<a class="el" href="can__version_8h_source.html">can_library/generated/can_version.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="bootloader__common_8h_source.html">common/bootloader/bootloader_common.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2crc_2crc_8h_source.html">common/phal_G4/crc/crc.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="fdcan_8h_source.html">common/phal_G4/fdcan/fdcan.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2flash_2flash_8h_source.html">common/phal_G4/flash/flash.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2gpio_2gpio_8h_source.html">common/phal_G4/gpio/gpio.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2rcc_2rcc_8h_source.html">common/phal_G4/rcc/rcc.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="node__defs_8h_source.html">node_defs.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for bootloader.c:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c__incl.svg" width="100%" height="593"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
 </div>
-<p><a href="bootloader_8c_source.html">Go to the source code of this file.</a></p>
-<table class="memberdecls">
+</div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
-<tr class="memitem:a4fec96cd5f5c7c4d4aa65e4ecd852601" id="r_a4fec96cd5f5c7c4d4aa65e4ecd852601"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4fec96cd5f5c7c4d4aa65e4ecd852601">BL_ADDRESS_CRC_CRC</a>&#160;&#160;&#160;((BL_ADDRESS_CRC) + 0)</td></tr>
-<tr class="separator:a4fec96cd5f5c7c4d4aa65e4ecd852601"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9adae0caf992e9179d9d8ba4ed569a7a" id="r_a9adae0caf992e9179d9d8ba4ed569a7a"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9adae0caf992e9179d9d8ba4ed569a7a">BL_ADDRESS_CRC_ADDR</a>&#160;&#160;&#160;((BL_ADDRESS_CRC) + 4)</td></tr>
-<tr class="separator:a9adae0caf992e9179d9d8ba4ed569a7a"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a895baa15ff8731f872fa9b7cf328c3ab" id="r_a895baa15ff8731f872fa9b7cf328c3ab"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a895baa15ff8731f872fa9b7cf328c3ab">BL_ADDRESS_CRC_SIZE</a>&#160;&#160;&#160;((BL_ADDRESS_CRC) + 8)</td></tr>
-<tr class="separator:a895baa15ff8731f872fa9b7cf328c3ab"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a6b20d41d6252e9871430c242cb1a56e7" id="r_a6b20d41d6252e9871430c242cb1a56e7"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6b20d41d6252e9871430c242cb1a56e7">BUFFER_SIZE</a>&#160;&#160;&#160;128</td></tr>
-<tr class="separator:a6b20d41d6252e9871430c242cb1a56e7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8eaf6900041c2c50d63ba5001a2ce5c7" id="r_a8eaf6900041c2c50d63ba5001a2ce5c7"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8eaf6900041c2c50d63ba5001a2ce5c7">NODE_CASE_BL_RESPONSE</a>(app_id,  resp_func)</td></tr>
-<tr class="separator:a8eaf6900041c2c50d63ba5001a2ce5c7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af179aa58d86c40ad8f11f20a4b0f29a7" id="r_af179aa58d86c40ad8f11f20a4b0f29a7"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af179aa58d86c40ad8f11f20a4b0f29a7">NODE_BL_CMD_CALLBACK</a>(callback_name,  can_msg_name,  node_id)</td></tr>
-<tr class="separator:af179aa58d86c40ad8f11f20a4b0f29a7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6eb34067e167ec60b605ac66ad7450fa" id="r_a6eb34067e167ec60b605ac66ad7450fa"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6eb34067e167ec60b605ac66ad7450fa">BL_RX_QUEUE_LENGTH</a>&#160;&#160;&#160;16U</td></tr>
+<tr class="separator:a6eb34067e167ec60b605ac66ad7450fa"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7f32fca79051162271c3098cde9141a4" id="r_a7f32fca79051162271c3098cde9141a4"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7f32fca79051162271c3098cde9141a4">BL_RAM_START</a>&#160;&#160;&#160;0x20000000U</td></tr>
+<tr class="separator:a7f32fca79051162271c3098cde9141a4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a89166104819449a8e502cf78fd18ad94" id="r_a89166104819449a8e502cf78fd18ad94"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a89166104819449a8e502cf78fd18ad94">BL_RAM_END</a>&#160;&#160;&#160;0x2001FFFFU</td></tr>
+<tr class="separator:a89166104819449a8e502cf78fd18ad94"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
+Enumerations</h2></td></tr>
+<tr class="memitem:a1c664d29dea4c558d14de397725dcf6c" id="r_a1c664d29dea4c558d14de397725dcf6c"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a> { <br />
+&#160;&#160;<a class="el" href="#a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba">BL_STATE_STARTUP</a>
+, <a class="el" href="#a1c664d29dea4c558d14de397725dcf6ca48b1584c16fc8110d86a640a76271621">BL_STATE_READY</a>
+, <a class="el" href="#a1c664d29dea4c558d14de397725dcf6ca2e80f869d8827b935d2c1b6f333a5361">BL_STATE_UPDATING</a>
+, <a class="el" href="#a1c664d29dea4c558d14de397725dcf6ca7d3659e84d1d970976be37e808137eaa">BL_STATE_CHECKING</a>
+, <br />
+&#160;&#160;<a class="el" href="#a1c664d29dea4c558d14de397725dcf6ca68950dee7c99dce2061cc6c2787399f6">BL_STATE_RECOVERY</a>
+<br />
+ }</td></tr>
+<tr class="separator:a1c664d29dea4c558d14de397725dcf6c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:affdabe51a7f7b2827dbae8c37052c02c" id="r_affdabe51a7f7b2827dbae8c37052c02c"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#affdabe51a7f7b2827dbae8c37052c02c">BL_JumptoApplication</a> (void)</td></tr>
-<tr class="separator:affdabe51a7f7b2827dbae8c37052c02c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af3fcdf5238df9f83b21b88808bd7e397" id="r_af3fcdf5238df9f83b21b88808bd7e397"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af3fcdf5238df9f83b21b88808bd7e397">BL_checkAndBoot</a> (void)</td></tr>
-<tr class="separator:af3fcdf5238df9f83b21b88808bd7e397"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a6dd8cb782fabe500b1e1198d2a2a370e" id="r_a6dd8cb782fabe500b1e1198d2a2a370e"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6dd8cb782fabe500b1e1198d2a2a370e">BL_processCommand_Start</a> (uint32_t size)</td></tr>
-<tr class="separator:a6dd8cb782fabe500b1e1198d2a2a370e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1b617d79263f43b6fe08903b68aa3849" id="r_a1b617d79263f43b6fe08903b68aa3849"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b617d79263f43b6fe08903b68aa3849">BL_memcpy_buffer</a> (uint32_t addr_dst, uint32_t addr_src, uint32_t size)</td></tr>
-<tr class="separator:a1b617d79263f43b6fe08903b68aa3849"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a0fc0e3816aacff5f74436d9996201b93" id="r_a0fc0e3816aacff5f74436d9996201b93"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0fc0e3816aacff5f74436d9996201b93">BL_setCRCConfig</a> (uint32_t crc, uint32_t <a class="el" href="eeprom__spi_8c.html#ab439e3a90339e2e8ca8f82d4557a34e5">addr</a>, uint32_t size)</td></tr>
-<tr class="separator:a0fc0e3816aacff5f74436d9996201b93"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2bc2632777121708f3edba5775a1e9b0" id="r_a2bc2632777121708f3edba5775a1e9b0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2bc2632777121708f3edba5775a1e9b0">bitstream_data_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a2bc2632777121708f3edba5775a1e9b0"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7648e597df1b1befe5451db3477ca6a1" id="r_a7648e597df1b1befe5451db3477ca6a1"><td class="memItemLeft" align="right" valign="top">static int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7648e597df1b1befe5451db3477ca6a1">BL_processCommand_CRC</a> (uint32_t crc_app, uint32_t dst_addr)</td></tr>
-<tr class="separator:a7648e597df1b1befe5451db3477ca6a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ad4e5f13ca76d6551e230c7ea110a6ba8" id="r_ad4e5f13ca76d6551e230c7ea110a6ba8"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad4e5f13ca76d6551e230c7ea110a6ba8">BL_processCommand_Reset</a> (uint32_t data)</td></tr>
-<tr class="separator:ad4e5f13ca76d6551e230c7ea110a6ba8"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aae89c6288d926acc216e963b3d8774ed" id="r_aae89c6288d926acc216e963b3d8774ed"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aae89c6288d926acc216e963b3d8774ed">BL_processCommand_Jump</a> (uint32_t data)</td></tr>
-<tr class="separator:aae89c6288d926acc216e963b3d8774ed"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a89a30b74da99b74748c4231a884c8841" id="r_a89a30b74da99b74748c4231a884c8841"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a89a30b74da99b74748c4231a884c8841">BL_processCommand</a> (<a class="el" href="bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9">BLCmd_t</a> cmd, uint32_t data)</td></tr>
-<tr class="separator:a89a30b74da99b74748c4231a884c8841"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abbc774ce21075748c42ce66f329d1f51" id="r_abbc774ce21075748c42ce66f329d1f51"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abbc774ce21075748c42ce66f329d1f51">BL_flashStarted</a> (void)</td></tr>
-<tr class="separator:abbc774ce21075748c42ce66f329d1f51"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ab1dc28eb998a696359ecfb52b86b5a52" id="r_ab1dc28eb998a696359ecfb52b86b5a52"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab1dc28eb998a696359ecfb52b86b5a52">BL_sendStatusMessage</a> (uint8_t cmd, uint32_t data)</td></tr>
-<tr class="separator:ab1dc28eb998a696359ecfb52b86b5a52"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a97e5ebcdeb487fa76c87a3c5200d704c" id="r_a97e5ebcdeb487fa76c87a3c5200d704c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97e5ebcdeb487fa76c87a3c5200d704c">main_module_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a97e5ebcdeb487fa76c87a3c5200d704c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9cdf0cafe2fb1948be5005da31d6cd7f" id="r_a9cdf0cafe2fb1948be5005da31d6cd7f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9cdf0cafe2fb1948be5005da31d6cd7f">dashboard_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a9cdf0cafe2fb1948be5005da31d6cd7f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8f68820222c3f559999ca8ea7d339ec6" id="r_a8f68820222c3f559999ca8ea7d339ec6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8f68820222c3f559999ca8ea7d339ec6">torquevector_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a8f68820222c3f559999ca8ea7d339ec6"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a50a2a1b6100f6bc248f0b4d93d6aceec" id="r_a50a2a1b6100f6bc248f0b4d93d6aceec"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a50a2a1b6100f6bc248f0b4d93d6aceec">a_box_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a50a2a1b6100f6bc248f0b4d93d6aceec"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a5885557ea34a723281d8c5e2121451b8" id="r_a5885557ea34a723281d8c5e2121451b8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5885557ea34a723281d8c5e2121451b8">pdu_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a5885557ea34a723281d8c5e2121451b8"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:acfea4ae6140b883485b66003722ecd5e" id="r_acfea4ae6140b883485b66003722ecd5e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acfea4ae6140b883485b66003722ecd5e">l4_testing_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:acfea4ae6140b883485b66003722ecd5e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a12dd57d15ab7ee5c166e8752a79d761b" id="r_a12dd57d15ab7ee5c166e8752a79d761b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a12dd57d15ab7ee5c166e8752a79d761b">f4_testing_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a12dd57d15ab7ee5c166e8752a79d761b"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a0a60ec0e1837419bbab581fc68e29728" id="r_a0a60ec0e1837419bbab581fc68e29728"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0a60ec0e1837419bbab581fc68e29728">f7_testing_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:a0a60ec0e1837419bbab581fc68e29728"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ab843e1ad29da7f83865ca7a1c12ab863" id="r_ab843e1ad29da7f83865ca7a1c12ab863"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab843e1ad29da7f83865ca7a1c12ab863">daq_bl_cmd_CALLBACK</a> (CanParsedData_t *msg_data_a)</td></tr>
-<tr class="separator:ab843e1ad29da7f83865ca7a1c12ab863"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab8c95db6ba7bf75889443068c0ab2b07" id="r_ab8c95db6ba7bf75889443068c0ab2b07"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab8c95db6ba7bf75889443068c0ab2b07">bl_size_is_valid</a> (uint32_t size_bytes)</td></tr>
+<tr class="separator:ab8c95db6ba7bf75889443068c0ab2b07"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adaf62d77adfedb5a6a09531c3f05c3f0" id="r_adaf62d77adfedb5a6a09531c3f05c3f0"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adaf62d77adfedb5a6a09531c3f05c3f0">bl_range_is_valid</a> (uint32_t address, uint32_t size_bytes)</td></tr>
+<tr class="separator:adaf62d77adfedb5a6a09531c3f05c3f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a810c762c521719f1b6ba864fac91e47e" id="r_a810c762c521719f1b6ba864fac91e47e"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a810c762c521719f1b6ba864fac91e47e">bl_message_id</a> (const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *message)</td></tr>
+<tr class="separator:a810c762c521719f1b6ba864fac91e47e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aded70a9a447e109b5aa6260e6fa0f916" id="r_aded70a9a447e109b5aa6260e6fa0f916"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aded70a9a447e109b5aa6260e6fa0f916">bl_message_is_bootloader_traffic</a> (const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *message)</td></tr>
+<tr class="separator:aded70a9a447e109b5aa6260e6fa0f916"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac60843a6445f115dfc084962072b15af" id="r_ac60843a6445f115dfc084962072b15af"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac60843a6445f115dfc084962072b15af">bl_send_status</a> (<a class="el" href="can__types_8h.html#a8bd8b746690f284cbd524f248f4bb598">bootloader_status_t</a> status, uint32_t detail)</td></tr>
+<tr class="separator:ac60843a6445f115dfc084962072b15af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac19da133af9137d8db35468a8e1b7af5" id="r_ac19da133af9137d8db35468a8e1b7af5"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac19da133af9137d8db35468a8e1b7af5">bl_send_info</a> (void)</td></tr>
+<tr class="separator:ac19da133af9137d8db35468a8e1b7af5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1ee6d33267fac00c9b40a73b2092384d" id="r_a1ee6d33267fac00c9b40a73b2092384d"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1ee6d33267fac00c9b40a73b2092384d">bl_flush_pending_word</a> (void)</td></tr>
+<tr class="separator:a1ee6d33267fac00c9b40a73b2092384d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac67d8f3c1b3d2c648d6a5ac3489eb654" id="r_ac67d8f3c1b3d2c648d6a5ac3489eb654"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac67d8f3c1b3d2c648d6a5ac3489eb654">bl_write_word</a> (uint32_t index, uint32_t word)</td></tr>
+<tr class="separator:ac67d8f3c1b3d2c648d6a5ac3489eb654"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa9e586c10b08cd8558325c82685f2964" id="r_aa9e586c10b08cd8558325c82685f2964"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa9e586c10b08cd8558325c82685f2964">bl_physical_size</a> (uint32_t size_bytes)</td></tr>
+<tr class="separator:aa9e586c10b08cd8558325c82685f2964"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3c02683280523e18e3a1093eb4dac971" id="r_a3c02683280523e18e3a1093eb4dac971"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c02683280523e18e3a1093eb4dac971">bl_invalidate_metadata</a> (void)</td></tr>
+<tr class="separator:a3c02683280523e18e3a1093eb4dac971"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a973838ef3e1c22ca2fcd449941bf2198" id="r_a973838ef3e1c22ca2fcd449941bf2198"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a973838ef3e1c22ca2fcd449941bf2198">bl_begin_update</a> (uint32_t size_bytes)</td></tr>
+<tr class="separator:a973838ef3e1c22ca2fcd449941bf2198"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3c2e98b614b2928512c9575943fa286a" id="r_a3c2e98b614b2928512c9575943fa286a"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3c2e98b614b2928512c9575943fa286a">bl_write_metadata</a> (uint32_t crc32, uint32_t size_bytes)</td></tr>
+<tr class="separator:a3c2e98b614b2928512c9575943fa286a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a20b65830930a9db7f57fdb0c4d032102" id="r_a20b65830930a9db7f57fdb0c4d032102"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a20b65830930a9db7f57fdb0c4d032102">bl_application_crc_is_valid</a> (uint32_t address, uint32_t size_bytes, uint32_t expected_crc)</td></tr>
+<tr class="separator:a20b65830930a9db7f57fdb0c4d032102"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa6598f2edbd2e32a9210f610fedec433" id="r_aa6598f2edbd2e32a9210f610fedec433"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa6598f2edbd2e32a9210f610fedec433">bl_vector_is_valid</a> (uint32_t app_address, uint32_t size_bytes)</td></tr>
+<tr class="separator:aa6598f2edbd2e32a9210f610fedec433"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac2d28de1668a1ef30b63868db0e8516b" id="r_ac2d28de1668a1ef30b63868db0e8516b"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac2d28de1668a1ef30b63868db0e8516b">bl_commit_update</a> (uint32_t expected_crc)</td></tr>
+<tr class="separator:ac2d28de1668a1ef30b63868db0e8516b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a29a8510cf432cd0aff5dd15073f561bb" id="r_a29a8510cf432cd0aff5dd15073f561bb"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a29a8510cf432cd0aff5dd15073f561bb">BL_checkAndBoot</a> (void)</td></tr>
+<tr class="memdesc:a29a8510cf432cd0aff5dd15073f561bb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Validate the committed image and transfer control to it.  <br /></td></tr>
+<tr class="separator:a29a8510cf432cd0aff5dd15073f561bb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8f3891a36ae918f08b0d88a27366e7af" id="r_a8f3891a36ae918f08b0d88a27366e7af"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8f3891a36ae918f08b0d88a27366e7af">bl_uint32_data</a> (const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *message)</td></tr>
+<tr class="separator:a8f3891a36ae918f08b0d88a27366e7af"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abf75df907f2cb56139815b8adb7c195e" id="r_abf75df907f2cb56139815b8adb7c195e"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abf75df907f2cb56139815b8adb7c195e">bl_process_message</a> (const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *message)</td></tr>
+<tr class="separator:abf75df907f2cb56139815b8adb7c195e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab5e09814056d617c521549e542639b7e" id="r_ab5e09814056d617c521549e542639b7e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab5e09814056d617c521549e542639b7e">SysTick_Handler</a> (void)</td></tr>
+<tr class="separator:ab5e09814056d617c521549e542639b7e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3267de5d4f419fad89acf507722d341e" id="r_a3267de5d4f419fad89acf507722d341e"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3267de5d4f419fad89acf507722d341e">bl_process_queued_messages</a> (void)</td></tr>
+<tr class="separator:a3267de5d4f419fad89acf507722d341e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:afbd1b6f14da46bdc0a6e199e0a84aeb2" id="r_afbd1b6f14da46bdc0a6e199e0a84aeb2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afbd1b6f14da46bdc0a6e199e0a84aeb2">BL_poll</a> (void)</td></tr>
+<tr class="memdesc:afbd1b6f14da46bdc0a6e199e0a84aeb2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Process every frame currently queued by the FDCAN receive interrupt.  <br /></td></tr>
+<tr class="separator:afbd1b6f14da46bdc0a6e199e0a84aeb2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac1fa48bee07db6c9d511afb985c68f59" id="r_ac1fa48bee07db6c9d511afb985c68f59"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1fa48bee07db6c9d511afb985c68f59">bl_enable_irq</a> (FDCAN_GlobalTypeDef *peripheral)</td></tr>
+<tr class="separator:ac1fa48bee07db6c9d511afb985c68f59"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0e6fcac4f931dc8811b83333d9eaa780" id="r_a0e6fcac4f931dc8811b83333d9eaa780"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e6fcac4f931dc8811b83333d9eaa780">BL_init</a> (void)</td></tr>
+<tr class="memdesc:a0e6fcac4f931dc8811b83333d9eaa780"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure the node-specific transport and announce readiness.  <br /></td></tr>
+<tr class="separator:a0e6fcac4f931dc8811b83333d9eaa780"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a765846d0efaeecbb6faef685956e919f" id="r_a765846d0efaeecbb6faef685956e919f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a765846d0efaeecbb6faef685956e919f">PHAL_FDCAN_rxCallback</a> (<a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *message)</td></tr>
+<tr class="memdesc:a765846d0efaeecbb6faef685956e919f"><td class="mdescLeft">&#160;</td><td class="mdescRight">Weak callback fired once per received frame.  <br /></td></tr>
+<tr class="separator:a765846d0efaeecbb6faef685956e919f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
-<tr class="memitem:a4607141aa150b1b3cadd123a88fbbeaa" id="r_a4607141aa150b1b3cadd123a88fbbeaa"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4607141aa150b1b3cadd123a88fbbeaa">bl_unlock</a> = false</td></tr>
-<tr class="separator:a4607141aa150b1b3cadd123a88fbbeaa"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1dea7ab5a5ef7cbc611dc4fe0534ea27" id="r_a1dea7ab5a5ef7cbc611dc4fe0534ea27"><td class="memItemLeft" align="right" valign="top">static volatile uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1dea7ab5a5ef7cbc611dc4fe0534ea27">firmware_size_total</a> = 0</td></tr>
-<tr class="separator:a1dea7ab5a5ef7cbc611dc4fe0534ea27"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a542953c07def3fa38e66087ba9eeb529" id="r_a542953c07def3fa38e66087ba9eeb529"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a542953c07def3fa38e66087ba9eeb529">buffer</a> [128]</td></tr>
-<tr class="separator:a542953c07def3fa38e66087ba9eeb529"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a05d3201c3d91255f8190d1e4901ab7de" id="r_a05d3201c3d91255f8190d1e4901ab7de"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a05d3201c3d91255f8190d1e4901ab7de">buffer_index</a> = 0</td></tr>
-<tr class="separator:a05d3201c3d91255f8190d1e4901ab7de"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7eed2ad94f1cefd865761705989f5f71" id="r_a7eed2ad94f1cefd865761705989f5f71"><td class="memItemLeft" align="right" valign="top">char&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7eed2ad94f1cefd865761705989f5f71">__isr_vector_start</a></td></tr>
-<tr class="separator:a7eed2ad94f1cefd865761705989f5f71"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8076273005b4317c2282ae5785913458" id="r_a8076273005b4317c2282ae5785913458"><td class="memItemLeft" align="right" valign="top">char&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8076273005b4317c2282ae5785913458">_eboot_flash</a></td></tr>
-<tr class="separator:a8076273005b4317c2282ae5785913458"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a71010d56f5257f4dfaff9ef224836050" id="r_a71010d56f5257f4dfaff9ef224836050"><td class="memItemLeft" align="right" valign="top">char&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71010d56f5257f4dfaff9ef224836050">_estack</a></td></tr>
-<tr class="separator:a71010d56f5257f4dfaff9ef224836050"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5e2a5275050f4a8f97a68506f1b48f62" id="r_a5e2a5275050f4a8f97a68506f1b48f62"><td class="memItemLeft" align="right" valign="top">static volatile <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5e2a5275050f4a8f97a68506f1b48f62">bl_rx_queue</a> [<a class="el" href="#a6eb34067e167ec60b605ac66ad7450fa">BL_RX_QUEUE_LENGTH</a>]</td></tr>
+<tr class="separator:a5e2a5275050f4a8f97a68506f1b48f62"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a77c5e0a3bb027ced3f3e077a7109fbea" id="r_a77c5e0a3bb027ced3f3e077a7109fbea"><td class="memItemLeft" align="right" valign="top">static volatile uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77c5e0a3bb027ced3f3e077a7109fbea">bl_rx_head</a></td></tr>
+<tr class="separator:a77c5e0a3bb027ced3f3e077a7109fbea"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a528572ba9ef97acc6369499784896937" id="r_a528572ba9ef97acc6369499784896937"><td class="memItemLeft" align="right" valign="top">static volatile uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a528572ba9ef97acc6369499784896937">bl_rx_tail</a></td></tr>
+<tr class="separator:a528572ba9ef97acc6369499784896937"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae76cae8e53cfba7733b2597c1b0eb60c" id="r_ae76cae8e53cfba7733b2597c1b0eb60c"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae76cae8e53cfba7733b2597c1b0eb60c">current_state</a> = <a class="el" href="#a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba">BL_STATE_STARTUP</a></td></tr>
+<tr class="separator:ae76cae8e53cfba7733b2597c1b0eb60c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a222a42226cc5e09a08f54a18856b9fe3" id="r_a222a42226cc5e09a08f54a18856b9fe3"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a222a42226cc5e09a08f54a18856b9fe3">next_state</a> = <a class="el" href="#a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba">BL_STATE_STARTUP</a></td></tr>
+<tr class="separator:a222a42226cc5e09a08f54a18856b9fe3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aaafe472cb88c3622442661b42d1c092d" id="r_aaafe472cb88c3622442661b42d1c092d"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaafe472cb88c3622442661b42d1c092d">bl_boot_status_requested</a></td></tr>
+<tr class="separator:aaafe472cb88c3622442661b42d1c092d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad1c962145eafea99cae499024d653188" id="r_ad1c962145eafea99cae499024d653188"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad1c962145eafea99cae499024d653188">bl_update_active</a></td></tr>
+<tr class="separator:ad1c962145eafea99cae499024d653188"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad1c24edcfe29abd9a8bd85b1d2e3ead4" id="r_ad1c24edcfe29abd9a8bd85b1d2e3ead4"><td class="memItemLeft" align="right" valign="top">static volatile uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad1c24edcfe29abd9a8bd85b1d2e3ead4">bl_millis</a></td></tr>
+<tr class="separator:ad1c24edcfe29abd9a8bd85b1d2e3ead4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0e6f92d21ca399006af93d21573514f1" id="r_a0e6f92d21ca399006af93d21573514f1"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0e6f92d21ca399006af93d21573514f1">bl_startup_start_ms</a></td></tr>
+<tr class="separator:a0e6f92d21ca399006af93d21573514f1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abbd621abae9447410acb67b8a27f4d6b" id="r_abbd621abae9447410acb67b8a27f4d6b"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abbd621abae9447410acb67b8a27f4d6b">bl_last_info_ms</a></td></tr>
+<tr class="separator:abbd621abae9447410acb67b8a27f4d6b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa75907cd0ed5647ae0ea4a120c086a7c" id="r_aa75907cd0ed5647ae0ea4a120c086a7c"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa75907cd0ed5647ae0ea4a120c086a7c">bl_info_sent</a></td></tr>
+<tr class="separator:aa75907cd0ed5647ae0ea4a120c086a7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a60ec6458793746c09811ff2eb07c5c84" id="r_a60ec6458793746c09811ff2eb07c5c84"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a60ec6458793746c09811ff2eb07c5c84">bl_firmware_size</a></td></tr>
+<tr class="separator:a60ec6458793746c09811ff2eb07c5c84"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7edf899d516036b1018fc2c461f361d0" id="r_a7edf899d516036b1018fc2c461f361d0"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7edf899d516036b1018fc2c461f361d0">bl_total_words</a></td></tr>
+<tr class="separator:a7edf899d516036b1018fc2c461f361d0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8f3727333e63a169e3b73e26028cb573" id="r_a8f3727333e63a169e3b73e26028cb573"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8f3727333e63a169e3b73e26028cb573">bl_next_word</a></td></tr>
+<tr class="separator:a8f3727333e63a169e3b73e26028cb573"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aaeb3d9419e400589bd439f53f26482ad" id="r_aaeb3d9419e400589bd439f53f26482ad"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaeb3d9419e400589bd439f53f26482ad">bl_pending_word</a></td></tr>
+<tr class="separator:aaeb3d9419e400589bd439f53f26482ad"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad398479b0f881b6603fc50fee0ab0631" id="r_ad398479b0f881b6603fc50fee0ab0631"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ad398479b0f881b6603fc50fee0ab0631">bl_pending_word_valid</a></td></tr>
+<tr class="separator:ad398479b0f881b6603fc50fee0ab0631"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>CAN Bootloader: </p>
-<dl class="section author"><dt>Author</dt><dd>Eileen Yoon (<a href="#" onclick="location.href='mai'+'lto:'+'eyn'+'@p'+'urd'+'ue'+'.ed'+'u'; return false;">eyn@p<span class="obfuscator">.nosp@m.</span>urdu<span class="obfuscator">.nosp@m.</span>e.edu</a>)<ul>
-<li>Double bank flash buffer + CRC</li>
-<li>Download/Upload firmware over buffered CAN TP</li>
-<li>Load/store backup firmware </li>
-</ul>
-</dd></dl>
-<dl class="section version"><dt>Version</dt><dd>0.1 </dd></dl>
-<dl class="section date"><dt>Date</dt><dd>2024-11-24</dd></dl>
-<dl class="section copyright"><dt>Copyright</dt><dd>Copyright (c) 2024 </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-</div><h2 class="groupheader">Macro Definition Documentation</h2>
-<a id="a9adae0caf992e9179d9d8ba4ed569a7a" name="a9adae0caf992e9179d9d8ba4ed569a7a"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9adae0caf992e9179d9d8ba4ed569a7a">&#9670;&#160;</a></span>BL_ADDRESS_CRC_ADDR</h2>
+<h2 class="groupheader">Macro Definition Documentation</h2>
+<a id="a89166104819449a8e502cf78fd18ad94" name="a89166104819449a8e502cf78fd18ad94"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a89166104819449a8e502cf78fd18ad94">&#9670;&#160;</a></span>BL_RAM_END</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define BL_ADDRESS_CRC_ADDR&#160;&#160;&#160;((BL_ADDRESS_CRC) + 4)</td>
+          <td class="memname">#define BL_RAM_END&#160;&#160;&#160;0x2001FFFFU</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00082">82</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00131">BL_checkAndBoot()</a>, and <a class="el" href="bootloader_8c_source.html#l00177">BL_setCRCConfig()</a>.</p>
-
 </div>
 </div>
-<a id="a4fec96cd5f5c7c4d4aa65e4ecd852601" name="a4fec96cd5f5c7c4d4aa65e4ecd852601"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4fec96cd5f5c7c4d4aa65e4ecd852601">&#9670;&#160;</a></span>BL_ADDRESS_CRC_CRC</h2>
+<a id="a7f32fca79051162271c3098cde9141a4" name="a7f32fca79051162271c3098cde9141a4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7f32fca79051162271c3098cde9141a4">&#9670;&#160;</a></span>BL_RAM_START</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define BL_ADDRESS_CRC_CRC&#160;&#160;&#160;((BL_ADDRESS_CRC) + 0)</td>
+          <td class="memname">#define BL_RAM_START&#160;&#160;&#160;0x20000000U</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00081">81</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00131">BL_checkAndBoot()</a>, and <a class="el" href="bootloader_8c_source.html#l00177">BL_setCRCConfig()</a>.</p>
-
 </div>
 </div>
-<a id="a895baa15ff8731f872fa9b7cf328c3ab" name="a895baa15ff8731f872fa9b7cf328c3ab"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a895baa15ff8731f872fa9b7cf328c3ab">&#9670;&#160;</a></span>BL_ADDRESS_CRC_SIZE</h2>
+<a id="a6eb34067e167ec60b605ac66ad7450fa" name="a6eb34067e167ec60b605ac66ad7450fa"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6eb34067e167ec60b605ac66ad7450fa">&#9670;&#160;</a></span>BL_RX_QUEUE_LENGTH</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define BL_ADDRESS_CRC_SIZE&#160;&#160;&#160;((BL_ADDRESS_CRC) + 8)</td>
+          <td class="memname">#define BL_RX_QUEUE_LENGTH&#160;&#160;&#160;16U</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00083">83</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00131">BL_checkAndBoot()</a>, and <a class="el" href="bootloader_8c_source.html#l00177">BL_setCRCConfig()</a>.</p>
-
 </div>
 </div>
-<a id="a6b20d41d6252e9871430c242cb1a56e7" name="a6b20d41d6252e9871430c242cb1a56e7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a6b20d41d6252e9871430c242cb1a56e7">&#9670;&#160;</a></span>BUFFER_SIZE</h2>
+<h2 class="groupheader">Enumeration Type Documentation</h2>
+<a id="a1c664d29dea4c558d14de397725dcf6c" name="a1c664d29dea4c558d14de397725dcf6c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1c664d29dea4c558d14de397725dcf6c">&#9670;&#160;</a></span>BLState_t</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">#define BUFFER_SIZE&#160;&#160;&#160;128</td>
+          <td class="memname">enum <a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a></td>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00089">89</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00208">bitstream_data_CALLBACK()</a>.</p>
-
-</div>
-</div>
-<a id="af179aa58d86c40ad8f11f20a4b0f29a7" name="af179aa58d86c40ad8f11f20a4b0f29a7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af179aa58d86c40ad8f11f20a4b0f29a7">&#9670;&#160;</a></span>NODE_BL_CMD_CALLBACK</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define NODE_BL_CMD_CALLBACK</td>
-          <td>(</td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>callback_name</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>can_msg_name</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>node_id</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<b>Value:</b><div class="fragment"><div class="line">    <span class="keywordtype">void</span> callback_name(CanParsedData_t* msg_data_a) { \</div>
-<div class="line">        if (APP_ID != node_id) \</div>
-<div class="line">            <span class="keywordflow">return</span>; \</div>
-<div class="line">        BL_processCommand((<a class="code hl_enumeration" href="bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9">BLCmd_t</a>)msg_data_a-&gt;can_msg_name.cmd, msg_data_a-&gt;can_msg_name.data); \</div>
-<div class="line">    }</div>
-<div class="ttc" id="abootloader__common_8h_html_a6fe4127f6cbf17ff12dfa0d9a49dd2b9"><div class="ttname"><a href="bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9">BLCmd_t</a></div><div class="ttdeci">BLCmd_t</div><div class="ttdef"><b>Definition</b> <a href="bootloader__common_8h_source.html#l00026">bootloader_common.h:26</a></div></div>
-</div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00333">333</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a8eaf6900041c2c50d63ba5001a2ce5c7" name="a8eaf6900041c2c50d63ba5001a2ce5c7"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8eaf6900041c2c50d63ba5001a2ce5c7">&#9670;&#160;</a></span>NODE_CASE_BL_RESPONSE</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">#define NODE_CASE_BL_RESPONSE</td>
-          <td>(</td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>app_id</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>resp_func</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<b>Value:</b><div class="fragment"><div class="line">    <span class="keywordflow">case</span> app_id: \</div>
-<div class="line">        resp_func(cmd, data); \</div>
-<div class="line">        <span class="keywordflow">break</span>;</div>
-</div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00311">311</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00316">BL_sendStatusMessage()</a>.</p>
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba" name="a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba"></a>BL_STATE_STARTUP&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a1c664d29dea4c558d14de397725dcf6ca48b1584c16fc8110d86a640a76271621" name="a1c664d29dea4c558d14de397725dcf6ca48b1584c16fc8110d86a640a76271621"></a>BL_STATE_READY&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a1c664d29dea4c558d14de397725dcf6ca2e80f869d8827b935d2c1b6f333a5361" name="a1c664d29dea4c558d14de397725dcf6ca2e80f869d8827b935d2c1b6f333a5361"></a>BL_STATE_UPDATING&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a1c664d29dea4c558d14de397725dcf6ca7d3659e84d1d970976be37e808137eaa" name="a1c664d29dea4c558d14de397725dcf6ca7d3659e84d1d970976be37e808137eaa"></a>BL_STATE_CHECKING&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="a1c664d29dea4c558d14de397725dcf6ca68950dee7c99dce2061cc6c2787399f6" name="a1c664d29dea4c558d14de397725dcf6ca68950dee7c99dce2061cc6c2787399f6"></a>BL_STATE_RECOVERY&#160;</td><td class="fielddoc"></td></tr>
+</table>
 
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="a50a2a1b6100f6bc248f0b4d93d6aceec" name="a50a2a1b6100f6bc248f0b4d93d6aceec"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a50a2a1b6100f6bc248f0b4d93d6aceec">&#9670;&#160;</a></span>a_box_bl_cmd_CALLBACK()</h2>
+<a id="a20b65830930a9db7f57fdb0c4d032102" name="a20b65830930a9db7f57fdb0c4d032102"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a20b65830930a9db7f57fdb0c4d032102">&#9670;&#160;</a></span>bl_application_crc_is_valid()</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">void a_box_bl_cmd_CALLBACK </td>
+          <td class="memname">static bool bl_application_crc_is_valid </td>
           <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>address</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>expected_crc</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a20b65830930a9db7f57fdb0c4d032102_cgraph.svg" width="538" height="184"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a20b65830930a9db7f57fdb0c4d032102_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a973838ef3e1c22ca2fcd449941bf2198" name="a973838ef3e1c22ca2fcd449941bf2198"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a973838ef3e1c22ca2fcd449941bf2198">&#9670;&#160;</a></span>bl_begin_update()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_begin_update </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00343">343</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a973838ef3e1c22ca2fcd449941bf2198_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a973838ef3e1c22ca2fcd449941bf2198_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a2bc2632777121708f3edba5775a1e9b0" name="a2bc2632777121708f3edba5775a1e9b0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2bc2632777121708f3edba5775a1e9b0">&#9670;&#160;</a></span>bitstream_data_CALLBACK()</h2>
+<a id="a29a8510cf432cd0aff5dd15073f561bb" name="a29a8510cf432cd0aff5dd15073f561bb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a29a8510cf432cd0aff5dd15073f561bb">&#9670;&#160;</a></span>BL_checkAndBoot()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void bitstream_data_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00208">208</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00316">BL_sendStatusMessage()</a>, <a class="el" href="bootloader_8h_source.html#l00032">BLERROR_FLASH</a>, <a class="el" href="bootloader_8h_source.html#l00022">BLSTAT_INVALID</a>, <a class="el" href="bootloader_8c_source.html#l00090">buffer</a>, <a class="el" href="bootloader_8c_source.html#l00091">buffer_index</a>, <a class="el" href="bootloader_8c_source.html#l00089">BUFFER_SIZE</a>, <a class="el" href="bootloader_8c_source.html#l00086">firmware_size_total</a>, <a class="el" href="phal__F4__F7_2flash_2flash_8h_source.html#l00018">FLASH_OK</a>, and <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00148">PHAL_flashWriteU32_Buffered()</a>.</p>
-
-</div>
-</div>
-<a id="af3fcdf5238df9f83b21b88808bd7e397" name="af3fcdf5238df9f83b21b88808bd7e397"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af3fcdf5238df9f83b21b88808bd7e397">&#9670;&#160;</a></span>BL_checkAndBoot()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void BL_checkAndBoot </td>
+          <td class="memname">bool BL_checkAndBoot </td>
           <td>(</td>
           <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
@@ -394,22 +393,130 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00131">131</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="eeprom__spi_8c_source.html#l00229">addr</a>, <a class="el" href="bootloader_8c_source.html#l00082">BL_ADDRESS_CRC_ADDR</a>, <a class="el" href="bootloader_8c_source.html#l00081">BL_ADDRESS_CRC_CRC</a>, <a class="el" href="bootloader_8c_source.html#l00083">BL_ADDRESS_CRC_SIZE</a>, <a class="el" href="bootloader_8c_source.html#l00098">BL_JumptoApplication()</a>, <a class="el" href="crc_8c_source.html#l00032">PHAL_CRC32_Calculate()</a>, and <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00073">PHAL_flashReadU32()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_2main_8c_source.html#l00044">main()</a>.</p>
+<p>Validate the committed image and transfer control to it. </p>
+<p>Metadata, vector-table values, and application CRC are checked before VTOR and MSP are changed.</p>
+<dl class="section return"><dt>Returns</dt><dd>false when validation fails or the application reset handler returns. </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a29a8510cf432cd0aff5dd15073f561bb_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a29a8510cf432cd0aff5dd15073f561bb_icgraph.svg" width="352" height="62"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="abbc774ce21075748c42ce66f329d1f51" name="abbc774ce21075748c42ce66f329d1f51"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abbc774ce21075748c42ce66f329d1f51">&#9670;&#160;</a></span>BL_flashStarted()</h2>
+<a id="ac2d28de1668a1ef30b63868db0e8516b" name="ac2d28de1668a1ef30b63868db0e8516b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac2d28de1668a1ef30b63868db0e8516b">&#9670;&#160;</a></span>bl_commit_update()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_commit_update </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>expected_crc</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac2d28de1668a1ef30b63868db0e8516b_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac2d28de1668a1ef30b63868db0e8516b_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="ac1fa48bee07db6c9d511afb985c68f59" name="ac1fa48bee07db6c9d511afb985c68f59"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac1fa48bee07db6c9d511afb985c68f59">&#9670;&#160;</a></span>bl_enable_irq()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void bl_enable_irq </td>
+          <td>(</td>
+          <td class="paramtype">FDCAN_GlobalTypeDef *</td>          <td class="paramname"><span class="paramname"><em>peripheral</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac1fa48bee07db6c9d511afb985c68f59_icgraph.svg" width="316" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a1ee6d33267fac00c9b40a73b2092384d" name="a1ee6d33267fac00c9b40a73b2092384d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1ee6d33267fac00c9b40a73b2092384d">&#9670;&#160;</a></span>bl_flush_pending_word()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_flush_pending_word </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a1ee6d33267fac00c9b40a73b2092384d_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a1ee6d33267fac00c9b40a73b2092384d_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a0e6fcac4f931dc8811b83333d9eaa780" name="a0e6fcac4f931dc8811b83333d9eaa780"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e6fcac4f931dc8811b83333d9eaa780">&#9670;&#160;</a></span>BL_init()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool BL_flashStarted </td>
+          <td class="memname">void BL_init </td>
           <td>(</td>
           <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
@@ -417,16 +524,23 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00304">304</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00085">bl_unlock</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_2main_8c_source.html#l00044">main()</a>.</p>
+<p>Configure the node-specific transport and announce readiness. </p>
+<p>The system clock must be configured before this function is called. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a0e6fcac4f931dc8811b83333d9eaa780_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a0e6fcac4f931dc8811b83333d9eaa780_icgraph.svg" width="171" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="affdabe51a7f7b2827dbae8c37052c02c" name="affdabe51a7f7b2827dbae8c37052c02c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#affdabe51a7f7b2827dbae8c37052c02c">&#9670;&#160;</a></span>BL_JumptoApplication()</h2>
+<a id="a3c02683280523e18e3a1093eb4dac971" name="a3c02683280523e18e3a1093eb4dac971"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c02683280523e18e3a1093eb4dac971">&#9670;&#160;</a></span>bl_invalidate_metadata()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -435,7 +549,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static void BL_JumptoApplication </td>
+          <td class="memname">static bool bl_invalidate_metadata </td>
           <td>(</td>
           <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
@@ -447,17 +561,21 @@ Variables</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00098">98</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="#a8076273005b4317c2282ae5785913458">_eboot_flash</a>, and <a class="el" href="#a71010d56f5257f4dfaff9ef224836050">_estack</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00131">BL_checkAndBoot()</a>, and <a class="el" href="bootloader_8c_source.html#l00270">BL_processCommand_Jump()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3c02683280523e18e3a1093eb4dac971_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3c02683280523e18e3a1093eb4dac971_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a1b617d79263f43b6fe08903b68aa3849" name="a1b617d79263f43b6fe08903b68aa3849"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1b617d79263f43b6fe08903b68aa3849">&#9670;&#160;</a></span>BL_memcpy_buffer()</h2>
+<a id="a810c762c521719f1b6ba864fac91e47e" name="a810c762c521719f1b6ba864fac91e47e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a810c762c521719f1b6ba864fac91e47e">&#9670;&#160;</a></span>bl_message_id()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -466,109 +584,9 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static int BL_memcpy_buffer </td>
+          <td class="memname">static uint32_t bl_message_id </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>addr_dst</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>addr_src</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size</em></span>&#160;)</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">static</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00164">164</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2flash_2flash_8h_source.html#l00018">FLASH_OK</a>, <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00222">PHAL_flashErase()</a>, and <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00093">PHAL_flashWriteU32()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00234">BL_processCommand_CRC()</a>, and <a class="el" href="bootloader_8c_source.html#l00270">BL_processCommand_Jump()</a>.</p>
-
-</div>
-</div>
-<a id="a89a30b74da99b74748c4231a884c8841" name="a89a30b74da99b74748c4231a884c8841"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a89a30b74da99b74748c4231a884c8841">&#9670;&#160;</a></span>BL_processCommand()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void BL_processCommand </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9">BLCmd_t</a></td>          <td class="paramname"><span class="paramname"><em>cmd</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>data</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00280">280</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00234">BL_processCommand_CRC()</a>, <a class="el" href="bootloader_8c_source.html#l00270">BL_processCommand_Jump()</a>, <a class="el" href="bootloader_8c_source.html#l00266">BL_processCommand_Reset()</a>, <a class="el" href="bootloader_8c_source.html#l00143">BL_processCommand_Start()</a>, <a class="el" href="bootloader_8c_source.html#l00316">BL_sendStatusMessage()</a>, <a class="el" href="bootloader__common_8h_source.html#l00028">BLCMD_CRC</a>, <a class="el" href="bootloader__common_8h_source.html#l00029">BLCMD_CRC_BACKUP</a>, <a class="el" href="bootloader__common_8h_source.html#l00030">BLCMD_JUMP</a>, <a class="el" href="bootloader__common_8h_source.html#l00031">BLCMD_RST</a>, <a class="el" href="bootloader__common_8h_source.html#l00027">BLCMD_START</a>, and <a class="el" href="bootloader_8h_source.html#l00024">BLSTAT_UNKNOWN_CMD</a>.</p>
-
-</div>
-</div>
-<a id="a7648e597df1b1befe5451db3477ca6a1" name="a7648e597df1b1befe5451db3477ca6a1"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7648e597df1b1befe5451db3477ca6a1">&#9670;&#160;</a></span>BL_processCommand_CRC()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">static int BL_processCommand_CRC </td>
-          <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>crc_app</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>dst_addr</em></span>&#160;)</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">static</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00234">234</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00164">BL_memcpy_buffer()</a>, <a class="el" href="bootloader_8c_source.html#l00316">BL_sendStatusMessage()</a>, <a class="el" href="bootloader_8c_source.html#l00177">BL_setCRCConfig()</a>, <a class="el" href="bootloader_8h_source.html#l00032">BLERROR_FLASH</a>, <a class="el" href="bootloader_8h_source.html#l00033">BLERROR_SIZE</a>, <a class="el" href="bootloader_8h_source.html#l00022">BLSTAT_INVALID</a>, <a class="el" href="bootloader_8h_source.html#l00023">BLSTAT_INVALID_CRC</a>, <a class="el" href="bootloader_8h_source.html#l00021">BLSTAT_VALID</a>, <a class="el" href="bootloader_8c_source.html#l00086">firmware_size_total</a>, and <a class="el" href="crc_8c_source.html#l00032">PHAL_CRC32_Calculate()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00280">BL_processCommand()</a>.</p>
-
-</div>
-</div>
-<a id="aae89c6288d926acc216e963b3d8774ed" name="aae89c6288d926acc216e963b3d8774ed"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aae89c6288d926acc216e963b3d8774ed">&#9670;&#160;</a></span>BL_processCommand_Jump()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">static void BL_processCommand_Jump </td>
-          <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>data</em></span></td><td>)</td>
+          <td class="paramtype">const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *</td>          <td class="paramname"><span class="paramname"><em>message</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -578,17 +596,16 @@ Variables</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00270">270</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00098">BL_JumptoApplication()</a>, <a class="el" href="bootloader_8c_source.html#l00164">BL_memcpy_buffer()</a>, and <a class="el" href="bootloader_8c_source.html#l00085">bl_unlock</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00280">BL_processCommand()</a>.</p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a810c762c521719f1b6ba864fac91e47e_icgraph.svg" width="100%" height="376"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="ad4e5f13ca76d6551e230c7ea110a6ba8" name="ad4e5f13ca76d6551e230c7ea110a6ba8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ad4e5f13ca76d6551e230c7ea110a6ba8">&#9670;&#160;</a></span>BL_processCommand_Reset()</h2>
+<a id="aded70a9a447e109b5aa6260e6fa0f916" name="aded70a9a447e109b5aa6260e6fa0f916"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aded70a9a447e109b5aa6260e6fa0f916">&#9670;&#160;</a></span>bl_message_is_bootloader_traffic()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -597,9 +614,9 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static void BL_processCommand_Reset </td>
+          <td class="memname">static bool bl_message_is_bootloader_traffic </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>data</em></span></td><td>)</td>
+          <td class="paramtype">const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *</td>          <td class="paramname"><span class="paramname"><em>message</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -609,17 +626,21 @@ Variables</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00266">266</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootlaoder__common_8c_source.html#l00018">Bootloader_ResetForFirmwareDownload()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00280">BL_processCommand()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_aded70a9a447e109b5aa6260e6fa0f916_cgraph.svg" width="343" height="52"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_aded70a9a447e109b5aa6260e6fa0f916_icgraph.svg" width="411" height="52"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a6dd8cb782fabe500b1e1198d2a2a370e" name="a6dd8cb782fabe500b1e1198d2a2a370e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a6dd8cb782fabe500b1e1198d2a2a370e">&#9670;&#160;</a></span>BL_processCommand_Start()</h2>
+<a id="aa9e586c10b08cd8558325c82685f2964" name="aa9e586c10b08cd8558325c82685f2964"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa9e586c10b08cd8558325c82685f2964">&#9670;&#160;</a></span>bl_physical_size()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -628,9 +649,9 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static int BL_processCommand_Start </td>
+          <td class="memname">static uint32_t bl_physical_size </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size</em></span></td><td>)</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -640,44 +661,46 @@ Variables</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00143">143</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bootloader_8c_source.html#l00316">BL_sendStatusMessage()</a>, <a class="el" href="bootloader_8c_source.html#l00085">bl_unlock</a>, <a class="el" href="bootloader_8h_source.html#l00032">BLERROR_FLASH</a>, <a class="el" href="bootloader_8h_source.html#l00033">BLERROR_SIZE</a>, <a class="el" href="bootloader_8h_source.html#l00022">BLSTAT_INVALID</a>, <a class="el" href="bootloader_8h_source.html#l00021">BLSTAT_VALID</a>, <a class="el" href="bootloader_8c_source.html#l00091">buffer_index</a>, <a class="el" href="bootloader_8c_source.html#l00086">firmware_size_total</a>, <a class="el" href="phal__F4__F7_2flash_2flash_8h_source.html#l00018">FLASH_OK</a>, and <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00222">PHAL_flashErase()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00280">BL_processCommand()</a>.</p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_aa9e586c10b08cd8558325c82685f2964_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="ab1dc28eb998a696359ecfb52b86b5a52" name="ab1dc28eb998a696359ecfb52b86b5a52"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab1dc28eb998a696359ecfb52b86b5a52">&#9670;&#160;</a></span>BL_sendStatusMessage()</h2>
+<a id="afbd1b6f14da46bdc0a6e199e0a84aeb2" name="afbd1b6f14da46bdc0a6e199e0a84aeb2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afbd1b6f14da46bdc0a6e199e0a84aeb2">&#9670;&#160;</a></span>BL_poll()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void BL_sendStatusMessage </td>
+          <td class="memname">void BL_poll </td>
           <td>(</td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>cmd</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>data</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00316">316</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="node__defs_8h_source.html#l00025">APP_A_BOX</a>, <a class="el" href="node__defs_8h_source.html#l00029">APP_DAQ</a>, <a class="el" href="node__defs_8h_source.html#l00023">APP_DASHBOARD</a>, <a class="el" href="node__defs_8h_source.html#l00027">APP_F4_TESTING</a>, <a class="el" href="node__defs_8h_source.html#l00028">APP_F7_TESTING</a>, <a class="el" href="node__defs_8h_source.html#l00022">APP_MAIN_MODULE</a>, <a class="el" href="node__defs_8h_source.html#l00026">APP_PDU</a>, <a class="el" href="node__defs_8h_source.html#l00024">APP_TORQUEVECTOR</a>, and <a class="el" href="bootloader_8c_source.html#l00311">NODE_CASE_BL_RESPONSE</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00208">bitstream_data_CALLBACK()</a>, <a class="el" href="bootloader_8c_source.html#l00280">BL_processCommand()</a>, <a class="el" href="bootloader_8c_source.html#l00234">BL_processCommand_CRC()</a>, and <a class="el" href="bootloader_8c_source.html#l00143">BL_processCommand_Start()</a>.</p>
+<p>Process every frame currently queued by the FDCAN receive interrupt. </p>
+<p>Call repeatedly from main context. This function is the sole queue consumer and owns all flash and CRC work; the receive ISR only copies matching frames into the bounded software queue. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_afbd1b6f14da46bdc0a6e199e0a84aeb2_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_afbd1b6f14da46bdc0a6e199e0a84aeb2_icgraph.svg" width="174" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a0fc0e3816aacff5f74436d9996201b93" name="a0fc0e3816aacff5f74436d9996201b93"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0fc0e3816aacff5f74436d9996201b93">&#9670;&#160;</a></span>BL_setCRCConfig()</h2>
+<a id="abf75df907f2cb56139815b8adb7c195e" name="abf75df907f2cb56139815b8adb7c195e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abf75df907f2cb56139815b8adb7c195e">&#9670;&#160;</a></span>bl_process_message()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -686,19 +709,10 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static int BL_setCRCConfig </td>
+          <td class="memname">static void bl_process_message </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>crc</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
+          <td class="paramtype">const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *</td>          <td class="paramname"><span class="paramname"><em>message</em></span></td><td>)</td>
           <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>addr</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size</em></span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -707,170 +721,396 @@ Variables</h2></td></tr>
   </tr>
 </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00177">177</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">References <a class="el" href="eeprom__spi_8c_source.html#l00229">addr</a>, <a class="el" href="bootloader_8c_source.html#l00082">BL_ADDRESS_CRC_ADDR</a>, <a class="el" href="bootloader_8c_source.html#l00081">BL_ADDRESS_CRC_CRC</a>, <a class="el" href="bootloader_8c_source.html#l00083">BL_ADDRESS_CRC_SIZE</a>, <a class="el" href="bootloader_8c_source.html#l00085">bl_unlock</a>, <a class="el" href="phal__F4__F7_2flash_2flash_8h_source.html#l00018">FLASH_OK</a>, <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00222">PHAL_flashErase()</a>, and <a class="el" href="phal__F4__F7_2flash_2flash_8c_source.html#l00093">PHAL_flashWriteU32()</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00234">BL_processCommand_CRC()</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_abf75df907f2cb56139815b8adb7c195e_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_abf75df907f2cb56139815b8adb7c195e_icgraph.svg" width="615" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="ab843e1ad29da7f83865ca7a1c12ab863" name="ab843e1ad29da7f83865ca7a1c12ab863"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab843e1ad29da7f83865ca7a1c12ab863">&#9670;&#160;</a></span>daq_bl_cmd_CALLBACK()</h2>
+<a id="a3267de5d4f419fad89acf507722d341e" name="a3267de5d4f419fad89acf507722d341e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3267de5d4f419fad89acf507722d341e">&#9670;&#160;</a></span>bl_process_queued_messages()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void bl_process_queued_messages </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3267de5d4f419fad89acf507722d341e_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3267de5d4f419fad89acf507722d341e_icgraph.svg" width="422" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="adaf62d77adfedb5a6a09531c3f05c3f0" name="adaf62d77adfedb5a6a09531c3f05c3f0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adaf62d77adfedb5a6a09531c3f05c3f0">&#9670;&#160;</a></span>bl_range_is_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_range_is_valid </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>address</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_adaf62d77adfedb5a6a09531c3f05c3f0_cgraph.svg" width="292" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_adaf62d77adfedb5a6a09531c3f05c3f0_icgraph.svg" width="100%" height="409"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="ac19da133af9137d8db35468a8e1b7af5" name="ac19da133af9137d8db35468a8e1b7af5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac19da133af9137d8db35468a8e1b7af5">&#9670;&#160;</a></span>bl_send_info()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void bl_send_info </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac19da133af9137d8db35468a8e1b7af5_cgraph.svg" width="100%" height="376"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac19da133af9137d8db35468a8e1b7af5_icgraph.svg" width="316" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="ac60843a6445f115dfc084962072b15af" name="ac60843a6445f115dfc084962072b15af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac60843a6445f115dfc084962072b15af">&#9670;&#160;</a></span>bl_send_status()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void bl_send_status </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="can__types_8h.html#a8bd8b746690f284cbd524f248f4bb598">bootloader_status_t</a></td>          <td class="paramname"><span class="paramname"><em>status</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>detail</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac60843a6445f115dfc084962072b15af_cgraph.svg" width="100%" height="376"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac60843a6445f115dfc084962072b15af_icgraph.svg" width="100%" height="502"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="ab8c95db6ba7bf75889443068c0ab2b07" name="ab8c95db6ba7bf75889443068c0ab2b07"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab8c95db6ba7bf75889443068c0ab2b07">&#9670;&#160;</a></span>bl_size_is_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_size_is_valid </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ab8c95db6ba7bf75889443068c0ab2b07_icgraph.svg" width="100%" height="413"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a8f3891a36ae918f08b0d88a27366e7af" name="a8f3891a36ae918f08b0d88a27366e7af"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8f3891a36ae918f08b0d88a27366e7af">&#9670;&#160;</a></span>bl_uint32_data()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static uint32_t bl_uint32_data </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *</td>          <td class="paramname"><span class="paramname"><em>message</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a8f3891a36ae918f08b0d88a27366e7af_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="aa6598f2edbd2e32a9210f610fedec433" name="aa6598f2edbd2e32a9210f610fedec433"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa6598f2edbd2e32a9210f610fedec433">&#9670;&#160;</a></span>bl_vector_is_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_vector_is_valid </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>app_address</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_aa6598f2edbd2e32a9210f610fedec433_cgraph.svg" width="466" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_aa6598f2edbd2e32a9210f610fedec433_icgraph.svg" width="100%" height="365"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a3c2e98b614b2928512c9575943fa286a" name="a3c2e98b614b2928512c9575943fa286a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3c2e98b614b2928512c9575943fa286a">&#9670;&#160;</a></span>bl_write_metadata()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_write_metadata </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>crc32</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>size_bytes</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3c2e98b614b2928512c9575943fa286a_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a3c2e98b614b2928512c9575943fa286a_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="ac67d8f3c1b3d2c648d6a5ac3489eb654" name="ac67d8f3c1b3d2c648d6a5ac3489eb654"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac67d8f3c1b3d2c648d6a5ac3489eb654">&#9670;&#160;</a></span>bl_write_word()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool bl_write_word </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>index</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>word</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac67d8f3c1b3d2c648d6a5ac3489eb654_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bootloader_8c_ac67d8f3c1b3d2c648d6a5ac3489eb654_icgraph.svg" width="100%" height="300"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a765846d0efaeecbb6faef685956e919f" name="a765846d0efaeecbb6faef685956e919f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a765846d0efaeecbb6faef685956e919f">&#9670;&#160;</a></span>PHAL_FDCAN_rxCallback()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void daq_bl_cmd_CALLBACK </td>
+          <td class="memname">void PHAL_FDCAN_rxCallback </td>
           <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> *</td>          <td class="paramname"><span class="paramname"><em>msg</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00348">348</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
+<p>Weak callback fired once per received frame. </p>
+<p>Called from FDCANx_IT0_IRQHandler (interrupt context) for every frame popped from RX FIFO0.</p>
+<p>Default implementation does nothing.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">msg</td><td>the received frame (valid only for the duration of the call) </td></tr>
+  </table>
+  </dd>
+</dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bootloader_8c_a765846d0efaeecbb6faef685956e919f_cgraph.svg" width="567" height="52"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a9cdf0cafe2fb1948be5005da31d6cd7f" name="a9cdf0cafe2fb1948be5005da31d6cd7f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9cdf0cafe2fb1948be5005da31d6cd7f">&#9670;&#160;</a></span>dashboard_bl_cmd_CALLBACK()</h2>
+<a id="ab5e09814056d617c521549e542639b7e" name="ab5e09814056d617c521549e542639b7e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab5e09814056d617c521549e542639b7e">&#9670;&#160;</a></span>SysTick_Handler()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void dashboard_bl_cmd_CALLBACK </td>
+          <td class="memname">void SysTick_Handler </td>
           <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00341">341</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a12dd57d15ab7ee5c166e8752a79d761b" name="a12dd57d15ab7ee5c166e8752a79d761b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a12dd57d15ab7ee5c166e8752a79d761b">&#9670;&#160;</a></span>f4_testing_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void f4_testing_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00346">346</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a0a60ec0e1837419bbab581fc68e29728" name="a0a60ec0e1837419bbab581fc68e29728"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0a60ec0e1837419bbab581fc68e29728">&#9670;&#160;</a></span>f7_testing_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void f7_testing_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00347">347</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="acfea4ae6140b883485b66003722ecd5e" name="acfea4ae6140b883485b66003722ecd5e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acfea4ae6140b883485b66003722ecd5e">&#9670;&#160;</a></span>l4_testing_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void l4_testing_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00345">345</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a97e5ebcdeb487fa76c87a3c5200d704c" name="a97e5ebcdeb487fa76c87a3c5200d704c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a97e5ebcdeb487fa76c87a3c5200d704c">&#9670;&#160;</a></span>main_module_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void main_module_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00340">340</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a5885557ea34a723281d8c5e2121451b8" name="a5885557ea34a723281d8c5e2121451b8"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5885557ea34a723281d8c5e2121451b8">&#9670;&#160;</a></span>pdu_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void pdu_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00344">344</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-</div>
-</div>
-<a id="a8f68820222c3f559999ca8ea7d339ec6" name="a8f68820222c3f559999ca8ea7d339ec6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8f68820222c3f559999ca8ea7d339ec6">&#9670;&#160;</a></span>torquevector_bl_cmd_CALLBACK()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void torquevector_bl_cmd_CALLBACK </td>
-          <td>(</td>
-          <td class="paramtype">CanParsedData_t *</td>          <td class="paramname"><span class="paramname"><em>msg_data_a</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00342">342</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
 
 </div>
 </div>
 <h2 class="groupheader">Variable Documentation</h2>
-<a id="a7eed2ad94f1cefd865761705989f5f71" name="a7eed2ad94f1cefd865761705989f5f71"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7eed2ad94f1cefd865761705989f5f71">&#9670;&#160;</a></span>__isr_vector_start</h2>
+<a id="aaafe472cb88c3622442661b42d1c092d" name="aaafe472cb88c3622442661b42d1c092d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaafe472cb88c3622442661b42d1c092d">&#9670;&#160;</a></span>bl_boot_status_requested</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -879,77 +1119,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">char __isr_vector_start</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">extern</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a8076273005b4317c2282ae5785913458" name="a8076273005b4317c2282ae5785913458"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8076273005b4317c2282ae5785913458">&#9670;&#160;</a></span>_eboot_flash</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">char _eboot_flash</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">extern</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00098">BL_JumptoApplication()</a>.</p>
-
-</div>
-</div>
-<a id="a71010d56f5257f4dfaff9ef224836050" name="a71010d56f5257f4dfaff9ef224836050"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a71010d56f5257f4dfaff9ef224836050">&#9670;&#160;</a></span>_estack</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">char _estack</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">extern</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00098">BL_JumptoApplication()</a>.</p>
-
-</div>
-</div>
-<a id="a4607141aa150b1b3cadd123a88fbbeaa" name="a4607141aa150b1b3cadd123a88fbbeaa"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4607141aa150b1b3cadd123a88fbbeaa">&#9670;&#160;</a></span>bl_unlock</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool bl_unlock = false</td>
+          <td class="memname">bool bl_boot_status_requested</td>
         </tr>
       </table>
   </td>
@@ -959,14 +1129,10 @@ Variables</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00085">85</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00304">BL_flashStarted()</a>, <a class="el" href="bootloader_8c_source.html#l00270">BL_processCommand_Jump()</a>, <a class="el" href="bootloader_8c_source.html#l00143">BL_processCommand_Start()</a>, and <a class="el" href="bootloader_8c_source.html#l00177">BL_setCRCConfig()</a>.</p>
-
 </div>
 </div>
-<a id="a542953c07def3fa38e66087ba9eeb529" name="a542953c07def3fa38e66087ba9eeb529"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a542953c07def3fa38e66087ba9eeb529">&#9670;&#160;</a></span>buffer</h2>
+<a id="a60ec6458793746c09811ff2eb07c5c84" name="a60ec6458793746c09811ff2eb07c5c84"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a60ec6458793746c09811ff2eb07c5c84">&#9670;&#160;</a></span>bl_firmware_size</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -975,7 +1141,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t buffer[128]</td>
+          <td class="memname">uint32_t bl_firmware_size</td>
         </tr>
       </table>
   </td>
@@ -985,14 +1151,10 @@ Variables</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00090">90</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00208">bitstream_data_CALLBACK()</a>, <a class="el" href="log_8c_source.html#l00007">snprintf()</a>, and <a class="el" href="log_8c_source.html#l00017">sprintf()</a>.</p>
-
 </div>
 </div>
-<a id="a05d3201c3d91255f8190d1e4901ab7de" name="a05d3201c3d91255f8190d1e4901ab7de"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a05d3201c3d91255f8190d1e4901ab7de">&#9670;&#160;</a></span>buffer_index</h2>
+<a id="aa75907cd0ed5647ae0ea4a120c086a7c" name="aa75907cd0ed5647ae0ea4a120c086a7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa75907cd0ed5647ae0ea4a120c086a7c">&#9670;&#160;</a></span>bl_info_sent</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1001,7 +1163,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t buffer_index = 0</td>
+          <td class="memname">bool bl_info_sent</td>
         </tr>
       </table>
   </td>
@@ -1011,14 +1173,10 @@ Variables</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00091">91</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00208">bitstream_data_CALLBACK()</a>, and <a class="el" href="bootloader_8c_source.html#l00143">BL_processCommand_Start()</a>.</p>
-
 </div>
 </div>
-<a id="a1dea7ab5a5ef7cbc611dc4fe0534ea27" name="a1dea7ab5a5ef7cbc611dc4fe0534ea27"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1dea7ab5a5ef7cbc611dc4fe0534ea27">&#9670;&#160;</a></span>firmware_size_total</h2>
+<a id="abbd621abae9447410acb67b8a27f4d6b" name="abbd621abae9447410acb67b8a27f4d6b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abbd621abae9447410acb67b8a27f4d6b">&#9670;&#160;</a></span>bl_last_info_ms</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1027,7 +1185,7 @@ Variables</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">volatile uint32_t firmware_size_total = 0</td>
+          <td class="memname">uint32_t bl_last_info_ms</td>
         </tr>
       </table>
   </td>
@@ -1037,9 +1195,269 @@ Variables</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="bootloader_8c_source.html#l00086">86</a> of file <a class="el" href="bootloader_8c_source.html">bootloader.c</a>.</p>
+</div>
+</div>
+<a id="ad1c24edcfe29abd9a8bd85b1d2e3ead4" name="ad1c24edcfe29abd9a8bd85b1d2e3ead4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad1c24edcfe29abd9a8bd85b1d2e3ead4">&#9670;&#160;</a></span>bl_millis</h2>
 
-<p class="reference">Referenced by <a class="el" href="bootloader_8c_source.html#l00208">bitstream_data_CALLBACK()</a>, <a class="el" href="bootloader_8c_source.html#l00234">BL_processCommand_CRC()</a>, and <a class="el" href="bootloader_8c_source.html#l00143">BL_processCommand_Start()</a>.</p>
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile uint32_t bl_millis</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8f3727333e63a169e3b73e26028cb573" name="a8f3727333e63a169e3b73e26028cb573"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8f3727333e63a169e3b73e26028cb573">&#9670;&#160;</a></span>bl_next_word</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t bl_next_word</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aaeb3d9419e400589bd439f53f26482ad" name="aaeb3d9419e400589bd439f53f26482ad"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aaeb3d9419e400589bd439f53f26482ad">&#9670;&#160;</a></span>bl_pending_word</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t bl_pending_word</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad398479b0f881b6603fc50fee0ab0631" name="ad398479b0f881b6603fc50fee0ab0631"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad398479b0f881b6603fc50fee0ab0631">&#9670;&#160;</a></span>bl_pending_word_valid</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool bl_pending_word_valid</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a77c5e0a3bb027ced3f3e077a7109fbea" name="a77c5e0a3bb027ced3f3e077a7109fbea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a77c5e0a3bb027ced3f3e077a7109fbea">&#9670;&#160;</a></span>bl_rx_head</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile uint8_t bl_rx_head</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5e2a5275050f4a8f97a68506f1b48f62" name="a5e2a5275050f4a8f97a68506f1b48f62"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5e2a5275050f4a8f97a68506f1b48f62">&#9670;&#160;</a></span>bl_rx_queue</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile <a class="el" href="structCanMsgTypeDef__t.html">CanMsgTypeDef_t</a> bl_rx_queue[<a class="el" href="#a6eb34067e167ec60b605ac66ad7450fa">BL_RX_QUEUE_LENGTH</a>]</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a528572ba9ef97acc6369499784896937" name="a528572ba9ef97acc6369499784896937"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a528572ba9ef97acc6369499784896937">&#9670;&#160;</a></span>bl_rx_tail</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile uint8_t bl_rx_tail</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a0e6f92d21ca399006af93d21573514f1" name="a0e6f92d21ca399006af93d21573514f1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0e6f92d21ca399006af93d21573514f1">&#9670;&#160;</a></span>bl_startup_start_ms</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t bl_startup_start_ms</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7edf899d516036b1018fc2c461f361d0" name="a7edf899d516036b1018fc2c461f361d0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7edf899d516036b1018fc2c461f361d0">&#9670;&#160;</a></span>bl_total_words</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t bl_total_words</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad1c962145eafea99cae499024d653188" name="ad1c962145eafea99cae499024d653188"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad1c962145eafea99cae499024d653188">&#9670;&#160;</a></span>bl_update_active</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool bl_update_active</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae76cae8e53cfba7733b2597c1b0eb60c" name="ae76cae8e53cfba7733b2597c1b0eb60c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae76cae8e53cfba7733b2597c1b0eb60c">&#9670;&#160;</a></span>current_state</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a> current_state = <a class="el" href="#a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba">BL_STATE_STARTUP</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a222a42226cc5e09a08f54a18856b9fe3" name="a222a42226cc5e09a08f54a18856b9fe3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a222a42226cc5e09a08f54a18856b9fe3">&#9670;&#160;</a></span>next_state</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="#a1c664d29dea4c558d14de397725dcf6c">BLState_t</a> next_state = <a class="el" href="#a1c664d29dea4c558d14de397725dcf6cad7829372b364210407cc2b792b762aba">BL_STATE_STARTUP</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -1048,7 +1466,7 @@ Variables</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_680ab1961c01dfa74359a2ba3ac9751c.html">bootloader</a></li><li class="navelem"><a class="el" href="bootloader_8c.html">bootloader.c</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_2f0e7742f57897c8ef58be50df3deac2.html">bootloader</a></li><li class="navelem"><a class="el" href="dir_831b462626c439c12ec66adbdb3c2863.html">bootloader</a></li><li class="navelem"><a class="el" href="bootloader_8c.html">bootloader.c</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

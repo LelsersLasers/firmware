@@ -1,0 +1,15 @@
+<map id="firmware/common/phal_G4/dma/dma.c" name="firmware/common/phal_G4/dma/dma.c">
+<area shape="rect" id="Node000001" title="G4 DMA Peripheral public API implementation." alt="" coords="30,5,182,46"/>
+<area shape="rect" id="Node000002" href="$phal__G4_2dma_2dma_8h.html" title="G4 DMA Peripheral public API implementation." alt="" coords="30,183,182,223"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="97,47,86,70,78,95,75,114,78,134,91,168,86,170,73,135,70,114,73,93,82,68,92,45"/>
+<area shape="rect" id="Node000006" href="$dma__priv_8h.html" title="G4 DMA Peripheral private/register level implementation." alt="" coords="88,94,240,135"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="122,45,145,80,140,83,117,48"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,279,69,304"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="93,226,58,269,54,265,89,222"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="109,360,216,386"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="112,223,120,264,134,311,150,345,145,348,129,313,115,266,107,224"/>
+<area shape="rect" id="Node000005" href="$dma__wiring_8h.html" title="G4 DMA Peripheral wiring configuration and definitions." alt="" coords="144,271,296,312"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="134,222,184,260,180,264,130,226"/>
+<area shape="poly" id="edge5_Node000005_Node000004" title=" " alt="" coords="208,314,182,349,178,345,203,311"/>
+<area shape="poly" id="edge7_Node000006_Node000002" title=" " alt="" coords="153,137,130,171,125,168,148,134"/>
+</map>

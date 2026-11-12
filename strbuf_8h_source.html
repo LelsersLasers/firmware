@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: common/strbuf/strbuf.h Source File</title>
+<title>PER Firmware: firmware/common/strbuf/strbuf.h Source File</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -129,19 +130,19 @@ $(function(){initNavTree('strbuf_8h_source.html',''); initResizable(true); });
 </div>
 <div class="line"><a id="l00041" name="l00041"></a><span class="lineno">   41</span> </div>
 <div class="line"><a id="l00042" name="l00042"></a><span class="lineno">   42</span><span class="preprocessor">#endif </span><span class="comment">// STRBUF_H</span></div>
-<div class="ttc" id="astrbuf_8h_html_a15380dc153a462b38a9b54f274c9c3b5"><div class="ttname"><a href="strbuf_8h.html#a15380dc153a462b38a9b54f274c9c3b5">strbuf_append</a></div><div class="ttdeci">size_t strbuf_append(strbuf_t *sb, const void *data, size_t length)</div><div class="ttdoc">Appends raw data to the buffer. If the data exceeds the buffer size, no data is appended.</div><div class="ttdef"><b>Definition</b> <a href="strbuf_8c_source.html#l00025">strbuf.c:25</a></div></div>
-<div class="ttc" id="astrbuf_8h_html_a52ce36e86451c208f1846411e1f67dcf"><div class="ttname"><a href="strbuf_8h.html#a52ce36e86451c208f1846411e1f67dcf">strbuf_printf</a></div><div class="ttdeci">size_t strbuf_printf(strbuf_t *sb, const char *format,...)</div><div class="ttdoc">Appends formatted data to the buffer using printf-style formatting. !</div><div class="ttdef"><b>Definition</b> <a href="strbuf_8c_source.html#l00041">strbuf.c:41</a></div></div>
-<div class="ttc" id="astrbuf_8h_html_a64d216f0276598d2d7f68c8a0c453fb7"><div class="ttname"><a href="strbuf_8h.html#a64d216f0276598d2d7f68c8a0c453fb7">strbuf_clear</a></div><div class="ttdeci">void strbuf_clear(strbuf_t *sb)</div><div class="ttdoc">Clears the buffer by resetting length to 0.</div><div class="ttdef"><b>Definition</b> <a href="strbuf_8c_source.html#l00017">strbuf.c:17</a></div></div>
-<div class="ttc" id="astructstrbuf__t_html"><div class="ttname"><a href="structstrbuf__t.html">strbuf_t</a></div><div class="ttdef"><b>Definition</b> <a href="#l00015">strbuf.h:15</a></div></div>
-<div class="ttc" id="astructstrbuf__t_html_a85a2ff40e2fbf2c7a4133678ee491c4a"><div class="ttname"><a href="structstrbuf__t.html#a85a2ff40e2fbf2c7a4133678ee491c4a">strbuf_t::data</a></div><div class="ttdeci">uint8_t * data</div><div class="ttdef"><b>Definition</b> <a href="#l00016">strbuf.h:16</a></div></div>
-<div class="ttc" id="astructstrbuf__t_html_addc680368a33683a2831efe9f919f672"><div class="ttname"><a href="structstrbuf__t.html#addc680368a33683a2831efe9f919f672">strbuf_t::max_len</a></div><div class="ttdeci">size_t max_len</div><div class="ttdef"><b>Definition</b> <a href="#l00018">strbuf.h:18</a></div></div>
-<div class="ttc" id="astructstrbuf__t_html_ae6fc3758286e761d9c7873b489786a89"><div class="ttname"><a href="structstrbuf__t.html#ae6fc3758286e761d9c7873b489786a89">strbuf_t::length</a></div><div class="ttdeci">size_t length</div><div class="ttdef"><b>Definition</b> <a href="#l00017">strbuf.h:17</a></div></div>
+<div class="ttc" id="astrbuf_8h_html_a15380dc153a462b38a9b54f274c9c3b5"><div class="ttname"><a href="strbuf_8h.html#a15380dc153a462b38a9b54f274c9c3b5">strbuf_append</a></div><div class="ttdeci">size_t strbuf_append(strbuf_t *sb, const void *data, size_t length)</div><div class="ttdoc">Appends raw data to the buffer. If the data exceeds the buffer size, no data is appended.</div><div class="ttdef"><b>Definition</b> strbuf.c:29</div></div>
+<div class="ttc" id="astrbuf_8h_html_a52ce36e86451c208f1846411e1f67dcf"><div class="ttname"><a href="strbuf_8h.html#a52ce36e86451c208f1846411e1f67dcf">strbuf_printf</a></div><div class="ttdeci">size_t strbuf_printf(strbuf_t *sb, const char *format,...)</div><div class="ttdoc">Appends formatted data to the buffer using printf-style formatting. !</div><div class="ttdef"><b>Definition</b> strbuf.c:49</div></div>
+<div class="ttc" id="astrbuf_8h_html_a64d216f0276598d2d7f68c8a0c453fb7"><div class="ttname"><a href="strbuf_8h.html#a64d216f0276598d2d7f68c8a0c453fb7">strbuf_clear</a></div><div class="ttdeci">void strbuf_clear(strbuf_t *sb)</div><div class="ttdoc">Clears the buffer by resetting length to 0.</div><div class="ttdef"><b>Definition</b> strbuf.c:18</div></div>
+<div class="ttc" id="astructstrbuf__t_html"><div class="ttname"><a href="structstrbuf__t.html">strbuf_t</a></div><div class="ttdef"><b>Definition</b> strbuf.h:15</div></div>
+<div class="ttc" id="astructstrbuf__t_html_a85a2ff40e2fbf2c7a4133678ee491c4a"><div class="ttname"><a href="structstrbuf__t.html#a85a2ff40e2fbf2c7a4133678ee491c4a">strbuf_t::data</a></div><div class="ttdeci">uint8_t * data</div><div class="ttdef"><b>Definition</b> strbuf.h:16</div></div>
+<div class="ttc" id="astructstrbuf__t_html_addc680368a33683a2831efe9f919f672"><div class="ttname"><a href="structstrbuf__t.html#addc680368a33683a2831efe9f919f672">strbuf_t::max_len</a></div><div class="ttdeci">size_t max_len</div><div class="ttdef"><b>Definition</b> strbuf.h:18</div></div>
+<div class="ttc" id="astructstrbuf__t_html_ae6fc3758286e761d9c7873b489786a89"><div class="ttname"><a href="structstrbuf__t.html#ae6fc3758286e761d9c7873b489786a89">strbuf_t::length</a></div><div class="ttdeci">size_t length</div><div class="ttdef"><b>Definition</b> strbuf.h:17</div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_bdd9a5d540de89e9fe90efdfc6973a4f.html">common</a></li><li class="navelem"><a class="el" href="dir_b326de142a01610c2e2fbdc361522621.html">strbuf</a></li><li class="navelem"><a class="el" href="strbuf_8h.html">strbuf.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_5e269a536bf5351fb01f412fd1d14980.html">common</a></li><li class="navelem"><a class="el" href="dir_7ec637bfc31da7b7e8f627b5f7998436.html">strbuf</a></li><li class="navelem"><a class="el" href="strbuf_8h.html">strbuf.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

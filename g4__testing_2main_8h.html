@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/g4_testing/main.h File Reference</title>
+<title>PER Firmware: firmware/source/g4_testing/main.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -97,21 +98,26 @@ $(function(){initNavTree('g4__testing_2main_8h.html',''); initResizable(true); }
 
 <div class="header">
   <div class="summary">
-<a href="#nested-classes">Data Structures</a> &#124;
 <a href="#define-members">Macros</a> &#124;
+<a href="#func-members">Functions</a> &#124;
 <a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">main.h File Reference</div></div>
 </div><!--header-->
 <div class="contents">
 <div class="textblock"><code>#include &lt;stdint.h&gt;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for main.h:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="g4__testing_2main_8h__incl.svg" width="143" height="126"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+</div><div class="textblock"><div class="dynheader">
+This graph shows which files directly or indirectly include this file:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="g4__testing_2main_8h__dep__incl.svg" width="143" height="140"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 </div>
 <p><a href="g4__testing_2main_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
-<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
-Data Structures</h2></td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structraw__adc__values__t.html">raw_adc_values_t</a></td></tr>
-<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
 <tr class="memitem:a3ed8b1ac183679013d04fa3ebe0e44e5" id="r_a3ed8b1ac183679013d04fa3ebe0e44e5"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ed8b1ac183679013d04fa3ebe0e44e5">LED_GREEN_PORT</a>&#160;&#160;&#160;GPIOB</td></tr>
@@ -130,11 +136,22 @@ Macros</h2></td></tr>
 <tr class="separator:aa0ded3a1f2fd446203c124bdda1e1998"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aea00e65d8db15efe130e134943eec5a7" id="r_aea00e65d8db15efe130e134943eec5a7"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aea00e65d8db15efe130e134943eec5a7">LED_ORANGE_PIN</a>&#160;&#160;&#160;1</td></tr>
 <tr class="separator:aea00e65d8db15efe130e134943eec5a7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8884bf63ba10903a15456ee0e46da4c4" id="r_a8884bf63ba10903a15456ee0e46da4c4"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8884bf63ba10903a15456ee0e46da4c4">LED_NUCLEO_GREEN_PORT</a>&#160;&#160;&#160;GPIOA</td></tr>
+<tr class="separator:a8884bf63ba10903a15456ee0e46da4c4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa4b3a09939df3620b7fd15632064139a" id="r_aa4b3a09939df3620b7fd15632064139a"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4b3a09939df3620b7fd15632064139a">LED_NUCLEO_GREEN_PIN</a>&#160;&#160;&#160;5</td></tr>
+<tr class="separator:aa4b3a09939df3620b7fd15632064139a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ada9f09bbee2e15c2069f4c25ec74bed8" id="r_ada9f09bbee2e15c2069f4c25ec74bed8"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ada9f09bbee2e15c2069f4c25ec74bed8">ADC_NUM_CHANNELS</a>&#160;&#160;&#160;(sizeof(<a class="el" href="dashboard_2main_8c.html#a29bc293670e53a11d854f35bca555254">raw_adc_values</a>) / sizeof(uint16_t))</td></tr>
 <tr class="separator:ada9f09bbee2e15c2069f4c25ec74bed8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:ab898071398b359603a35c202e9c65f3b" id="r_ab898071398b359603a35c202e9c65f3b"><td class="memItemLeft" align="right" valign="top">struct&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab898071398b359603a35c202e9c65f3b">__attribute__</a> ((packed))</td></tr>
+<tr class="separator:ab898071398b359603a35c202e9c65f3b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
+<tr class="memitem:af796e3555932af2c8dce8e497f1e4734" id="r_af796e3555932af2c8dce8e497f1e4734"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af796e3555932af2c8dce8e497f1e4734">raw_adc_values_t</a></td></tr>
+<tr class="separator:af796e3555932af2c8dce8e497f1e4734"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a29bc293670e53a11d854f35bca555254" id="r_a29bc293670e53a11d854f35bca555254"><td class="memItemLeft" align="right" valign="top">volatile <a class="el" href="structraw__adc__values__t.html">raw_adc_values_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a29bc293670e53a11d854f35bca555254">raw_adc_values</a></td></tr>
 <tr class="separator:a29bc293670e53a11d854f35bca555254"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -151,10 +168,6 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00028">28</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="source_2g4__testing_2fdcan_8c_source.html#l00075">main()</a>.</p>
-
 </div>
 </div>
 <a id="a5aec9d3b503fb1a30a21b16c7be86cff" name="a5aec9d3b503fb1a30a21b16c7be86cff"></a>
@@ -168,8 +181,6 @@ Variables</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00014">14</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -185,8 +196,6 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00013">13</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
-
 </div>
 </div>
 <a id="a0539be032702009fb24beec89c6fa0c0" name="a0539be032702009fb24beec89c6fa0c0"></a>
@@ -200,8 +209,6 @@ Variables</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00010">10</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -217,7 +224,33 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00009">9</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
+</div>
+</div>
+<a id="aa4b3a09939df3620b7fd15632064139a" name="aa4b3a09939df3620b7fd15632064139a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa4b3a09939df3620b7fd15632064139a">&#9670;&#160;</a></span>LED_NUCLEO_GREEN_PIN</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define LED_NUCLEO_GREEN_PIN&#160;&#160;&#160;5</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8884bf63ba10903a15456ee0e46da4c4" name="a8884bf63ba10903a15456ee0e46da4c4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8884bf63ba10903a15456ee0e46da4c4">&#9670;&#160;</a></span>LED_NUCLEO_GREEN_PORT</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define LED_NUCLEO_GREEN_PORT&#160;&#160;&#160;GPIOA</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -233,8 +266,6 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00016">16</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
-
 </div>
 </div>
 <a id="aa0ded3a1f2fd446203c124bdda1e1998" name="aa0ded3a1f2fd446203c124bdda1e1998"></a>
@@ -248,8 +279,6 @@ Variables</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00015">15</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -265,8 +294,6 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00012">12</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
-
 </div>
 </div>
 <a id="a7959a54f2383757d0007ee4b96071186" name="a7959a54f2383757d0007ee4b96071186"></a>
@@ -281,7 +308,23 @@ Variables</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="g4__testing_2main_8h_source.html#l00011">11</a> of file <a class="el" href="g4__testing_2main_8h_source.html">main.h</a>.</p>
+</div>
+</div>
+<h2 class="groupheader">Function Documentation</h2>
+<a id="ab898071398b359603a35c202e9c65f3b" name="ab898071398b359603a35c202e9c65f3b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab898071398b359603a35c202e9c65f3b">&#9670;&#160;</a></span>__attribute__()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">struct __attribute__ </td>
+          <td>(</td>
+          <td class="paramtype">(packed)</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -306,9 +349,19 @@ Variables</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="dashboard_2main_8c_source.html#l00064">64</a> of file <a class="el" href="dashboard_2main_8c_source.html">main.c</a>.</p>
+</div>
+</div>
+<a id="af796e3555932af2c8dce8e497f1e4734" name="af796e3555932af2c8dce8e497f1e4734"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af796e3555932af2c8dce8e497f1e4734">&#9670;&#160;</a></span>raw_adc_values_t</h2>
 
-<p class="reference">Referenced by <a class="el" href="lcd_8c_source.html#l00550">calibrationTelemetryUpdate()</a>, <a class="el" href="pedals_8c_source.html#l00070">pedalsPeriodic()</a>, and <a class="el" href="driveline_2main_8c_source.html#l00112">shockpot_thread()</a>.</p>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">raw_adc_values_t</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -317,7 +370,7 @@ Variables</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_044aef65200486a75d86f593c39f6fb0.html">g4_testing</a></li><li class="navelem"><a class="el" href="g4__testing_2main_8h.html">main.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_4d47efa3f286fa89179db6ae5f16d59d.html">g4_testing</a></li><li class="navelem"><a class="el" href="g4__testing_2main_8h.html">main.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

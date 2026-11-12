@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: common/phal_G4/adc/adc.c File Reference</title>
+<title>PER Firmware: firmware/common/phal_G4/adc/adc.c File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -97,42 +98,77 @@ $(function(){initNavTree('phal__G4_2adc_2adc_8c.html',''); initResizable(true); 
 
 <div class="header">
   <div class="summary">
-<a href="#func-members">Functions</a>  </div>
+<a href="#func-members">Functions</a> &#124;
+<a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">adc.c File Reference</div></div>
 </div><!--header-->
 <div class="contents">
+
+<p>G4 ADC public API implementation. All register-level detail lives in <a class="el" href="adc__priv_8c.html" title="Register-level implementation of the STM32G4 ADC PHAL.">adc_priv.c</a>; this file only coordinates the ADC with its DMA channel.  
+<a href="#details">More...</a></p>
 <div class="textblock"><code>#include &quot;<a class="el" href="phal__G4_2adc_2adc_8h_source.html">common/phal_G4/adc/adc.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="adc__priv_8h_source.html">common/phal_G4/adc/adc_priv.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for adc.c:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c__incl.svg" width="488" height="480"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
 </div>
-<p><a href="phal__G4_2adc_2adc_8c_source.html">Go to the source code of this file.</a></p>
-<table class="memberdecls">
+</div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a77ebfe573b72a67840f5c624f3d693ba" id="r_a77ebfe573b72a67840f5c624f3d693ba"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a77ebfe573b72a67840f5c624f3d693ba">PHAL_configureOversampling</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>)</td></tr>
-<tr class="separator:a77ebfe573b72a67840f5c624f3d693ba"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a4ea092d64e90983548c5af7ae9b50af2" id="r_a4ea092d64e90983548c5af7ae9b50af2"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4ea092d64e90983548c5af7ae9b50af2">PHAL_configureADCChannels</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>, <a class="el" href="structADCChannelConfig__t.html">ADCChannelConfig_t</a> channels[], uint8_t num_channels)</td></tr>
-<tr class="separator:a4ea092d64e90983548c5af7ae9b50af2"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ae40226a1d0575a52ce95e5ac385719e3" id="r_ae40226a1d0575a52ce95e5ac385719e3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae40226a1d0575a52ce95e5ac385719e3">PHAL_initADC</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>, <a class="el" href="structADCChannelConfig__t.html">ADCChannelConfig_t</a> channels[], uint8_t num_channels)</td></tr>
-<tr class="memdesc:ae40226a1d0575a52ce95e5ac385719e3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Initializes the ADC, requires GPIO config prior.  <br /></td></tr>
-<tr class="separator:ae40226a1d0575a52ce95e5ac385719e3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a4e6fb62f3aac96eafc47d2f24a633fb6" id="r_a4e6fb62f3aac96eafc47d2f24a633fb6"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4e6fb62f3aac96eafc47d2f24a633fb6">PHAL_startADC</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>)</td></tr>
-<tr class="memdesc:a4e6fb62f3aac96eafc47d2f24a633fb6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Starts the ADC conversions, requires PHAL_initADC to be called prior.  <br /></td></tr>
-<tr class="separator:a4e6fb62f3aac96eafc47d2f24a633fb6"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a945c5b94cf25d5aa81caee684109ad90" id="r_a945c5b94cf25d5aa81caee684109ad90"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a945c5b94cf25d5aa81caee684109ad90">PHAL_stopADC</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>)</td></tr>
-<tr class="memdesc:a945c5b94cf25d5aa81caee684109ad90"><td class="mdescLeft">&#160;</td><td class="mdescRight">Stops the ADC conversions, requires PHAL_initADC to be called prior.  <br /></td></tr>
-<tr class="separator:a945c5b94cf25d5aa81caee684109ad90"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9bc7d0ed3e1117cd9b3b9c40bb36fcff" id="r_a9bc7d0ed3e1117cd9b3b9c40bb36fcff"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9bc7d0ed3e1117cd9b3b9c40bb36fcff">PHAL_readADC</a> (<a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>)</td></tr>
-<tr class="memdesc:a9bc7d0ed3e1117cd9b3b9c40bb36fcff"><td class="mdescLeft">&#160;</td><td class="mdescRight">Reads the ADC data register.  <br /></td></tr>
-<tr class="separator:a9bc7d0ed3e1117cd9b3b9c40bb36fcff"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab1d3e1e78099bd0f30e345ce46dd626a" id="r_ab1d3e1e78099bd0f30e345ce46dd626a"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab1d3e1e78099bd0f30e345ce46dd626a">adc_dma_callback</a> (void *ctx)</td></tr>
+<tr class="separator:ab1d3e1e78099bd0f30e345ce46dd626a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9225d89f89aa3f074fe94e2b7061e864" id="r_a9225d89f89aa3f074fe94e2b7061e864"><td class="memItemLeft" align="right" valign="top">static uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9225d89f89aa3f074fe94e2b7061e864">adc_instance_index</a> (ADC_TypeDef *instance)</td></tr>
+<tr class="memdesc:a9225d89f89aa3f074fe94e2b7061e864"><td class="mdescLeft">&#160;</td><td class="mdescRight">Map a supported ADC instance to its zero-based active-handle slot.  <br /></td></tr>
+<tr class="separator:a9225d89f89aa3f074fe94e2b7061e864"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab758a7dfb798e8808f5ae938b7637aa6" id="r_ab758a7dfb798e8808f5ae938b7637aa6"><td class="memItemLeft" align="right" valign="top">static const <a class="el" href="structPHAL__DMA__Wiring__t.html">PHAL_DMA_Wiring_t</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab758a7dfb798e8808f5ae938b7637aa6">adc_dma_wiring</a> (ADC_TypeDef *instance)</td></tr>
+<tr class="memdesc:ab758a7dfb798e8808f5ae938b7637aa6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Return the fixed DMA wiring assigned to an ADC instance.  <br /></td></tr>
+<tr class="separator:ab758a7dfb798e8808f5ae938b7637aa6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7357125fd70536c9c0c03a30377d93cc" id="r_a7357125fd70536c9c0c03a30377d93cc"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7357125fd70536c9c0c03a30377d93cc">adc_config_is_valid</a> (const <a class="el" href="structPHAL__ADC__Config__t.html">PHAL_ADC_Config_t</a> *<a class="el" href="ethernet_8c.html#afdcaea2c7210f2679ea25aefc7f9bfd4">config</a>)</td></tr>
+<tr class="memdesc:a7357125fd70536c9c0c03a30377d93cc"><td class="mdescLeft">&#160;</td><td class="mdescRight">Validate a public ADC configuration before touching hardware.  <br /></td></tr>
+<tr class="separator:a7357125fd70536c9c0c03a30377d93cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a673448506d450deed0ef83eaf02abbf1" id="r_a673448506d450deed0ef83eaf02abbf1"><td class="memItemLeft" align="right" valign="top">static IRQn_Type&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a673448506d450deed0ef83eaf02abbf1">adc_dma_irqn</a> (ADC_TypeDef *instance)</td></tr>
+<tr class="memdesc:a673448506d450deed0ef83eaf02abbf1"><td class="mdescLeft">&#160;</td><td class="mdescRight">Return the NVIC interrupt assigned to an ADC instance's DMA channel.  <br /></td></tr>
+<tr class="separator:a673448506d450deed0ef83eaf02abbf1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af6cce18a4976eccdba32230d0d21fdfd" id="r_af6cce18a4976eccdba32230d0d21fdfd"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af6cce18a4976eccdba32230d0d21fdfd">adc_claim_completion</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:af6cce18a4976eccdba32230d0d21fdfd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Atomically claim transfer completion for either polling or interrupt code.  <br /></td></tr>
+<tr class="separator:af6cce18a4976eccdba32230d0d21fdfd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a125ced4dc8f5f9e7dee7cbbefcd125b7" id="r_a125ced4dc8f5f9e7dee7cbbefcd125b7"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a125ced4dc8f5f9e7dee7cbbefcd125b7">adc_teardown</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:a125ced4dc8f5f9e7dee7cbbefcd125b7"><td class="mdescLeft">&#160;</td><td class="mdescRight">Stop the ADC and DMA channel, then clear the DMA status flags.  <br /></td></tr>
+<tr class="separator:a125ced4dc8f5f9e7dee7cbbefcd125b7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adf65563b732ce6a236058dc45a5c04a1" id="r_adf65563b732ce6a236058dc45a5c04a1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adf65563b732ce6a236058dc45a5c04a1">PHAL_ADC_init</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle, const <a class="el" href="structPHAL__ADC__Config__t.html">PHAL_ADC_Config_t</a> *<a class="el" href="ethernet_8c.html#afdcaea2c7210f2679ea25aefc7f9bfd4">config</a>)</td></tr>
+<tr class="memdesc:adf65563b732ce6a236058dc45a5c04a1"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure an ADC instance and its DMA channel.  <br /></td></tr>
+<tr class="separator:adf65563b732ce6a236058dc45a5c04a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a429677cda7cd755ee9c4148b73159e76" id="r_a429677cda7cd755ee9c4148b73159e76"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a429677cda7cd755ee9c4148b73159e76">PHAL_ADC_readDMA</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle, uint16_t *buffer, uint16_t length)</td></tr>
+<tr class="memdesc:a429677cda7cd755ee9c4148b73159e76"><td class="mdescLeft">&#160;</td><td class="mdescRight">Start an asynchronous circular-DMA conversion into <code>buffer</code>  <br /></td></tr>
+<tr class="separator:a429677cda7cd755ee9c4148b73159e76"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a182c3e08bcff1970109448d9c24cb39c" id="r_a182c3e08bcff1970109448d9c24cb39c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a182c3e08bcff1970109448d9c24cb39c">PHAL_ADC_readBlocking</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle, uint16_t *buffer, uint16_t length, uint32_t timeout)</td></tr>
+<tr class="memdesc:a182c3e08bcff1970109448d9c24cb39c"><td class="mdescLeft">&#160;</td><td class="mdescRight">Synchronous one-buffer conversion using the DMA engine.  <br /></td></tr>
+<tr class="separator:a182c3e08bcff1970109448d9c24cb39c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a293b748ece5364814af3ba56e3572f06" id="r_a293b748ece5364814af3ba56e3572f06"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a293b748ece5364814af3ba56e3572f06">PHAL_ADC_stop</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:a293b748ece5364814af3ba56e3572f06"><td class="mdescLeft">&#160;</td><td class="mdescRight">Abort any transfer in flight and leave the ADC idle.  <br /></td></tr>
+<tr class="separator:a293b748ece5364814af3ba56e3572f06"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af74d13f706d39525417c09dcf697d948" id="r_af74d13f706d39525417c09dcf697d948"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af74d13f706d39525417c09dcf697d948">PHAL_ADC_busy</a> (const <a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:af74d13f706d39525417c09dcf697d948"><td class="mdescLeft">&#160;</td><td class="mdescRight">Check whether a transfer is currently in flight.  <br /></td></tr>
+<tr class="separator:af74d13f706d39525417c09dcf697d948"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a88783c4b103049de64fc356c016ccae2" id="r_a88783c4b103049de64fc356c016ccae2"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a88783c4b103049de64fc356c016ccae2">adc_dma_irq_handler</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:a88783c4b103049de64fc356c016ccae2"><td class="mdescLeft">&#160;</td><td class="mdescRight">Process DMA completion or error status for an ADC handle.  <br /></td></tr>
+<tr class="separator:a88783c4b103049de64fc356c016ccae2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a556d456a145f5c43b8a05caed0ce6ff0" id="r_a556d456a145f5c43b8a05caed0ce6ff0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a556d456a145f5c43b8a05caed0ce6ff0">PHAL_ADC_conversionCompleteCallback</a> (<a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *handle)</td></tr>
+<tr class="memdesc:a556d456a145f5c43b8a05caed0ce6ff0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Weak callback fired once per completed DMA buffer.  <br /></td></tr>
+<tr class="separator:a556d456a145f5c43b8a05caed0ce6ff0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
+Variables</h2></td></tr>
+<tr class="memitem:a2677668645f2130a28459226cdc395c3" id="r_a2677668645f2130a28459226cdc395c3"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2677668645f2130a28459226cdc395c3">g_active_adc</a> [4]</td></tr>
+<tr class="separator:a2677668645f2130a28459226cdc395c3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><dl class="section author"><dt>Author</dt><dd>Eilen Yoon - Port of F4 HAL by Aditya Anand, Chris McGalliard </dd></dl>
-<dl class="section version"><dt>Version</dt><dd>0.1 </dd></dl>
-<dl class="section date"><dt>Date</dt><dd>2023-09-17 </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
+<div class="textblock"><p>G4 ADC public API implementation. All register-level detail lives in <a class="el" href="adc__priv_8c.html" title="Register-level implementation of the STM32G4 ADC PHAL.">adc_priv.c</a>; this file only coordinates the ADC with its DMA channel. </p>
+<dl class="section author"><dt>Author</dt><dd>Ronak Jain (<a href="#" onclick="location.href='mai'+'lto:'+'jai'+'n7'+'17@'+'pu'+'rdu'+'e.'+'edu'; return false;">jain7<span class="obfuscator">.nosp@m.</span>17@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd></dl>
 </div><h2 class="groupheader">Function Documentation</h2>
-<a id="a4ea092d64e90983548c5af7ae9b50af2" name="a4ea092d64e90983548c5af7ae9b50af2"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4ea092d64e90983548c5af7ae9b50af2">&#9670;&#160;</a></span>PHAL_configureADCChannels()</h2>
+<a id="af6cce18a4976eccdba32230d0d21fdfd" name="af6cce18a4976eccdba32230d0d21fdfd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af6cce18a4976eccdba32230d0d21fdfd">&#9670;&#160;</a></span>adc_claim_completion()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -141,49 +177,9 @@ Functions</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">static bool PHAL_configureADCChannels </td>
+          <td class="memname">static bool adc_claim_completion </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype"><a class="el" href="structADCChannelConfig__t.html">ADCChannelConfig_t</a></td>          <td class="paramname"><span class="paramname"><em>channels</em></span>[], </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>num_channels</em></span>&#160;)</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">static</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00053">53</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2adc_2adc_8h_source.html#l00060">ADCChannelConfig_t::channel</a>, <a class="el" href="daq_8c_source.html#l00039">config</a>, <a class="el" href="phal__F4__F7_2adc_2adc_8h_source.html#l00061">ADCChannelConfig_t::rank</a>, and <a class="el" href="phal__F4__F7_2adc_2adc_8h_source.html#l00062">ADCChannelConfig_t::sampling_time</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00104">PHAL_initADC()</a>.</p>
-
-</div>
-</div>
-<a id="a77ebfe573b72a67840f5c624f3d693ba" name="a77ebfe573b72a67840f5c624f3d693ba"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a77ebfe573b72a67840f5c624f3d693ba">&#9670;&#160;</a></span>PHAL_configureOversampling()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">static bool PHAL_configureOversampling </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -194,140 +190,527 @@ Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00013">13</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__G4_2adc_2adc_8h_source.html#l00041">ADC_OVERSAMPLE_NONE</a>, and <a class="el" href="daq_8c_source.html#l00039">config</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00104">PHAL_initADC()</a>.</p>
+<p>Atomically claim transfer completion for either polling or interrupt code. </p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_af6cce18a4976eccdba32230d0d21fdfd_icgraph.svg" width="100%" height="420"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="ae40226a1d0575a52ce95e5ac385719e3" name="ae40226a1d0575a52ce95e5ac385719e3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae40226a1d0575a52ce95e5ac385719e3">&#9670;&#160;</a></span>PHAL_initADC()</h2>
+<a id="a7357125fd70536c9c0c03a30377d93cc" name="a7357125fd70536c9c0c03a30377d93cc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7357125fd70536c9c0c03a30377d93cc">&#9670;&#160;</a></span>adc_config_is_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool adc_config_is_valid </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structPHAL__ADC__Config__t.html">PHAL_ADC_Config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Validate a public ADC configuration before touching hardware. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a7357125fd70536c9c0c03a30377d93cc_cgraph.svg" width="352" height="52"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a7357125fd70536c9c0c03a30377d93cc_icgraph.svg" width="406" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="ab1d3e1e78099bd0f30e345ce46dd626a" name="ab1d3e1e78099bd0f30e345ce46dd626a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab1d3e1e78099bd0f30e345ce46dd626a">&#9670;&#160;</a></span>adc_dma_callback()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void adc_dma_callback </td>
+          <td>(</td>
+          <td class="paramtype">void *</td>          <td class="paramname"><span class="paramname"><em>ctx</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_ab1d3e1e78099bd0f30e345ce46dd626a_cgraph.svg" width="100%" height="525"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_ab1d3e1e78099bd0f30e345ce46dd626a_icgraph.svg" width="402" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a88783c4b103049de64fc356c016ccae2" name="a88783c4b103049de64fc356c016ccae2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a88783c4b103049de64fc356c016ccae2">&#9670;&#160;</a></span>adc_dma_irq_handler()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void adc_dma_irq_handler </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Process DMA completion or error status for an ADC handle. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a88783c4b103049de64fc356c016ccae2_cgraph.svg" width="100%" height="525"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a88783c4b103049de64fc356c016ccae2_icgraph.svg" width="594" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a673448506d450deed0ef83eaf02abbf1" name="a673448506d450deed0ef83eaf02abbf1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a673448506d450deed0ef83eaf02abbf1">&#9670;&#160;</a></span>adc_dma_irqn()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static IRQn_Type adc_dma_irqn </td>
+          <td>(</td>
+          <td class="paramtype">ADC_TypeDef *</td>          <td class="paramname"><span class="paramname"><em>instance</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Return the NVIC interrupt assigned to an ADC instance's DMA channel. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a673448506d450deed0ef83eaf02abbf1_cgraph.svg" width="460" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a673448506d450deed0ef83eaf02abbf1_icgraph.svg" width="335" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="ab758a7dfb798e8808f5ae938b7637aa6" name="ab758a7dfb798e8808f5ae938b7637aa6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab758a7dfb798e8808f5ae938b7637aa6">&#9670;&#160;</a></span>adc_dma_wiring()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static const <a class="el" href="structPHAL__DMA__Wiring__t.html">PHAL_DMA_Wiring_t</a> * adc_dma_wiring </td>
+          <td>(</td>
+          <td class="paramtype">ADC_TypeDef *</td>          <td class="paramname"><span class="paramname"><em>instance</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Return the fixed DMA wiring assigned to an ADC instance. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_ab758a7dfb798e8808f5ae938b7637aa6_cgraph.svg" width="310" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_ab758a7dfb798e8808f5ae938b7637aa6_icgraph.svg" width="511" height="135"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a9225d89f89aa3f074fe94e2b7061e864" name="a9225d89f89aa3f074fe94e2b7061e864"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9225d89f89aa3f074fe94e2b7061e864">&#9670;&#160;</a></span>adc_instance_index()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static uint8_t adc_instance_index </td>
+          <td>(</td>
+          <td class="paramtype">ADC_TypeDef *</td>          <td class="paramname"><span class="paramname"><em>instance</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Map a supported ADC instance to its zero-based active-handle slot. </p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a9225d89f89aa3f074fe94e2b7061e864_icgraph.svg" width="100%" height="401"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="a125ced4dc8f5f9e7dee7cbbefcd125b7" name="a125ced4dc8f5f9e7dee7cbbefcd125b7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a125ced4dc8f5f9e7dee7cbbefcd125b7">&#9670;&#160;</a></span>adc_teardown()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static void adc_teardown </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Stop the ADC and DMA channel, then clear the DMA status flags. </p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a125ced4dc8f5f9e7dee7cbbefcd125b7_cgraph.svg" width="614" height="135"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a125ced4dc8f5f9e7dee7cbbefcd125b7_icgraph.svg" width="100%" height="420"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="af74d13f706d39525417c09dcf697d948" name="af74d13f706d39525417c09dcf697d948"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af74d13f706d39525417c09dcf697d948">&#9670;&#160;</a></span>PHAL_ADC_busy()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool PHAL_initADC </td>
+          <td class="memname">bool PHAL_ADC_busy </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span>, </td>
+          <td class="paramtype">const <a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Check whether a transfer is currently in flight. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">handle</td><td>initialized handle </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>true while a <a class="el" href="phal__G4_2adc_2adc_8h.html#a429677cda7cd755ee9c4148b73159e76" title="Start an asynchronous circular-DMA conversion into buffer">PHAL_ADC_readDMA()</a> transfer is running </dd></dl>
+
+</div>
+</div>
+<a id="a556d456a145f5c43b8a05caed0ce6ff0" name="a556d456a145f5c43b8a05caed0ce6ff0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a556d456a145f5c43b8a05caed0ce6ff0">&#9670;&#160;</a></span>PHAL_ADC_conversionCompleteCallback()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void PHAL_ADC_conversionCompleteCallback </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Weak callback fired once per completed DMA buffer. </p>
+<p>Called from the DMA interrupt context after each asynchronous circular-DMA buffer completes, and from the caller's context at the end of a successful <a class="el" href="phal__G4_2adc_2adc_8h.html#a182c3e08bcff1970109448d9c24cb39c" title="Synchronous one-buffer conversion using the DMA engine.">PHAL_ADC_readBlocking()</a>. On a DMA error, <code>handle-&gt;transfer_error</code> is true. Keep it short; the default implementation does nothing.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">handle</td><td>the handle whose transfer just completed </td></tr>
+  </table>
+  </dd>
+</dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a556d456a145f5c43b8a05caed0ce6ff0_icgraph.svg" width="100%" height="383"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+
+</div>
+</div>
+<a id="adf65563b732ce6a236058dc45a5c04a1" name="adf65563b732ce6a236058dc45a5c04a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adf65563b732ce6a236058dc45a5c04a1">&#9670;&#160;</a></span>PHAL_ADC_init()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool PHAL_ADC_init </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"><a class="el" href="structADCChannelConfig__t.html">ADCChannelConfig_t</a></td>          <td class="paramname"><span class="paramname"><em>channels</em></span>[], </td>
+          <td class="paramtype">const <a class="el" href="structPHAL__ADC__Config__t.html">PHAL_ADC_Config_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Configure an ADC instance and its DMA channel. </p>
+<p>What this does, in order:</p><ol type="1">
+<li>Enables the ADC (and DMA) clocks</li>
+<li>Runs the ADC hardware calibration</li>
+<li>Configures the conversion sequence, sample times, and fixed conversion options (12-bit, right-aligned, continuous, DMA-enabled, no oversampling)</li>
+<li>Enables the ADC and waits until it reports ready</li>
+<li>Claims the ADC's dedicated DMA channel and enables its interrupt</li>
+</ol>
+<p>The DMA channel is fixed per instance (ADC1 -&gt; DMA1 ch1, ADC2 -&gt; DMA2 ch1, ADC3 -&gt; DMA2 ch2, ADC4 -&gt; DMA2 ch3). Only one handle may claim each ADC instance; handles remain claimed for the lifetime of the application.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">handle</td><td>zero-initialized handle to populate </td></tr>
+    <tr><td class="paramname">config</td><td>static configuration to use; must stay valid for the lifetime of the handle </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>true on success, false if the config is invalid, the instance is already claimed, calibration fails, or the DMA channel is taken </dd></dl>
+<dl class="section note"><dt>Note</dt><dd>Initialization configures the ADC and DMA but does not start sampling; call <a class="el" href="phal__G4_2adc_2adc_8h.html#a429677cda7cd755ee9c4148b73159e76" title="Start an asynchronous circular-DMA conversion into buffer">PHAL_ADC_readDMA()</a> once after initialization to start background acquisition. </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_adf65563b732ce6a236058dc45a5c04a1_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_adf65563b732ce6a236058dc45a5c04a1_icgraph.svg" width="224" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a182c3e08bcff1970109448d9c24cb39c" name="a182c3e08bcff1970109448d9c24cb39c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a182c3e08bcff1970109448d9c24cb39c">&#9670;&#160;</a></span>PHAL_ADC_readBlocking()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool PHAL_ADC_readBlocking </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>num_channels</em></span>&#160;)</td>
+          <td class="paramtype">uint16_t *</td>          <td class="paramname"><span class="paramname"><em>buffer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint16_t</td>          <td class="paramname"><span class="paramname"><em>length</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>timeout</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Initializes the ADC, requires GPIO config prior. </p>
+<p>Synchronous one-buffer conversion using the DMA engine. </p>
+<p>Starts the circular acquisition, blocks until one buffer has completed, then stops the acquisition. A successful transfer fires <code><a class="el" href="phal__G4_2adc_2adc_8h.html#a556d456a145f5c43b8a05caed0ce6ff0" title="Weak callback fired once per completed DMA buffer.">PHAL_ADC_conversionCompleteCallback()</a></code> before returning.</p>
+<p>Note: <code>timeout</code> is a count of busy-wait iterations, not a wall-clock time. At 16 MHz one iteration is a handful of CPU cycles; the ADC itself takes roughly (640.5 + 12.5) / fADC seconds per sample (about 163 us at 4 MHz fADC).</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">adc</td><td>ADC handle </td></tr>
-    <tr><td class="paramname">config</td><td>ADC initial config settings </td></tr>
-    <tr><td class="paramname">channels</td><td>List of channel configurations </td></tr>
-    <tr><td class="paramname">num_channels</td><td>Number of channels in the channel configuration list </td></tr>
+    <tr><td class="paramname">handle</td><td>initialized handle </td></tr>
+    <tr><td class="paramname">buffer</td><td>destination for the samples </td></tr>
+    <tr><td class="paramname">length</td><td>number of 16-bit samples to collect </td></tr>
+    <tr><td class="paramname">timeout</td><td>busy-wait iteration budget (0 = return immediately) </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00104">104</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2adc_2adc_8h_source.html#l00031">ADC_DMA_CIRCULAR</a>, <a class="el" href="phal__G4_2adc_2adc_8h_source.html#l00031">ADC_DMA_ONESHOT</a>, <a class="el" href="daq_8c_source.html#l00039">config</a>, <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00053">PHAL_configureADCChannels()</a>, and <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00013">PHAL_configureOversampling()</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>true if all samples were collected, false on timeout or DMA error </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a182c3e08bcff1970109448d9c24cb39c_cgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a9bc7d0ed3e1117cd9b3b9c40bb36fcff" name="a9bc7d0ed3e1117cd9b3b9c40bb36fcff"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9bc7d0ed3e1117cd9b3b9c40bb36fcff">&#9670;&#160;</a></span>PHAL_readADC()</h2>
+<a id="a429677cda7cd755ee9c4148b73159e76" name="a429677cda7cd755ee9c4148b73159e76"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a429677cda7cd755ee9c4148b73159e76">&#9670;&#160;</a></span>PHAL_ADC_readDMA()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint16_t PHAL_readADC </td>
+          <td class="memname">bool PHAL_ADC_readDMA </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">uint16_t *</td>          <td class="paramname"><span class="paramname"><em>buffer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint16_t</td>          <td class="paramname"><span class="paramname"><em>length</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Reads the ADC data register. </p>
+<p>Start an asynchronous circular-DMA conversion into <code>buffer</code> </p>
+<p>The ADC continuously refreshes <code>buffer</code> and remains active until <a class="el" href="phal__G4_2adc_2adc_8h.html#a293b748ece5364814af3ba56e3572f06" title="Abort any transfer in flight and leave the ADC idle.">PHAL_ADC_stop()</a> is called. <code><a class="el" href="phal__G4_2adc_2adc_8h.html#a556d456a145f5c43b8a05caed0ce6ff0" title="Weak callback fired once per completed DMA buffer.">PHAL_ADC_conversionCompleteCallback()</a></code> fires (from the DMA interrupt context) after each buffer wrap.</p>
+<p>If <code>length</code> is not a multiple of the sequence length, the final burst is a partial sequence (still one sample per conversion).</p>
+<p>Fails without starting anything if a transfer is already in flight, the handle was never initialized, <code>buffer</code> is null or not halfword-aligned, or <code>length</code> is zero.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">adc</td><td>ADC handle </td></tr>
+    <tr><td class="paramname">handle</td><td>initialized handle </td></tr>
+    <tr><td class="paramname">buffer</td><td>destination, must stay valid until <a class="el" href="phal__G4_2adc_2adc_8h.html#a293b748ece5364814af3ba56e3572f06" title="Abort any transfer in flight and leave the ADC idle.">PHAL_ADC_stop()</a> is called </td></tr>
+    <tr><td class="paramname">length</td><td>number of 16-bit samples to collect (1 - 65535) </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>contents of the data register </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00196">196</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="daq_8c_source.html#l00039">config</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>true if the transfer was started, false otherwise </dd></dl>
+<dl class="section note"><dt>Note</dt><dd>Only one background transfer may be active for a handle. </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a429677cda7cd755ee9c4148b73159e76_cgraph.svg" width="100%" height="475"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a429677cda7cd755ee9c4148b73159e76_icgraph.svg" width="384" height="135"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a4e6fb62f3aac96eafc47d2f24a633fb6" name="a4e6fb62f3aac96eafc47d2f24a633fb6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a4e6fb62f3aac96eafc47d2f24a633fb6">&#9670;&#160;</a></span>PHAL_startADC()</h2>
+<a id="a293b748ece5364814af3ba56e3572f06" name="a293b748ece5364814af3ba56e3572f06"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a293b748ece5364814af3ba56e3572f06">&#9670;&#160;</a></span>PHAL_ADC_stop()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool PHAL_startADC </td>
+          <td class="memname">bool PHAL_ADC_stop </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
+          <td class="paramtype"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>handle</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Starts the ADC conversions, requires PHAL_initADC to be called prior. </p>
+<p>Abort any transfer in flight and leave the ADC idle. </p>
+<p>Safe to call at any time, even with no transfer running (it is then a no-op). Does not fire the completion callback.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">adc</td><td>ADC handle </td></tr>
+    <tr><td class="paramname">handle</td><td>initialized handle </td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00182">182</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="daq_8c_source.html#l00039">config</a>.</p>
+<dl class="section return"><dt>Returns</dt><dd>true if the handle is initialized, false otherwise </dd></dl>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="phal__G4_2adc_2adc_8c_a293b748ece5364814af3ba56e3572f06_cgraph.svg" width="100%" height="401"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="a945c5b94cf25d5aa81caee684109ad90" name="a945c5b94cf25d5aa81caee684109ad90"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a945c5b94cf25d5aa81caee684109ad90">&#9670;&#160;</a></span>PHAL_stopADC()</h2>
+<h2 class="groupheader">Variable Documentation</h2>
+<a id="a2677668645f2130a28459226cdc395c3" name="a2677668645f2130a28459226cdc395c3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2677668645f2130a28459226cdc395c3">&#9670;&#160;</a></span>g_active_adc</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">bool PHAL_stopADC </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structADCInitConfig__t.html">ADCInitConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
-          <td></td>
+          <td class="memname"><a class="el" href="structPHAL__ADC__Handle__t.html">PHAL_ADC_Handle_t</a>* g_active_adc[4]</td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
-
-<p>Stops the ADC conversions, requires PHAL_initADC to be called prior. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">adc</td><td>ADC handle </td></tr>
-  </table>
-  </dd>
-</dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2adc_2adc_8c_source.html#l00187">187</a> of file <a class="el" href="phal__G4_2adc_2adc_8c_source.html">adc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="daq_8c_source.html#l00039">config</a>.</p>
 
 </div>
 </div>
@@ -336,7 +719,7 @@ Functions</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_bdd9a5d540de89e9fe90efdfc6973a4f.html">common</a></li><li class="navelem"><a class="el" href="dir_537865b7fa0534ad07c686239f783682.html">phal_G4</a></li><li class="navelem"><a class="el" href="dir_e2d872916054dced2b0c0cd6af07241b.html">adc</a></li><li class="navelem"><a class="el" href="phal__G4_2adc_2adc_8c.html">adc.c</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_5e269a536bf5351fb01f412fd1d14980.html">common</a></li><li class="navelem"><a class="el" href="dir_48b3ded520845e3cf7cf37478d1eb6dc.html">phal_G4</a></li><li class="navelem"><a class="el" href="dir_cc9be914b1f5773d413d6c2f06f70145.html">adc</a></li><li class="navelem"><a class="el" href="phal__G4_2adc_2adc_8c.html">adc.c</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

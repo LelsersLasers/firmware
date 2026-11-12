@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['gpioinitconfig_5ft_0',['GPIOInitConfig_t',['../structGPIOInitConfig__t.html',1,'']]],
-  ['gps_5fhandle_5ft_1',['GPS_Handle_t',['../structGPS__Handle__t.html',1,'']]]
+  ['hertz_5ft_0',['hertz_t',['../structhertz__t.html',1,'']]],
+  ['hour_5ft_1',['hour_t',['../structhour__t.html',1,'']]]
 ];

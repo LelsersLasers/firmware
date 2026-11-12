@@ -1,0 +1,9 @@
+<map id="firmware/common/phal_F4/spi/spi.h" name="firmware/common/phal_F4/spi/spi.h">
+<area shape="rect" id="Node000001" title=" " alt="" coords="199,5,351,46"/>
+<area shape="rect" id="Node000002" href="$phal__F4_2spi_2spi_8c.html" title="PER Serial Peripheral Interface Device driver for STM32F4." alt="" coords="5,94,158,135"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="218,55,127,96,124,91,216,50"/>
+<area shape="rect" id="Node000003" href="$w5500__callbacks_8c.html" title="Implementation of the W5500 SPI callbacks for ethernet communication." alt="" coords="182,94,368,135"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="278,62,278,94,272,94,272,62"/>
+<area shape="rect" id="Node000004" href="$daq_2main_8c.html" title="&quot;DAQ&quot; node source code" alt="" coords="392,94,531,135"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="332,50,420,91,418,96,330,55"/>
+</map>

@@ -1,0 +1,12 @@
+<map id="lap_timer_onpress" name="lap_timer_onpress">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,31,133,56"/>
+<area shape="rect" id="Node000002" href="$geodetic_8h.html#affa8f558945f2f15b6ff146fcd86235f" title="Build a coordinate from latitude and longitude already in degrees." alt="" coords="383,5,531,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="118,27,180,16,277,10,367,10,367,16,277,15,181,21,119,33"/>
+<area shape="rect" id="Node000003" href="$faults__common_8h.html#a22ea5f8bc7464c7728f4f9d67a9417cf" title=" " alt="" coords="225,31,291,56"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="133,41,209,41,209,46,133,46"/>
+<area shape="rect" id="Node000004" href="$lap__timer_8c.html#a922bb1fc5c4fe5ec8f82bc735890ee69" title=" " alt="" coords="181,80,335,106"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="122,54,192,73,190,78,121,60"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="303,77,334,66,411,35,413,40,336,71,305,82"/>
+<area shape="rect" id="Node000005" href="$geodetic_8h.html#a4a8aae9e5800f848ecbf3e08df43c0bd" title="Project a coordinate onto a local east&#45;north plane about an origin." alt="" coords="396,80,518,106"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="335,90,381,90,381,96,335,96"/>
+</map>

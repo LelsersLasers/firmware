@@ -1,12 +1,8 @@
 var searchData=
 [
-  ['bg_5fstate_0',['BG_State',['../eeprom__spi_8c.html#a196f173414c49a259bd4f5f56c94fee6',1,'eeprom_spi.c']]],
-  ['blcmd_5ft_1',['BLCmd_t',['../bootloader__common_8h.html#a6fe4127f6cbf17ff12dfa0d9a49dd2b9',1,'bootloader_common.h']]],
-  ['blerror_5ft_2',['BLError_t',['../bootloader_8h.html#a6fe43176e8469ce6db5f7bae59a3497b',1,'bootloader.h']]],
-  ['blstatus_5ft_3',['BLStatus_t',['../bootloader_8h.html#a8210c98bb207c55dca67d77c409de48a',1,'bootloader.h']]],
-  ['bmi088_5faccelbwp_5ft_4',['BMI088_AccelBWP_t',['../bmi088_8h.html#adb6b44e48ad09f0c047b86b225cca65e',1,'bmi088.h']]],
-  ['bmi088_5faccelodr_5ft_5',['BMI088_AccelODR_t',['../bmi088_8h.html#a770c4d8814f85569a5107ee50b7a2e26',1,'bmi088.h']]],
-  ['bmi088_5faccelrange_5ft_6',['BMI088_AccelRange_t',['../bmi088_8h.html#a8beb0f95aac7d7748899d1ca3a65c5ef',1,'bmi088.h']]],
-  ['bmi088_5fgyrodrbw_5ft_7',['BMI088_GyroDrBw_t',['../bmi088_8h.html#ad62f4b9d7ba392af671d3aa7b4682b43',1,'bmi088.h']]],
-  ['bmi088_5fgyrorange_5ft_8',['BMI088_GyroRange_t',['../bmi088_8h.html#a0c7cba54f7fc9d5af1eb933057708fe0',1,'bmi088.h']]]
+  ['blerror_5ft_0',['BLError_t',['../bootloader__common_8h.html#a6fe43176e8469ce6db5f7bae59a3497b',1,'bootloader_common.h']]],
+  ['blstate_5ft_1',['BLState_t',['../bootloader_8c.html#a1c664d29dea4c558d14de397725dcf6c',1,'bootloader.c']]],
+  ['bootloader_5fstatus_5ft_2',['bootloader_status_t',['../can__types_8h.html#a8bd8b746690f284cbd524f248f4bb598',1,'can_types.h']]],
+  ['bootloader_5ftarget_5fid_5ft_3',['bootloader_target_id_t',['../can__types_8h.html#a6240b2888266f1d584c0a7bd57f51421',1,'can_types.h']]],
+  ['bswap_5fwidth_5ft_4',['bswap_width_t',['../can__codec_8h.html#a0321a1a94e67549bfb77eba5270e5de3',1,'can_codec.h']]]
 ];

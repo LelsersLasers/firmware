@@ -1,14 +1,17 @@
 var searchData=
 [
-  ['b_5fhandle_5ft_0',['b_handle_t',['../structb__handle__t.html',1,'']]],
-  ['b_5ftail_5ft_1',['b_tail_t',['../structb__tail__t.html',1,'']]],
-  ['bangbang_5ft_2',['bangbang_t',['../structbangbang__t.html',1,'']]],
-  ['bcolors_3',['bcolors',['../classutils_1_1bcolors.html',1,'utils']]],
-  ['bmi088_5fhandle_5ft_4',['BMI088_Handle_t',['../structBMI088__Handle__t.html',1,'']]],
-  ['bootlaodersharedmemory_5ft_5',['BootlaoderSharedMemory_t',['../structBootlaoderSharedMemory__t.html',1,'']]],
-  ['bootloader_6',['Bootloader',['../classbootloader__download_1_1Bootloader.html',1,'bootloader_download']]],
-  ['bootloadercommand_7',['BootloaderCommand',['../classbootloader__commands_1_1BootloaderCommand.html',1,'bootloader_commands']]],
-  ['bus_8',['Bus',['../classparser_1_1Bus.html',1,'parser']]],
-  ['buslinker_9',['BusLinker',['../classlinker_1_1BusLinker.html',1,'linker']]],
-  ['busview_10',['BusView',['../classparser_1_1BusView.html',1,'parser']]]
+  ['can_5fdata_5ft_0',['can_data_t',['../structcan__data__t.html',1,'']]],
+  ['can_5fstats_5ft_1',['can_stats_t',['../structcan__stats__t.html',1,'']]],
+  ['canmsgtypedef_5ft_2',['CanMsgTypeDef_t',['../structCanMsgTypeDef__t.html',1,'']]],
+  ['canpiler_5ftest_5fdata_5ft_3',['canpiler_test_data_t',['../structcanpiler__test__data__t.html',1,'']]],
+  ['car_5ft_4',['car_t',['../structcar__t.html',1,'']]],
+  ['cell_5ftelemetry_5fccan_5fdata_5ft_5',['cell_telemetry_ccan_data_t',['../structcell__telemetry__ccan__data__t.html',1,'']]],
+  ['cell_5ftelemetry_5fdata_5ft_6',['cell_telemetry_data_t',['../structcell__telemetry__data__t.html',1,'']]],
+  ['celsius_5ft_7',['celsius_t',['../structcelsius__t.html',1,'']]],
+  ['centimeter_5ft_8',['centimeter_t',['../structcentimeter__t.html',1,'']]],
+  ['charge_5frequest_5fdata_5ft_9',['charge_request_data_t',['../structcharge__request__data__t.html',1,'']]],
+  ['charging_5ffsm_5finternals_5fdata_5ft_10',['charging_fsm_internals_data_t',['../structcharging__fsm__internals__data__t.html',1,'']]],
+  ['clockrateconfig_5ft_11',['ClockRateConfig_t',['../structClockRateConfig__t.html',1,'']]],
+  ['cooling_5foutputs_5fdata_5ft_12',['cooling_outputs_data_t',['../structcooling__outputs__data__t.html',1,'']]],
+  ['coulomb_5ft_13',['coulomb_t',['../structcoulomb__t.html',1,'']]]
 ];

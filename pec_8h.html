@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/a_box/adbms/pec.h File Reference</title>
+<title>PER Firmware: firmware/source/a_box/adbms/pec.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -105,92 +106,103 @@ $(function(){initNavTree('pec_8h.html',''); initResizable(true); });
 <p>Calculation of PEC (CRC15, CRC10) for ADBMS communication.  
 <a href="#details">More...</a></p>
 <div class="textblock"><code>#include &lt;stdbool.h&gt;</code><br />
+<code>#include &lt;stddef.h&gt;</code><br />
 <code>#include &lt;stdint.h&gt;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for pec.h:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="pec_8h__incl.svg" width="263" height="126"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+</div><div class="textblock"><div class="dynheader">
+This graph shows which files directly or indirectly include this file:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="pec_8h__dep__incl.svg" width="339" height="140"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 </div>
 <p><a href="pec_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:acf61d2142265cf21d2a680bff41883b9" id="r_acf61d2142265cf21d2a680bff41883b9"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acf61d2142265cf21d2a680bff41883b9">adbms_pec_get_pec15</a> (uint8_t len, const uint8_t *data)</td></tr>
-<tr class="memdesc:acf61d2142265cf21d2a680bff41883b9"><td class="mdescLeft">&#160;</td><td class="mdescRight">CRC15 Pec Calculation Function.  <br /></td></tr>
-<tr class="separator:acf61d2142265cf21d2a680bff41883b9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af26a3fb59c4ae59fb10ac19030eef174" id="r_af26a3fb59c4ae59fb10ac19030eef174"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af26a3fb59c4ae59fb10ac19030eef174">adbms_pec_get_pec10</a> (bool bIsRxCmd, uint8_t nLength, const uint8_t *pDataBuf)</td></tr>
-<tr class="separator:af26a3fb59c4ae59fb10ac19030eef174"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adfdb13c48ece2669912098bc5fa0df20" id="r_adfdb13c48ece2669912098bc5fa0df20"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adfdb13c48ece2669912098bc5fa0df20">PEC_calc_pec15</a> (const uint8_t *data, uint8_t len)</td></tr>
+<tr class="memdesc:adfdb13c48ece2669912098bc5fa0df20"><td class="mdescLeft">&#160;</td><td class="mdescRight">CRC15 Pec Calculation Function.  <br /></td></tr>
+<tr class="separator:adfdb13c48ece2669912098bc5fa0df20"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aedc3f788a817022f5d878adac6dce2e5" id="r_aedc3f788a817022f5d878adac6dce2e5"><td class="memItemLeft" align="right" valign="top">uint16_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aedc3f788a817022f5d878adac6dce2e5">PEC_calc_pec10</a> (const uint8_t *data_buf, size_t length, bool is_rx_cmd)</td></tr>
+<tr class="separator:aedc3f788a817022f5d878adac6dce2e5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Calculation of PEC (CRC15, CRC10) for ADBMS communication. </p>
-<dl class="section author"><dt>Author</dt><dd>Analog Devices, Millan Kumar (<a href="#" onclick="location.href='mai'+'lto:'+'kum'+'ar'+'798'+'@p'+'urd'+'ue'+'.ed'+'u'; return false;">kumar<span class="obfuscator">.nosp@m.</span>798@<span class="obfuscator">.nosp@m.</span>purdu<span class="obfuscator">.nosp@m.</span>e.ed<span class="obfuscator">.nosp@m.</span>u</a>), Irving Wang (<a href="#" onclick="location.href='mai'+'lto:'+'irv'+'in'+'gw@'+'pu'+'rdu'+'e.'+'edu'; return false;">irvin<span class="obfuscator">.nosp@m.</span>gw@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="pec_8h_source.html">pec.h</a>.</p>
+<dl class="section author"><dt>Author</dt><dd>Analog Devices </dd>
+<dd>
+Irving Wang (<a href="#" onclick="location.href='mai'+'lto:'+'irv'+'in'+'gw@'+'pu'+'rdu'+'e.'+'edu'; return false;">irvin<span class="obfuscator">.nosp@m.</span>gw@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd>
+<dd>
+Millan Kumar (<a href="#" onclick="location.href='mai'+'lto:'+'kum'+'ar'+'798'+'@p'+'urd'+'ue'+'.ed'+'u'; return false;">kumar<span class="obfuscator">.nosp@m.</span>798@<span class="obfuscator">.nosp@m.</span>purdu<span class="obfuscator">.nosp@m.</span>e.ed<span class="obfuscator">.nosp@m.</span>u</a>) </dd></dl>
 </div><h2 class="groupheader">Function Documentation</h2>
-<a id="af26a3fb59c4ae59fb10ac19030eef174" name="af26a3fb59c4ae59fb10ac19030eef174"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af26a3fb59c4ae59fb10ac19030eef174">&#9670;&#160;</a></span>adbms_pec_get_pec10()</h2>
+<a id="aedc3f788a817022f5d878adac6dce2e5" name="aedc3f788a817022f5d878adac6dce2e5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aedc3f788a817022f5d878adac6dce2e5">&#9670;&#160;</a></span>PEC_calc_pec10()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint16_t adbms_pec_get_pec10 </td>
+          <td class="memname">uint16_t PEC_calc_pec10 </td>
           <td>(</td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>bIsRxCmd</em></span>, </td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>data_buf</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>nLength</em></span>, </td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>length</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>pDataBuf</em></span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_rx_cmd</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="pec_8c_source.html#l00086">86</a> of file <a class="el" href="pec_8c_source.html">pec.c</a>.</p>
-
-<p class="reference">References <a class="el" href="pec_8c_source.html#l00039">adbms_pec10_table</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00090">adbms6380_prepare_data_packet()</a>.</p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="pec_8h_aedc3f788a817022f5d878adac6dce2e5_icgraph.svg" width="100%" height="536"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
-<a id="acf61d2142265cf21d2a680bff41883b9" name="acf61d2142265cf21d2a680bff41883b9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acf61d2142265cf21d2a680bff41883b9">&#9670;&#160;</a></span>adbms_pec_get_pec15()</h2>
+<a id="adfdb13c48ece2669912098bc5fa0df20" name="adfdb13c48ece2669912098bc5fa0df20"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adfdb13c48ece2669912098bc5fa0df20">&#9670;&#160;</a></span>PEC_calc_pec15()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint16_t adbms_pec_get_pec15 </td>
+          <td class="memname">uint16_t PEC_calc_pec15 </td>
           <td>(</td>
-          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>len</em></span>, </td>
+          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>data</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const uint8_t *</td>          <td class="paramname"><span class="paramname"><em>data</em></span>&#160;)</td>
+          <td class="paramtype">uint8_t</td>          <td class="paramname"><span class="paramname"><em>len</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
 <p>CRC15 Pec Calculation Function. </p>
-<p>Function: Pec15_Calc </p>
+<p>Function: PEC_calc_pec15 </p>
 <p>This function calculates and return the CRC15 value</p>
 <p>Parameters: </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramdir">[in]</td><td class="paramname">Len</td><td>Number of bytes that will be used to calculate a PEC</td></tr>
-    <tr><td class="paramdir">[in]</td><td class="paramname">*data</td><td>Array of data that will be used to calculate a PEC</td></tr>
+    <tr><td class="paramdir">[in]</td><td class="paramname">*data</td><td>Array of data that will be used to calculate a PEC </td></tr>
+    <tr><td class="paramdir">[in]</td><td class="paramname">len</td><td>Number of bytes that will be used to calculate a PEC</td></tr>
   </table>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>CRC15_Value </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="pec_8c_source.html#l00075">75</a> of file <a class="el" href="pec_8c_source.html">pec.c</a>.</p>
-
-<p class="reference">References <a class="el" href="pec_8c_source.html#l00014">adbms_pec15_table</a>, and <a class="el" href="eeprom__spi_8c_source.html#l00229">addr</a>.</p>
-
-<p class="reference">Referenced by <a class="el" href="adbms6380_8c_source.html#l00082">adbms6380_prepare_command()</a>.</p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="pec_8h_adfdb13c48ece2669912098bc5fa0df20_icgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
@@ -199,7 +211,7 @@ Functions</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_463a06e8c8df3dfb8722b56866f4fb0c.html">a_box</a></li><li class="navelem"><a class="el" href="dir_b9ac109653960c1c094259a09df46e85.html">adbms</a></li><li class="navelem"><a class="el" href="pec_8h.html">pec.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_c5ffd08ff9aa00277f014903005f1bc0.html">a_box</a></li><li class="navelem"><a class="el" href="dir_ea9193e9e86f9bc4ee2f809bd800c685.html">adbms</a></li><li class="navelem"><a class="el" href="pec_8h.html">pec.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

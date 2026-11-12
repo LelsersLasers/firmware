@@ -1,0 +1,26 @@
+var structpdu__fault__sync__data__t =
+[
+    [ "ABOX_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#aab670b796e65813c48aba6072f8412f6", null ],
+    [ "AMK1_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a6ac690e9aff29ff1f4973c3831be96e5", null ],
+    [ "AMK2_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a9f168b0e4c9416fa2f12bded8603e591", null ],
+    [ "DAQ_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#afa4a242019a00540704e1a8e4dd1e22c", null ],
+    [ "DASH_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a3cc269011cc43bd702c163b2a47c892f", null ],
+    [ "DL_FRONT_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a9e507f6669253b06c814bb62e7fb5f58", null ],
+    [ "DL_REAR_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a7b87505015733dd96f55f7a4711e0d8e", null ],
+    [ "EMETER_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a69b0e01f6ef1f9108f29bc576a9b80de", null ],
+    [ "FAN1_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#af2d34694c65230c641fc21283e9604ea", null ],
+    [ "FAN2_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a941705f78129a8f187bc8dfd8a3c03a6", null ],
+    [ "FAN3_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#ab7d2afadcf802094c0cde4ab2390c3ed", null ],
+    [ "FAN4_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a5d5ac4cb9c08d8de47ad35e56bf3f9d1", null ],
+    [ "FAN5_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#ae82c754fb9d07edd382045b3a111b872", null ],
+    [ "HV_BOARD_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a103dc990c0757cc5e456cba4a5fe6be5", null ],
+    [ "HXFAN_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#af8c605db2e0e306351c0a711ba052e4c", null ],
+    [ "is_stale", "structpdu__fault__sync__data__t.html#a4f73289a6dedf695f147b7a65c9aefa2", null ],
+    [ "last_rx", "structpdu__fault__sync__data__t.html#aec31dc2dbf011da206fabce71df8aa65", null ],
+    [ "MAIN_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a2491ac8f7149c1a642e8214b1e2520ed", null ],
+    [ "PUMP1_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#ad1370a4de7e423de733b2e408ae44a5b", null ],
+    [ "PUMP2_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a30d9764d7467d6185690c149410872f2", null ],
+    [ "SDC_LOOP_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a0c077ba2a47b3110426d8b29063a5722", null ],
+    [ "SDC_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a22b34810b07046fd386332c914cb1063", null ],
+    [ "TV_SWITCH_FAULT", "structpdu__fault__sync__data__t.html#a837782a54777e00afc64a1090dbe69f3", null ]
+];

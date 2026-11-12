@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: common/bangbang/bangbang.h File Reference</title>
+<title>PER Firmware: firmware/common/bangbang/bangbang.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -97,7 +98,7 @@ $(function(){initNavTree('bangbang_8h.html',''); initResizable(true); });
 
 <div class="header">
   <div class="summary">
-<a href="#nested-classes">Data Structures</a> &#124;
+<a href="#nested-classes">Classes</a> &#124;
 <a href="#define-members">Macros</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">bangbang.h File Reference</div></div>
@@ -107,18 +108,28 @@ $(function(){initNavTree('bangbang_8h.html',''); initResizable(true); });
 <p>Generic bang-bang controller with hysteresis and minimum switch interval.  
 <a href="#details">More...</a></p>
 <div class="textblock"><code>#include &lt;stdint.h&gt;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for bangbang.h:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bangbang_8h__incl.svg" width="195" height="126"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+</div><div class="textblock"><div class="dynheader">
+This graph shows which files directly or indirectly include this file:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="bangbang_8h__dep__incl.svg" width="579" height="140"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 </div>
 <p><a href="bangbang_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
-Data Structures</h2></td></tr>
+Classes</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structbangbang__t.html">bangbang_t</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
-<tr class="memitem:a81ba131ca6c8a5ccf84249492abaf0db" id="r_a81ba131ca6c8a5ccf84249492abaf0db"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a81ba131ca6c8a5ccf84249492abaf0db">INIT_BANG_BANG</a>(name,  upper,  lower,  on_func,  off_func,  min_interval)</td></tr>
-<tr class="separator:a81ba131ca6c8a5ccf84249492abaf0db"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a237674f6a4b5a022c26ee77593bb8511" id="r_a237674f6a4b5a022c26ee77593bb8511"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a237674f6a4b5a022c26ee77593bb8511">INIT_BANG_BANG</a>(name,  upper,  lower,  on_callback,  off_callback,  min_interval)</td></tr>
+<tr class="separator:a237674f6a4b5a022c26ee77593bb8511"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -129,11 +140,9 @@ Functions</h2></td></tr>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Generic bang-bang controller with hysteresis and minimum switch interval. </p>
 <dl class="section author"><dt>Author</dt><dd>Irving Wang (<a href="#" onclick="location.href='mai'+'lto:'+'irv'+'in'+'gw@'+'pu'+'rdu'+'e.'+'edu'; return false;">irvin<span class="obfuscator">.nosp@m.</span>gw@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="bangbang_8h_source.html">bangbang.h</a>.</p>
 </div><h2 class="groupheader">Macro Definition Documentation</h2>
-<a id="a81ba131ca6c8a5ccf84249492abaf0db" name="a81ba131ca6c8a5ccf84249492abaf0db"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a81ba131ca6c8a5ccf84249492abaf0db">&#9670;&#160;</a></span>INIT_BANG_BANG</h2>
+<a id="a237674f6a4b5a022c26ee77593bb8511" name="a237674f6a4b5a022c26ee77593bb8511"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a237674f6a4b5a022c26ee77593bb8511">&#9670;&#160;</a></span>INIT_BANG_BANG</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -156,12 +165,12 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>on_func</em></span>, </td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>on_callback</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>off_func</em></span>, </td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>off_callback</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -173,17 +182,15 @@ Functions</h2></td></tr>
 <b>Value:</b><div class="fragment"><div class="line">    <a class="code hl_struct" href="structbangbang__t.html">bangbang_t</a> name = { \</div>
 <div class="line">        .upper_bound = upper, \</div>
 <div class="line">        .lower_bound = lower, \</div>
-<div class="line">        .on_func = on_func, \</div>
-<div class="line">        .off_func = off_func, \</div>
+<div class="line">        .on_func = on_callback, \</div>
+<div class="line">        .off_func = off_callback, \</div>
 <div class="line">        .min_switch_interval = min_interval, \</div>
 <div class="line">        .last_switch_ms = 0, \</div>
 <div class="line">        .is_on = <span class="keyword">false</span> \</div>
 <div class="line">    }; \</div>
 <div class="line">    static_assert(upper &gt; lower, <span class="stringliteral">&quot;Upper bound must be greater than lower bound for bang-bang controller&quot;</span>);</div>
-<div class="ttc" id="astructbangbang__t_html"><div class="ttname"><a href="structbangbang__t.html">bangbang_t</a></div><div class="ttdef"><b>Definition</b> <a href="bangbang_8h_source.html#l00013">bangbang.h:13</a></div></div>
+<div class="ttc" id="astructbangbang__t_html"><div class="ttname"><a href="structbangbang__t.html">bangbang_t</a></div><div class="ttdef"><b>Definition</b> bangbang.h:13</div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="bangbang_8h_source.html#l00026">26</a> of file <a class="el" href="bangbang_8h_source.html">bangbang.h</a>.</p>
-
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>
@@ -220,10 +227,11 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-
-<p class="definition">Definition at line <a class="el" href="bangbang_8c_source.html#l00018">18</a> of file <a class="el" href="bangbang_8c_source.html">bangbang.c</a>.</p>
-
-<p class="reference">References <a class="el" href="bangbang_8h_source.html#l00023">bangbang_t::is_on</a>, <a class="el" href="bangbang_8h_source.html#l00021">bangbang_t::last_switch_ms</a>, <a class="el" href="bangbang_8h_source.html#l00020">bangbang_t::min_switch_interval</a>, <a class="el" href="bangbang_8h_source.html#l00018">bangbang_t::off_func</a>, <a class="el" href="bangbang_8h_source.html#l00017">bangbang_t::on_func</a>, and <a class="el" href="bangbang_8h_source.html#l00014">bangbang_t::upper_bound</a>.</p>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="bangbang_8h_a6e64fa5703d5bbbc0b47d207bd44983c_icgraph.svg" width="100%" height="600"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
+</div>
 
 </div>
 </div>
@@ -232,7 +240,7 @@ Functions</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_bdd9a5d540de89e9fe90efdfc6973a4f.html">common</a></li><li class="navelem"><a class="el" href="dir_3ff6104c05cc3b58fb49010561da754f.html">bangbang</a></li><li class="navelem"><a class="el" href="bangbang_8h.html">bangbang.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_5e269a536bf5351fb01f412fd1d14980.html">common</a></li><li class="navelem"><a class="el" href="dir_9f1d360cda93d511906004186878ec58.html">bangbang</a></li><li class="navelem"><a class="el" href="bangbang_8h.html">bangbang.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

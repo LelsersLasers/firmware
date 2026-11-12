@@ -1,0 +1,9 @@
+<map id="firmware/common/phal_G4/pwm/pwm.h" name="firmware/common/phal_G4/pwm/pwm.h">
+<area shape="rect" id="Node000001" title="PWM driver for STM32G4." alt="" coords="98,5,250,46"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,94,113,120"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="147,49,90,87,87,83,144,44"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="137,94,210,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="176,46,176,78,171,78,171,46"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="234,94,297,120"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="198,44,242,82,238,86,195,48"/>
+</map>

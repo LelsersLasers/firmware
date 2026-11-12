@@ -1,10 +1,20 @@
 var searchData=
 [
-  ['netinfo_5fdhcp_0',['NETINFO_DHCP',['../group__DATA__TYPE.html#gga76e5aa4ff40d1cb562e46e3bf9b1e9d1abb4dffed9037e84b54c972da0fd471e2',1,'wizchip_conf.h']]],
-  ['netinfo_5fstatic_1',['NETINFO_STATIC',['../group__DATA__TYPE.html#gga76e5aa4ff40d1cb562e46e3bf9b1e9d1aeb76552981d146af93acee6aa17dd165',1,'wizchip_conf.h']]],
-  ['nm_5fforcearp_2',['NM_FORCEARP',['../group__DATA__TYPE.html#gga7543c641a8f3ad6dce26f2387e7e8eaca32c5ae489d34cf2de9ff96ae278f028a',1,'wizchip_conf.h']]],
-  ['nm_5fpingblock_3',['NM_PINGBLOCK',['../group__DATA__TYPE.html#gga7543c641a8f3ad6dce26f2387e7e8eaca8e9226206aa8567b284ede0dff7540be',1,'wizchip_conf.h']]],
-  ['nm_5fpppoe_4',['NM_PPPOE',['../group__DATA__TYPE.html#gga7543c641a8f3ad6dce26f2387e7e8eaca37ebbd5edda6ee0dccfcd481d4690416',1,'wizchip_conf.h']]],
-  ['nm_5fwakeonlan_5',['NM_WAKEONLAN',['../group__DATA__TYPE.html#gga7543c641a8f3ad6dce26f2387e7e8eaca273098a5481a025f536a599c6a008759',1,'wizchip_conf.h']]],
-  ['num_5ffault_5fprios_6',['NUM_FAULT_PRIOS',['../faults__common_8h.html#a03cf0c7e0fba09e53e6aacd890b3d4eea00b1fe1b6035838201f5ae8c0f20c0d8',1,'faults_common.h']]]
+  ['nav_5frelposned_5fflags_5fcarr_5fsoln_5ffixed_0',['NAV_RELPOSNED_FLAGS_CARR_SOLN_FIXED',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a6b302400864d57225d1b3d16cea7c748',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fcarr_5fsoln_5ffloat_1',['NAV_RELPOSNED_FLAGS_CARR_SOLN_FLOAT',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a2f5693fb555a0c687ca5d0903b337875',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fcarr_5fsoln_5fmask_2',['NAV_RELPOSNED_FLAGS_CARR_SOLN_MASK',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5acac07a4c806dbecd93fd639e027446c3',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fcarr_5fsoln_5fnone_3',['NAV_RELPOSNED_FLAGS_CARR_SOLN_NONE',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a464e532fea51c01329a81a5415df455e',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fdiff_5fsoln_4',['NAV_RELPOSNED_FLAGS_DIFF_SOLN',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a77543c00f7f2aad18593a89bce98a15b',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fgnss_5ffix_5fok_5',['NAV_RELPOSNED_FLAGS_GNSS_FIX_OK',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a74fe85468319d5c3c91447ab83fe7463',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fheading_5fvalid_6',['NAV_RELPOSNED_FLAGS_HEADING_VALID',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5af96df30c40849c2f9a9f643c20fe6619',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fis_5fmoving_7',['NAV_RELPOSNED_FLAGS_IS_MOVING',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a6eb45d0c2247b96973e22bfc8edf860e',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fnormalized_8',['NAV_RELPOSNED_FLAGS_NORMALIZED',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5af6ccdff3342bf47c78f0e16c708a4a9c',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fref_5fobs_5fmiss_9',['NAV_RELPOSNED_FLAGS_REF_OBS_MISS',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5aa2e42f95571811314a99ed4b48090305',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5fref_5fpos_5fmiss_10',['NAV_RELPOSNED_FLAGS_REF_POS_MISS',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a9d0032187d57ecb942ed21ec04ff86a3',1,'nav_relposned.h']]],
+  ['nav_5frelposned_5fflags_5frel_5fpos_5fvalid_11',['NAV_RELPOSNED_FLAGS_REL_POS_VALID',['../nav__relposned_8h.html#aeba8f34c9ae90ea0404882b5f54d3bf5a876dca308f9ead3e7174bde6c1135d51',1,'nav_relposned.h']]],
+  ['num_5ffault_5fprios_12',['NUM_FAULT_PRIOS',['../faults__common_8h.html#a03cf0c7e0fba09e53e6aacd890b3d4eea00b1fe1b6035838201f5ae8c0f20c0d8',1,'faults_common.h']]],
+  ['num_5fpages_13',['NUM_PAGES',['../lcd_8h.html#a99a5fddfe71e6e9cd0c559b9a9a41a99acd382a61c55aa2f67b15244ad7cd9618',1,'lcd.h']]],
+  ['num_5fswitches_14',['NUM_SWITCHES',['../switch_8h.html#af89bbbc9db3e225538dbfa6fc3d97838a30feaf3abb229ebb97fce793cbecae56',1,'switch.h']]],
+  ['num_5fusart_15',['NUM_USART',['../phal__G4_2usart_2usart_8h.html#a5a99a5b20a6e9a0b6aa2a54103a94252a0ac75a5473f51888c304a37948db7419',1,'usart.h']]],
+  ['num_5fvcu_5felements_16',['NUM_VCU_ELEMENTS',['../vcu_8c.html#ade667dee6c3f02f349ff062fc90a0b4ea9fc792121a956f796820aed9a2565d13',1,'vcu.c']]]
 ];

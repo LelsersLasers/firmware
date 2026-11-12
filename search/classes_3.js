@@ -1,12 +1,15 @@
 var searchData=
 [
-  ['can_5fperipheral_5fstats_5ft_0',['can_peripheral_stats_t',['../structcan__peripheral__stats__t.html',1,'']]],
-  ['can_5fstats_5ft_1',['can_stats_t',['../structcan__stats__t.html',1,'']]],
-  ['canmsgtypedef_5ft_2',['CanMsgTypeDef_t',['../structCanMsgTypeDef__t.html',1,'']]],
-  ['canrxthread_3',['CANRxThread',['../classbootloader__download_1_1CANRxThread.html',1,'bootloader_download.CANRxThread'],['../classcan__process_1_1CANRxThread.html',1,'can_process.CANRxThread']]],
-  ['cantxthread_4',['CANTxThread',['../classcan__process_1_1CANTxThread.html',1,'can_process']]],
-  ['clockrateconfig_5ft_5',['ClockRateConfig_t',['../structClockRateConfig__t.html',1,'']]],
-  ['config_5ft_6',['config_t',['../structconfig__t.html',1,'']]],
-  ['cooling_5frequest_5ft_7',['cooling_request_t',['../structcooling__request__t.html',1,'']]],
-  ['cpu_5ftime_5ft_8',['cpu_time_t',['../structcpu__time__t.html',1,'']]]
+  ['dash_5finit_5fdata_5ft_0',['dash_init_data_t',['../structdash__init__data__t.html',1,'']]],
+  ['dash_5fversion_5fdata_5ft_1',['dash_version_data_t',['../structdash__version__data__t.html',1,'']]],
+  ['dashboard_5ffault_5fevent_5fdata_5ft_2',['dashboard_fault_event_data_t',['../structdashboard__fault__event__data__t.html',1,'']]],
+  ['dashboard_5ffault_5fsync_5fdata_5ft_3',['dashboard_fault_sync_data_t',['../structdashboard__fault__sync__data__t.html',1,'']]],
+  ['day_5ft_4',['day_t',['../structday__t.html',1,'']]],
+  ['degree_5ft_5',['degree_t',['../structdegree__t.html',1,'']]],
+  ['degrees_5fper_5fsecond_5ft_6',['degrees_per_second_t',['../structdegrees__per__second__t.html',1,'']]],
+  ['diagnostics_5fcontext_5ft_7',['diagnostics_context_t',['../structdiagnostics__context__t.html',1,'']]],
+  ['diagnostics_5fprev_5ftask_5ftime_5ft_8',['diagnostics_prev_task_time_t',['../structdiagnostics__prev__task__time__t.html',1,'']]],
+  ['diagnostics_5fsnapshot_5ft_9',['diagnostics_snapshot_t',['../structdiagnostics__snapshot__t.html',1,'']]],
+  ['diagnostics_5ftask_5ft_10',['diagnostics_task_t',['../structdiagnostics__task__t.html',1,'']]],
+  ['dma_5finit_5ft_11',['dma_init_t',['../structdma__init__t.html',1,'']]]
 ];

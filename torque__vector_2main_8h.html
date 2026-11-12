@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/torque_vector/main.h File Reference</title>
+<title>PER Firmware: firmware/source/torque_vector/main.h File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -105,7 +106,17 @@ $(function(){initNavTree('torque__vector_2main_8h.html',''); initResizable(true)
 <p>"Torque Vector" node source code  
 <a href="#details">More...</a></p>
 <div class="textblock"><code>#include &lt;stdint.h&gt;</code><br />
-<code>#include &quot;<a class="el" href="phal_2gpio_8h_source.html">common/phal/gpio.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="phal__G4_2gpio_2gpio_8h_source.html">common/phal_G4/gpio/gpio.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for main.h:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="torque__vector_2main_8h__incl.svg" width="304" height="214"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+</div><div class="textblock"><div class="dynheader">
+This graph shows which files directly or indirectly include this file:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="torque__vector_2main_8h__dep__incl.svg" width="164" height="140"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 </div>
 <p><a href="torque__vector_2main_8h_source.html">Go to the source code of this file.</a></p>
 <table class="memberdecls">
@@ -123,13 +134,47 @@ Macros</h2></td></tr>
 <tr class="separator:aa5bf4e4a187f66b98a273bb051ec3877"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a8437cdc43b488d816a5e56f7b6457b86" id="r_a8437cdc43b488d816a5e56f7b6457b86"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8437cdc43b488d816a5e56f7b6457b86">CONNECTION_LED_PIN</a>&#160;&#160;&#160;(3)</td></tr>
 <tr class="separator:a8437cdc43b488d816a5e56f7b6457b86"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa1c07450d014e439e64091e53b2910e3" id="r_aa1c07450d014e439e64091e53b2910e3"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa1c07450d014e439e64091e53b2910e3">ROVER_RESET_PORT</a>&#160;&#160;&#160;(GPIOB)</td></tr>
+<tr class="separator:aa1c07450d014e439e64091e53b2910e3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac346578ff0559ead46bd7f69c12776d4" id="r_ac346578ff0559ead46bd7f69c12776d4"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac346578ff0559ead46bd7f69c12776d4">ROVER_RESET_PIN</a>&#160;&#160;&#160;(1)</td></tr>
+<tr class="separator:ac346578ff0559ead46bd7f69c12776d4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7ae278ce6f02efe797067be6a337df91" id="r_a7ae278ce6f02efe797067be6a337df91"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7ae278ce6f02efe797067be6a337df91">BASE_RESET_PORT</a>&#160;&#160;&#160;(GPIOB)</td></tr>
+<tr class="separator:a7ae278ce6f02efe797067be6a337df91"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3da9ac80a8c57bdb3013735d6cb72dbe" id="r_a3da9ac80a8c57bdb3013735d6cb72dbe"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3da9ac80a8c57bdb3013735d6cb72dbe">BASE_RESET_PIN</a>&#160;&#160;&#160;(6)</td></tr>
+<tr class="separator:a3da9ac80a8c57bdb3013735d6cb72dbe"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>"Torque Vector" node source code </p>
 <dl class="section author"><dt>Author</dt><dd>Irving Wang (<a href="#" onclick="location.href='mai'+'lto:'+'irv'+'in'+'gw@'+'pu'+'rdu'+'e.'+'edu'; return false;">irvin<span class="obfuscator">.nosp@m.</span>gw@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
 </div><h2 class="groupheader">Macro Definition Documentation</h2>
+<a id="a3da9ac80a8c57bdb3013735d6cb72dbe" name="a3da9ac80a8c57bdb3013735d6cb72dbe"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3da9ac80a8c57bdb3013735d6cb72dbe">&#9670;&#160;</a></span>BASE_RESET_PIN</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define BASE_RESET_PIN&#160;&#160;&#160;(6)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a7ae278ce6f02efe797067be6a337df91" name="a7ae278ce6f02efe797067be6a337df91"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7ae278ce6f02efe797067be6a337df91">&#9670;&#160;</a></span>BASE_RESET_PORT</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define BASE_RESET_PORT&#160;&#160;&#160;(GPIOB)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a8437cdc43b488d816a5e56f7b6457b86" name="a8437cdc43b488d816a5e56f7b6457b86"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a8437cdc43b488d816a5e56f7b6457b86">&#9670;&#160;</a></span>CONNECTION_LED_PIN</h2>
 
@@ -141,8 +186,6 @@ Macros</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00021">21</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -158,8 +201,6 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00020">20</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
-
 </div>
 </div>
 <a id="a16617de3bb2ca54675ae2515d8515e12" name="a16617de3bb2ca54675ae2515d8515e12"></a>
@@ -173,8 +214,6 @@ Macros</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00019">19</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -190,8 +229,6 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00018">18</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
-
 </div>
 </div>
 <a id="a5e9e4203b861d671cdcd3bf5f08655a3" name="a5e9e4203b861d671cdcd3bf5f08655a3"></a>
@@ -205,8 +242,6 @@ Macros</h2></td></tr>
         </tr>
       </table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00017">17</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
 
 </div>
 </div>
@@ -222,7 +257,33 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="torque__vector_2main_8h_source.html#l00016">16</a> of file <a class="el" href="torque__vector_2main_8h_source.html">main.h</a>.</p>
+</div>
+</div>
+<a id="ac346578ff0559ead46bd7f69c12776d4" name="ac346578ff0559ead46bd7f69c12776d4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac346578ff0559ead46bd7f69c12776d4">&#9670;&#160;</a></span>ROVER_RESET_PIN</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define ROVER_RESET_PIN&#160;&#160;&#160;(1)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa1c07450d014e439e64091e53b2910e3" name="aa1c07450d014e439e64091e53b2910e3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa1c07450d014e439e64091e53b2910e3">&#9670;&#160;</a></span>ROVER_RESET_PORT</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define ROVER_RESET_PORT&#160;&#160;&#160;(GPIOB)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -231,7 +292,7 @@ Macros</h2></td></tr>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_4d7522402bdc013effffc7486e0cdc4d.html">torque_vector</a></li><li class="navelem"><a class="el" href="torque__vector_2main_8h.html">main.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_c2161bb30f31b9cc8c7c3be8a4fc2346.html">torque_vector</a></li><li class="navelem"><a class="el" href="torque__vector_2main_8h.html">main.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

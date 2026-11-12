@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: common/gps/gps.c File Reference</title>
+<title>PER Firmware: firmware/source/torque_vector/sensors/gps.c File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -97,58 +98,124 @@ $(function(){initNavTree('gps_8c.html',''); initResizable(true); });
 
 <div class="header">
   <div class="summary">
-<a href="#func-members">Functions</a>  </div>
+<a href="#func-members">Functions</a> &#124;
+<a href="#var-members">Variables</a>  </div>
   <div class="headertitle"><div class="title">gps.c File Reference</div></div>
 </div><!--header-->
 <div class="contents">
 
-<p>GPS driver for UBLOX NEO-M9N GPS module.  
+<p>GPS RX and parsing thread.  
 <a href="#details">More...</a></p>
-<div class="textblock"><code>#include &quot;<a class="el" href="gps_8h_source.html">gps.h</a>&quot;</code><br />
+<div class="textblock"><code>#include &quot;<a class="el" href="faults__common_8h_source.html">can_library/faults_common.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="rtos_8h_source.html">common/rtos/rtos.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="sensors_8h_source.html">sensors.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for gps.c:</div>
+<div class="dyncontent">
+<div class="center"><div class="zoom"><iframe scrolling="no" frameborder="0" src="gps_8c__incl.svg" width="100%" height="582"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div></div>
 </div>
-<p><a href="gps_8c_source.html">Go to the source code of this file.</a></p>
-<table class="memberdecls">
+</div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a8aa2ccfc6bae9091b677a8a1ad4b69a3" id="r_a8aa2ccfc6bae9091b677a8a1ad4b69a3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a8aa2ccfc6bae9091b677a8a1ad4b69a3">GPS_Decode</a> (<a class="el" href="structGPS__Handle__t.html">GPS_Handle_t</a> *gps)</td></tr>
-<tr class="memdesc:a8aa2ccfc6bae9091b677a8a1ad4b69a3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Function to decode periodic GPS UBX message.  <br /></td></tr>
-<tr class="separator:a8aa2ccfc6bae9091b677a8a1ad4b69a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a161c126f960b2347813a4616b1609cda" id="r_a161c126f960b2347813a4616b1609cda"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a161c126f960b2347813a4616b1609cda">gps_periodic</a> (void)</td></tr>
+<tr class="separator:a161c126f960b2347813a4616b1609cda"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
+Variables</h2></td></tr>
+<tr class="memitem:ade7f4235d894d4fdce42d7c946aef45a" id="r_ade7f4235d894d4fdce42d7c946aef45a"><td class="memItemLeft" align="right" valign="top">volatile uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ade7f4235d894d4fdce42d7c946aef45a">rover_rx_buffer</a> [<a class="el" href="sensors_8h.html#ab36a63ee2a00778a8acbdf1e7be4f210">ROVER_RX_BUFFER_SIZE</a>] = {0}</td></tr>
+<tr class="separator:ade7f4235d894d4fdce42d7c946aef45a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a67a7ff4ca84db2e96d2a121d6c911ad3" id="r_a67a7ff4ca84db2e96d2a121d6c911ad3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structNAV__PVT__payload__t.html">NAV_PVT_payload_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a67a7ff4ca84db2e96d2a121d6c911ad3">nav_pvt</a> = {0}</td></tr>
+<tr class="separator:a67a7ff4ca84db2e96d2a121d6c911ad3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2a63fa500984ea405cc74631dec3cd8f" id="r_a2a63fa500984ea405cc74631dec3cd8f"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structNAV__RELPOSNED__payload__t.html">NAV_RELPOSNED_payload_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2a63fa500984ea405cc74631dec3cd8f">nav_relposned</a> = {0}</td></tr>
+<tr class="separator:a2a63fa500984ea405cc74631dec3cd8f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4d2b9347b7b5d257acb4242f561d302a" id="r_a4d2b9347b7b5d257acb4242f561d302a"><td class="memItemLeft" align="right" valign="top">volatile uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4d2b9347b7b5d257acb4242f561d302a">last_gps_message_time_ms</a> = 0</td></tr>
+<tr class="separator:a4d2b9347b7b5d257acb4242f561d302a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>GPS driver for UBLOX NEO-M9N GPS module. </p>
+<div class="textblock"><p>GPS RX and parsing thread. </p>
 <dl class="section author"><dt>Author</dt><dd>Irving Wang (<a href="#" onclick="location.href='mai'+'lto:'+'irv'+'in'+'gw@'+'pu'+'rdu'+'e.'+'edu'; return false;">irvin<span class="obfuscator">.nosp@m.</span>gw@p<span class="obfuscator">.nosp@m.</span>urdue<span class="obfuscator">.nosp@m.</span>.edu</a>) </dd></dl>
-
-<p class="definition">Definition in file <a class="el" href="gps_8c_source.html">gps.c</a>.</p>
 </div><h2 class="groupheader">Function Documentation</h2>
-<a id="a8aa2ccfc6bae9091b677a8a1ad4b69a3" name="a8aa2ccfc6bae9091b677a8a1ad4b69a3"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8aa2ccfc6bae9091b677a8a1ad4b69a3">&#9670;&#160;</a></span>GPS_Decode()</h2>
+<a id="a161c126f960b2347813a4616b1609cda" name="a161c126f960b2347813a4616b1609cda"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a161c126f960b2347813a4616b1609cda">&#9670;&#160;</a></span>gps_periodic()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool GPS_Decode </td>
+          <td class="memname">void gps_periodic </td>
           <td>(</td>
-          <td class="paramtype"><a class="el" href="structGPS__Handle__t.html">GPS_Handle_t</a> *</td>          <td class="paramname"><span class="paramname"><em>gps</em></span></td><td>)</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="gps_8c_a161c126f960b2347813a4616b1609cda_cgraph.svg" width="559" height="135"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="gps_8c_a161c126f960b2347813a4616b1609cda_icgraph.svg" width="203" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
-<p>Function to decode periodic GPS UBX message. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">GPS</td><td>Handle for GPS configuration and data </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>true Parsing successful </dd>
-<dd>
-false Parsing failed </dd></dl>
+</div>
+</div>
+<h2 class="groupheader">Variable Documentation</h2>
+<a id="a4d2b9347b7b5d257acb4242f561d302a" name="a4d2b9347b7b5d257acb4242f561d302a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4d2b9347b7b5d257acb4242f561d302a">&#9670;&#160;</a></span>last_gps_message_time_ms</h2>
 
-<p class="definition">Definition at line <a class="el" href="gps_8c_source.html#l00010">10</a> of file <a class="el" href="gps_8c_source.html">gps.c</a>.</p>
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile uint32_t last_gps_message_time_ms = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
-<p class="reference">References <a class="el" href="gps_8h_source.html#l00147">bytes_to_int16()</a>, <a class="el" href="gps_8h_source.html#l00134">bytes_to_int32()</a>, <a class="el" href="gps_8h_source.html#l00143">bytes_to_uint16()</a>, <a class="el" href="gps_8h_source.html#l00139">bytes_to_uint32()</a>, <a class="el" href="gps_8h_source.html#l00126">GPS_Handle_t::data</a>, <a class="el" href="gps_8h_source.html#l00085">NAV_PVT_t::day</a>, <a class="el" href="gps_8h_source.html#l00095">NAV_PVT_t::fixType</a>, <a class="el" href="gps_8h_source.html#l00096">NAV_PVT_t::flags1</a>, <a class="el" href="gps_8h_source.html#l00097">NAV_PVT_t::flags2</a>, <a class="el" href="gps_8h_source.html#l00052">GPS_FIX_TYPE_GNSS_2D</a>, <a class="el" href="gps_8h_source.html#l00053">GPS_FIX_TYPE_GNSS_3D</a>, <a class="el" href="gps_8h_source.html#l00124">GPS_Handle_t::gps_rx_buffer</a>, <a class="el" href="gps_8h_source.html#l00043">GPS_VALID_DATE</a>, <a class="el" href="gps_8h_source.html#l00045">GPS_VALID_FULLY_RESOLVED</a>, <a class="el" href="gps_8h_source.html#l00046">GPS_VALID_MAG</a>, <a class="el" href="gps_8h_source.html#l00044">GPS_VALID_TIME</a>, <a class="el" href="gps_8h_source.html#l00110">NAV_PVT_t::groundSpeed</a>, <a class="el" href="gps_8h_source.html#l00131">GPS_Handle_t::hasGNSSFix</a>, <a class="el" href="gps_8h_source.html#l00111">NAV_PVT_t::headingMotion</a>, <a class="el" href="gps_8h_source.html#l00117">NAV_PVT_t::headingVehicle</a>, <a class="el" href="gps_8h_source.html#l00102">NAV_PVT_t::height</a>, <a class="el" href="gps_8h_source.html#l00103">NAV_PVT_t::heightMSL</a>, <a class="el" href="gps_8h_source.html#l00104">NAV_PVT_t::horizontalAccuracy</a>, <a class="el" href="gps_8h_source.html#l00086">NAV_PVT_t::hour</a>, <a class="el" href="gps_8h_source.html#l00152">is_valid_header()</a>, <a class="el" href="gps_8h_source.html#l00129">GPS_Handle_t::isFullyResolved</a>, <a class="el" href="gps_8h_source.html#l00127">GPS_Handle_t::isValidDate</a>, <a class="el" href="gps_8h_source.html#l00130">GPS_Handle_t::isValidMag</a>, <a class="el" href="gps_8h_source.html#l00128">GPS_Handle_t::isValidTime</a>, <a class="el" href="gps_8h_source.html#l00082">NAV_PVT_t::iTOW</a>, <a class="el" href="gps_8h_source.html#l00101">NAV_PVT_t::latitude</a>, <a class="el" href="gps_8h_source.html#l00100">NAV_PVT_t::longitude</a>, <a class="el" href="gps_8h_source.html#l00120">NAV_PVT_t::magneticAcc</a>, <a class="el" href="gps_8h_source.html#l00119">NAV_PVT_t::magneticDec</a>, <a class="el" href="gps_8h_source.html#l00087">NAV_PVT_t::minute</a>, <a class="el" href="gps_8h_source.html#l00084">NAV_PVT_t::month</a>, <a class="el" href="gps_8h_source.html#l00093">NAV_PVT_t::nano</a>, <a class="el" href="gps_8h_source.html#l00099">NAV_PVT_t::numSatellites</a>, <a class="el" href="gps_8h_source.html#l00114">NAV_PVT_t::positionDOP</a>, <a class="el" href="gps_8h_source.html#l00115">NAV_PVT_t::reserved</a>, <a class="el" href="test__buffer_8c_source.html#l00019">rx_buffer</a>, <a class="el" href="gps_8h_source.html#l00088">NAV_PVT_t::second</a>, <a class="el" href="gps_8h_source.html#l00112">NAV_PVT_t::speedAccuracy</a>, <a class="el" href="gps_8h_source.html#l00092">NAV_PVT_t::timeAccuracy</a>, <a class="el" href="gps_8h_source.html#l00090">NAV_PVT_t::valid</a>, <a class="el" href="gps_8h_source.html#l00109">NAV_PVT_t::velDown</a>, <a class="el" href="gps_8h_source.html#l00108">NAV_PVT_t::velEast</a>, <a class="el" href="gps_8h_source.html#l00107">NAV_PVT_t::velNorth</a>, <a class="el" href="gps_8h_source.html#l00105">NAV_PVT_t::verticalAccuracy</a>, and <a class="el" href="gps_8h_source.html#l00083">NAV_PVT_t::year</a>.</p>
+</div>
+</div>
+<a id="a67a7ff4ca84db2e96d2a121d6c911ad3" name="a67a7ff4ca84db2e96d2a121d6c911ad3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a67a7ff4ca84db2e96d2a121d6c911ad3">&#9670;&#160;</a></span>nav_pvt</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structNAV__PVT__payload__t.html">NAV_PVT_payload_t</a> nav_pvt = {0}</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2a63fa500984ea405cc74631dec3cd8f" name="a2a63fa500984ea405cc74631dec3cd8f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2a63fa500984ea405cc74631dec3cd8f">&#9670;&#160;</a></span>nav_relposned</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structNAV__RELPOSNED__payload__t.html">NAV_RELPOSNED_payload_t</a> nav_relposned = {0}</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ade7f4235d894d4fdce42d7c946aef45a" name="ade7f4235d894d4fdce42d7c946aef45a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ade7f4235d894d4fdce42d7c946aef45a">&#9670;&#160;</a></span>rover_rx_buffer</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">volatile uint8_t rover_rx_buffer[<a class="el" href="sensors_8h.html#ab36a63ee2a00778a8acbdf1e7be4f210">ROVER_RX_BUFFER_SIZE</a>] = {0}</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -157,7 +224,7 @@ false Parsing failed </dd></dl>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_bdd9a5d540de89e9fe90efdfc6973a4f.html">common</a></li><li class="navelem"><a class="el" href="dir_75090a41b2477eee887f7599f1bd926e.html">gps</a></li><li class="navelem"><a class="el" href="gps_8c.html">gps.c</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_c2161bb30f31b9cc8c7c3be8a4fc2346.html">torque_vector</a></li><li class="navelem"><a class="el" href="dir_d473521e1047d7cb312f638707018e43.html">sensors</a></li><li class="navelem"><a class="el" href="gps_8c.html">gps.c</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

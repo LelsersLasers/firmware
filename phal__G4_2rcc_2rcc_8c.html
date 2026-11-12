@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: common/phal_G4/rcc/rcc.c File Reference</title>
+<title>PER Firmware: firmware/common/phal_G4/rcc/rcc.c File Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -102,369 +103,313 @@ $(function(){initNavTree('phal__G4_2rcc_2rcc_8c.html',''); initResizable(true); 
   <div class="headertitle"><div class="title">rcc.c File Reference</div></div>
 </div><!--header-->
 <div class="contents">
+
+<p>G4 RCC public API implementation.  
+<a href="#details">More...</a></p>
 <div class="textblock"><code>#include &quot;<a class="el" href="phal__G4_2rcc_2rcc_8h_source.html">common/phal_G4/rcc/rcc.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="rcc__priv_8h_source.html">common/phal_G4/rcc/rcc_priv.h</a>&quot;</code><br />
+</div><div class="textblock"><div class="dynheader">
+Include dependency graph for rcc.c:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c__incl.svg" width="303" height="303"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
 </div>
-<p><a href="phal__G4_2rcc_2rcc_8c_source.html">Go to the source code of this file.</a></p>
-<table class="memberdecls">
+</div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:a7e9d115c0ba7b71bc58eafed17751479" id="r_a7e9d115c0ba7b71bc58eafed17751479"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7e9d115c0ba7b71bc58eafed17751479">PHAL_configureClockRates</a> (<a class="el" href="structClockRateConfig__t.html">ClockRateConfig_t</a> *<a class="el" href="daq_8c.html#a25ce4b69d296fc9a3324b494542c2420">config</a>)</td></tr>
-<tr class="memdesc:a7e9d115c0ba7b71bc58eafed17751479"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure all AHB/APB/System clocks from the provided configuration.  <br /></td></tr>
-<tr class="separator:a7e9d115c0ba7b71bc58eafed17751479"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ae8e3a1b142cf74b1b38984c805673cf5" id="r_ae8e3a1b142cf74b1b38984c805673cf5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae8e3a1b142cf74b1b38984c805673cf5">PHAL_configurePLLVCO</a> (<a class="el" href="phal__F4__F7_2rcc_2rcc_8h.html#adeb732f119f49950327326f5e4d20522">PLLSrc_t</a> pll_source, uint32_t vco_output_rate_target_hz)</td></tr>
-<tr class="memdesc:ae8e3a1b142cf74b1b38984c805673cf5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure PLL VCO Clock rate The VCO clock is the input clock for the different PLL outputs. Each PLL output will divide the VCO clock to get its output.  <br /></td></tr>
-<tr class="separator:ae8e3a1b142cf74b1b38984c805673cf5"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abd0ea1bcc85ce9ff20dc37966d0286d0" id="r_abd0ea1bcc85ce9ff20dc37966d0286d0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd0ea1bcc85ce9ff20dc37966d0286d0">PHAL_configurePLLSystemClock</a> (uint32_t system_clock_target_hz)</td></tr>
-<tr class="memdesc:abd0ea1bcc85ce9ff20dc37966d0286d0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure PLL CLK as the System Clock at the desired target frequency. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED.  <br /></td></tr>
-<tr class="separator:abd0ea1bcc85ce9ff20dc37966d0286d0"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a29b119d6f21bf411f02442d651ac4ff9" id="r_a29b119d6f21bf411f02442d651ac4ff9"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a29b119d6f21bf411f02442d651ac4ff9">PHAL_configureHSISystemClock</a> ()</td></tr>
-<tr class="memdesc:a29b119d6f21bf411f02442d651ac4ff9"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure HSI CLK as the System Clock. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED.  <br /></td></tr>
-<tr class="separator:a29b119d6f21bf411f02442d651ac4ff9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ac2cfc3641ee4abbb3480dc5f401a7235" id="r_ac2cfc3641ee4abbb3480dc5f401a7235"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac2cfc3641ee4abbb3480dc5f401a7235">PHAL_configureHSESystemClock</a> ()</td></tr>
-<tr class="memdesc:ac2cfc3641ee4abbb3480dc5f401a7235"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure HSE CLK as the System Clock. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED.  <br /></td></tr>
-<tr class="separator:ac2cfc3641ee4abbb3480dc5f401a7235"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1509d2e2c10b134bcc26f1465881db33" id="r_a1509d2e2c10b134bcc26f1465881db33"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1509d2e2c10b134bcc26f1465881db33">PHAL_configureAHBClock</a> (uint32_t ahb_clock_target_hz)</td></tr>
-<tr class="memdesc:a1509d2e2c10b134bcc26f1465881db33"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure AHB Clock rate by modifying the AHB prescaler value.  <br /></td></tr>
-<tr class="separator:a1509d2e2c10b134bcc26f1465881db33"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a0bbab857de2d2d1e08975dc977b68342" id="r_a0bbab857de2d2d1e08975dc977b68342"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0bbab857de2d2d1e08975dc977b68342">PHAL_configureAPB1Clock</a> (uint32_t apb1_clock_target_hz)</td></tr>
-<tr class="memdesc:a0bbab857de2d2d1e08975dc977b68342"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure APB1 Clock rate by modifying the APB1 prescaler value.  <br /></td></tr>
-<tr class="separator:a0bbab857de2d2d1e08975dc977b68342"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:acb32cd6570e5e56268df32a141c188f0" id="r_acb32cd6570e5e56268df32a141c188f0"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acb32cd6570e5e56268df32a141c188f0">PHAL_configureAPB2Clock</a> (uint32_t apb2_clock_target_hz)</td></tr>
-<tr class="memdesc:acb32cd6570e5e56268df32a141c188f0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure APB1 Clock rate by modifying the APB2 prescaler value.  <br /></td></tr>
-<tr class="separator:acb32cd6570e5e56268df32a141c188f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af54790732c9560e8d675f78a03486d58" id="r_af54790732c9560e8d675f78a03486d58"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af54790732c9560e8d675f78a03486d58">rcc_initFromOscillator</a> (bool use_hse, bool use_pll)</td></tr>
+<tr class="separator:af54790732c9560e8d675f78a03486d58"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2da5f97897f406d973bb5d92c934224b" id="r_a2da5f97897f406d973bb5d92c934224b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2da5f97897f406d973bb5d92c934224b">PHAL_RCC_init</a> (<a class="el" href="phal__G4_2rcc_2rcc_8h.html#a1c73ccee559be5aa0946979a99aeff4f">PHAL_RCC_Mode_t</a> mode)</td></tr>
+<tr class="memdesc:a2da5f97897f406d973bb5d92c934224b"><td class="mdescLeft">&#160;</td><td class="mdescRight">Configure the system, AHB, APB1, and APB2 clocks for a supported clock tree.  <br /></td></tr>
+<tr class="separator:a2da5f97897f406d973bb5d92c934224b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6758e583bda1056bc7233177323c0f09" id="r_a6758e583bda1056bc7233177323c0f09"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a6758e583bda1056bc7233177323c0f09">PHAL_RCC_getSystemClockHz</a> (void)</td></tr>
+<tr class="separator:a6758e583bda1056bc7233177323c0f09"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac6c0661fa09c0c76a597c5b394bc3ebb" id="r_ac6c0661fa09c0c76a597c5b394bc3ebb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac6c0661fa09c0c76a597c5b394bc3ebb">PHAL_RCC_getAHBClockHz</a> (void)</td></tr>
+<tr class="separator:ac6c0661fa09c0c76a597c5b394bc3ebb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa351cc1ef8604fe3082fd812ad88a71b" id="r_aa351cc1ef8604fe3082fd812ad88a71b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa351cc1ef8604fe3082fd812ad88a71b">PHAL_RCC_getAPB1ClockHz</a> (void)</td></tr>
+<tr class="separator:aa351cc1ef8604fe3082fd812ad88a71b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab76710442224b6b571ada816cb46c840" id="r_ab76710442224b6b571ada816cb46c840"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab76710442224b6b571ada816cb46c840">PHAL_RCC_getAPB2ClockHz</a> (void)</td></tr>
+<tr class="separator:ab76710442224b6b571ada816cb46c840"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
-<tr class="memitem:ae3f547c0ac514dd12e5bab27a6b60bec" id="r_ae3f547c0ac514dd12e5bab27a6b60bec"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ae3f547c0ac514dd12e5bab27a6b60bec">APB1ClockRateHz</a></td></tr>
-<tr class="separator:ae3f547c0ac514dd12e5bab27a6b60bec"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afdc1120bbc54485ac4c735d8f9756743" id="r_afdc1120bbc54485ac4c735d8f9756743"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afdc1120bbc54485ac4c735d8f9756743">APB2ClockRateHz</a></td></tr>
-<tr class="separator:afdc1120bbc54485ac4c735d8f9756743"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2c40deeaa6aeb002bafb0bc892484e0c" id="r_a2c40deeaa6aeb002bafb0bc892484e0c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2c40deeaa6aeb002bafb0bc892484e0c">AHBClockRateHz</a></td></tr>
-<tr class="separator:a2c40deeaa6aeb002bafb0bc892484e0c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aac132aa42c20a1d3744db9df04f31c54" id="r_aac132aa42c20a1d3744db9df04f31c54"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aac132aa42c20a1d3744db9df04f31c54">PLLClockRateHz</a></td></tr>
-<tr class="separator:aac132aa42c20a1d3744db9df04f31c54"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a14f4321fc2e6ae5c0dc9a50a4dbc6072" id="r_a14f4321fc2e6ae5c0dc9a50a4dbc6072"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a14f4321fc2e6ae5c0dc9a50a4dbc6072">g_system_clock_hz</a> = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td></tr>
+<tr class="separator:a14f4321fc2e6ae5c0dc9a50a4dbc6072"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7cedeba293d60c0b139205c4e9ed9551" id="r_a7cedeba293d60c0b139205c4e9ed9551"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7cedeba293d60c0b139205c4e9ed9551">g_ahb_clock_hz</a> = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td></tr>
+<tr class="separator:a7cedeba293d60c0b139205c4e9ed9551"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1b7f1456444a2e95160a2e4a969b6e9c" id="r_a1b7f1456444a2e95160a2e4a969b6e9c"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1b7f1456444a2e95160a2e4a969b6e9c">g_apb1_clock_hz</a> = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td></tr>
+<tr class="separator:a1b7f1456444a2e95160a2e4a969b6e9c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa7d3747bd0c3cb8d5676a8037e365032" id="r_aa7d3747bd0c3cb8d5676a8037e365032"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa7d3747bd0c3cb8d5676a8037e365032">g_apb2_clock_hz</a> = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td></tr>
+<tr class="separator:aa7d3747bd0c3cb8d5676a8037e365032"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
-<h2 class="groupheader">Function Documentation</h2>
-<a id="a1509d2e2c10b134bcc26f1465881db33" name="a1509d2e2c10b134bcc26f1465881db33"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1509d2e2c10b134bcc26f1465881db33">&#9670;&#160;</a></span>PHAL_configureAHBClock()</h2>
+<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
+<div class="textblock"><p>G4 RCC public API implementation. </p>
+<dl class="section author"><dt>Author</dt><dd>Millan Kumar (<a href="#" onclick="location.href='mai'+'lto:'+'kum'+'ar'+'798'+'@p'+'urd'+'ue'+'.ed'+'u'; return false;">kumar<span class="obfuscator">.nosp@m.</span>798@<span class="obfuscator">.nosp@m.</span>purdu<span class="obfuscator">.nosp@m.</span>e.ed<span class="obfuscator">.nosp@m.</span>u</a>) </dd></dl>
+</div><h2 class="groupheader">Function Documentation</h2>
+<a id="ac6c0661fa09c0c76a597c5b394bc3ebb" name="ac6c0661fa09c0c76a597c5b394bc3ebb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac6c0661fa09c0c76a597c5b394bc3ebb">&#9670;&#160;</a></span>PHAL_RCC_getAHBClockHz()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool PHAL_configureAHBClock </td>
+          <td class="memname">uint32_t PHAL_RCC_getAHBClockHz </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>ahb_clock_target_hz</em></span></td><td>)</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<dl class="section return"><dt>Returns</dt><dd>the current AHB (HCLK) rate in Hz </dd></dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_ac6c0661fa09c0c76a597c5b394bc3ebb_icgraph.svg" width="412" height="36"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="aa351cc1ef8604fe3082fd812ad88a71b" name="aa351cc1ef8604fe3082fd812ad88a71b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa351cc1ef8604fe3082fd812ad88a71b">&#9670;&#160;</a></span>PHAL_RCC_getAPB1ClockHz()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PHAL_RCC_getAPB1ClockHz </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<dl class="section return"><dt>Returns</dt><dd>the current APB1 (PCLK1) rate in Hz </dd></dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_aa351cc1ef8604fe3082fd812ad88a71b_icgraph.svg" width="631" height="200"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="ab76710442224b6b571ada816cb46c840" name="ab76710442224b6b571ada816cb46c840"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab76710442224b6b571ada816cb46c840">&#9670;&#160;</a></span>PHAL_RCC_getAPB2ClockHz()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PHAL_RCC_getAPB2ClockHz </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<dl class="section return"><dt>Returns</dt><dd>the current APB2 (PCLK2) rate in Hz </dd></dl>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_ab76710442224b6b571ada816cb46c840_icgraph.svg" width="631" height="151"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+
+</div>
+</div>
+<a id="a6758e583bda1056bc7233177323c0f09" name="a6758e583bda1056bc7233177323c0f09"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6758e583bda1056bc7233177323c0f09">&#9670;&#160;</a></span>PHAL_RCC_getSystemClockHz()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PHAL_RCC_getSystemClockHz </td>
+          <td>(</td>
+          <td class="paramtype">void</td>          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<dl class="section return"><dt>Returns</dt><dd>the current system clock (SYSCLK) rate in Hz </dd></dl>
+
+</div>
+</div>
+<a id="a2da5f97897f406d973bb5d92c934224b" name="a2da5f97897f406d973bb5d92c934224b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2da5f97897f406d973bb5d92c934224b">&#9670;&#160;</a></span>PHAL_RCC_init()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void PHAL_RCC_init </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="phal__G4_2rcc_2rcc_8h.html#a1c73ccee559be5aa0946979a99aeff4f">PHAL_RCC_Mode_t</a></td>          <td class="paramname"><span class="paramname"><em>mode</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Configure AHB Clock rate by modifying the AHB prescaler value. </p>
+<p>Configure the system, AHB, APB1, and APB2 clocks for a supported clock tree. </p>
+<ul>
+<li>The *_16MHZ modes run directly from the input oscillator (HSI16, or the board's 16 MHz HSE input in bypass mode) with no PLL<ul>
+<li>0 Flash wait states</li>
+<li>AHB = APB1 = APB2 = 16 MHz</li>
+</ul>
+</li>
+<li>The *_170MHZ modes feed the input oscillator through the PLL (PLLM=4, PLLN=85, PLLR=2) for a clock speed of exactly 170 MHz<ul>
+<li>Enable Range 1 boost mode</li>
+<li>Set 4 Flash wait states</li>
+<li>AHB = APB1 = APB2 = 170 MHz</li>
+</ul>
+</li>
+</ul>
+<p>The unselected input oscillator will be disabled once this function ends:</p><ul>
+<li>HSI is on by default out of reset</li>
+<li>If HSI is selected, we don't turn it off</li>
+<li>For an HSE mode, HSI is switched off once it's no longer needed</li>
+</ul>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">ahb_clock_target_hz</td><td></td></tr>
+    <tr><td class="paramname">mode</td><td>one of the four supported clock configurations </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured AHB clock rate to</dd></dl>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">ahb_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00275">275</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00017">AHBClockRateHz</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_a2da5f97897f406d973bb5d92c934224b_cgraph.svg" width="602" height="544"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_a2da5f97897f406d973bb5d92c934224b_icgraph.svg" width="224" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
-<a id="a0bbab857de2d2d1e08975dc977b68342" name="a0bbab857de2d2d1e08975dc977b68342"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a0bbab857de2d2d1e08975dc977b68342">&#9670;&#160;</a></span>PHAL_configureAPB1Clock()</h2>
+<a id="af54790732c9560e8d675f78a03486d58" name="af54790732c9560e8d675f78a03486d58"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af54790732c9560e8d675f78a03486d58">&#9670;&#160;</a></span>rcc_initFromOscillator()</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">bool PHAL_configureAPB1Clock </td>
+          <td class="memname">static void rcc_initFromOscillator </td>
           <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>apb1_clock_target_hz</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure APB1 Clock rate by modifying the APB1 prescaler value. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">apb1_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured AHB clock rate to</dd></dl>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">apb1_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00326">326</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00017">AHBClockRateHz</a>, and <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00015">APB1ClockRateHz</a>.</p>
-
-</div>
-</div>
-<a id="acb32cd6570e5e56268df32a141c188f0" name="acb32cd6570e5e56268df32a141c188f0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#acb32cd6570e5e56268df32a141c188f0">&#9670;&#160;</a></span>PHAL_configureAPB2Clock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool PHAL_configureAPB2Clock </td>
-          <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>apb2_clock_target_hz</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure APB1 Clock rate by modifying the APB2 prescaler value. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">apb2_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured AHB clock rate to</dd></dl>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">apb2_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00364">364</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00017">AHBClockRateHz</a>, and <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00016">APB2ClockRateHz</a>.</p>
-
-</div>
-</div>
-<a id="a7e9d115c0ba7b71bc58eafed17751479" name="a7e9d115c0ba7b71bc58eafed17751479"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7e9d115c0ba7b71bc58eafed17751479">&#9670;&#160;</a></span>PHAL_configureClockRates()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">uint8_t PHAL_configureClockRates </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="structClockRateConfig__t.html">ClockRateConfig_t</a> *</td>          <td class="paramname"><span class="paramname"><em>config</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure all AHB/APB/System clocks from the provided configuration. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">config</td><td>Configuration to try to match </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>Binary encoded representation of which clocks were unsuccessfuly configured. return value of 0 means all clocks were sucessfully configured. </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00020">20</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00075">CLOCK_SOURCE_HSE</a>, <a class="el" href="daq_8c_source.html#l00039">config</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00016">HSE_CLOCK_RATE_HZ</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00023">HSI_CLOCK_RATE_HZ</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00265">PHAL_configureAHBClock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00316">PHAL_configureAPB1Clock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00354">PHAL_configureAPB2Clock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00235">PHAL_configureHSESystemClock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00213">PHAL_configureHSISystemClock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00119">PHAL_configurePLLSystemClock()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00052">PHAL_configurePLLVCO()</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00079">RCC_ERROR_AHB_INIT</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00080">RCC_ERROR_APB1_INIT</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00081">RCC_ERROR_APB2_INIT</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00085">RCC_ERROR_HSE_INIT</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00082">RCC_ERROR_HSI_INIT</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00083">RCC_ERROR_PLLSYS_INIT</a>, and <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00084">RCC_ERROR_PLLVCO_INIT</a>.</p>
-
-</div>
-</div>
-<a id="ac2cfc3641ee4abbb3480dc5f401a7235" name="ac2cfc3641ee4abbb3480dc5f401a7235"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ac2cfc3641ee4abbb3480dc5f401a7235">&#9670;&#160;</a></span>PHAL_configureHSESystemClock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool PHAL_configureHSESystemClock </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure HSE CLK as the System Clock. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED. </p>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured HSE clock as system clock </dd>
-<dd>
-false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00235">235</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-</div>
-</div>
-<a id="a29b119d6f21bf411f02442d651ac4ff9" name="a29b119d6f21bf411f02442d651ac4ff9"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a29b119d6f21bf411f02442d651ac4ff9">&#9670;&#160;</a></span>PHAL_configureHSISystemClock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool PHAL_configureHSISystemClock </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure HSI CLK as the System Clock. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED. </p>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured HSI clock as system clock </dd>
-<dd>
-false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00213">213</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-</div>
-</div>
-<a id="abd0ea1bcc85ce9ff20dc37966d0286d0" name="abd0ea1bcc85ce9ff20dc37966d0286d0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abd0ea1bcc85ce9ff20dc37966d0286d0">&#9670;&#160;</a></span>PHAL_configurePLLSystemClock()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool PHAL_configurePLLSystemClock </td>
-          <td>(</td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>system_clock_target_hz</em></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Configure PLL CLK as the System Clock at the desired target frequency. SHOULD BE DONE BEFORE ANY OF THE AHB OR APB CLOCKS ARE CHANGED. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">system_clock_target_hz</td><td></td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>true Successfully configured PLL clock as system clock </dd>
-<dd>
-false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00119">119</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00018">PLLClockRateHz</a>.</p>
-
-</div>
-</div>
-<a id="ae8e3a1b142cf74b1b38984c805673cf5" name="ae8e3a1b142cf74b1b38984c805673cf5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae8e3a1b142cf74b1b38984c805673cf5">&#9670;&#160;</a></span>PHAL_configurePLLVCO()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool PHAL_configurePLLVCO </td>
-          <td>(</td>
-          <td class="paramtype"><a class="el" href="phal__F4__F7_2rcc_2rcc_8h.html#adeb732f119f49950327326f5e4d20522">PLLSrc_t</a></td>          <td class="paramname"><span class="paramname"><em>pll_source</em></span>, </td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>use_hse</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">uint32_t</td>          <td class="paramname"><span class="paramname"><em>vco_output_rate_target_hz</em></span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>use_pll</em></span>&#160;)</td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
-
-<p>Configure PLL VCO Clock rate The VCO clock is the input clock for the different PLL outputs. Each PLL output will divide the VCO clock to get its output. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">PLL</td><td>Input rate for PLL, determined by PLL source </td></tr>
-    <tr><td class="paramname">vco_output_rate_target_hz</td><td>Target rate for PLL output </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>true </dd>
-<dd>
-false </dd></dl>
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00052">52</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
-<p class="reference">References <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00016">HSE_CLOCK_RATE_HZ</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00023">HSI_CLOCK_RATE_HZ</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00053">PLL_SRC_HSE</a>, <a class="el" href="phal__F4__F7_2rcc_2rcc_8h_source.html#l00052">PLL_SRC_HSI16</a>, and <a class="el" href="phal__F4__F7_2rcc_2rcc_8c_source.html#l00018">PLLClockRateHz</a>.</p>
+<div class="dynheader">
+Here is the call graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_af54790732c9560e8d675f78a03486d58_cgraph.svg" width="438" height="544"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
+<div class="dynheader">
+Here is the caller graph for this function:</div>
+<div class="dyncontent">
+<div class="center"><iframe scrolling="no" frameborder="0" src="phal__G4_2rcc_2rcc_8c_af54790732c9560e8d675f78a03486d58_icgraph.svg" width="420" height="86"><p><b>This browser is not able to show SVG: try Firefox, Chrome, Safari, or Opera instead.</b></p></iframe></div>
+</div>
 
 </div>
 </div>
 <h2 class="groupheader">Variable Documentation</h2>
-<a id="a2c40deeaa6aeb002bafb0bc892484e0c" name="a2c40deeaa6aeb002bafb0bc892484e0c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a2c40deeaa6aeb002bafb0bc892484e0c">&#9670;&#160;</a></span>AHBClockRateHz</h2>
+<a id="a7cedeba293d60c0b139205c4e9ed9551" name="a7cedeba293d60c0b139205c4e9ed9551"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7cedeba293d60c0b139205c4e9ed9551">&#9670;&#160;</a></span>g_ahb_clock_hz</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t AHBClockRateHz</td>
+          <td class="memname">uint32_t g_ahb_clock_hz = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00017">17</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
 </div>
 </div>
-<a id="ae3f547c0ac514dd12e5bab27a6b60bec" name="ae3f547c0ac514dd12e5bab27a6b60bec"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae3f547c0ac514dd12e5bab27a6b60bec">&#9670;&#160;</a></span>APB1ClockRateHz</h2>
+<a id="a1b7f1456444a2e95160a2e4a969b6e9c" name="a1b7f1456444a2e95160a2e4a969b6e9c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1b7f1456444a2e95160a2e4a969b6e9c">&#9670;&#160;</a></span>g_apb1_clock_hz</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t APB1ClockRateHz</td>
+          <td class="memname">uint32_t g_apb1_clock_hz = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00015">15</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
 </div>
 </div>
-<a id="afdc1120bbc54485ac4c735d8f9756743" name="afdc1120bbc54485ac4c735d8f9756743"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afdc1120bbc54485ac4c735d8f9756743">&#9670;&#160;</a></span>APB2ClockRateHz</h2>
+<a id="aa7d3747bd0c3cb8d5676a8037e365032" name="aa7d3747bd0c3cb8d5676a8037e365032"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa7d3747bd0c3cb8d5676a8037e365032">&#9670;&#160;</a></span>g_apb2_clock_hz</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t APB2ClockRateHz</td>
+          <td class="memname">uint32_t g_apb2_clock_hz = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00016">16</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
-
 </div>
 </div>
-<a id="aac132aa42c20a1d3744db9df04f31c54" name="aac132aa42c20a1d3744db9df04f31c54"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aac132aa42c20a1d3744db9df04f31c54">&#9670;&#160;</a></span>PLLClockRateHz</h2>
+<a id="a14f4321fc2e6ae5c0dc9a50a4dbc6072" name="a14f4321fc2e6ae5c0dc9a50a4dbc6072"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a14f4321fc2e6ae5c0dc9a50a4dbc6072">&#9670;&#160;</a></span>g_system_clock_hz</h2>
 
 <div class="memitem">
 <div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t PLLClockRateHz</td>
+          <td class="memname">uint32_t g_system_clock_hz = <a class="el" href="rcc__priv_8h.html#a79bfdcf6e6b0f978d58cb8976c46f071">RCC_PRIV_HSI_CLOCK_RATE_HZ</a></td>
         </tr>
       </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
-
-<p class="definition">Definition at line <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html#l00018">18</a> of file <a class="el" href="phal__G4_2rcc_2rcc_8c_source.html">rcc.c</a>.</p>
 
 </div>
 </div>
@@ -473,7 +418,7 @@ false </dd></dl>
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_bdd9a5d540de89e9fe90efdfc6973a4f.html">common</a></li><li class="navelem"><a class="el" href="dir_537865b7fa0534ad07c686239f783682.html">phal_G4</a></li><li class="navelem"><a class="el" href="dir_1e58ee294d93added638b3151c7c87cc.html">rcc</a></li><li class="navelem"><a class="el" href="phal__G4_2rcc_2rcc_8c.html">rcc.c</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_5e269a536bf5351fb01f412fd1d14980.html">common</a></li><li class="navelem"><a class="el" href="dir_48b3ded520845e3cf7cf37478d1eb6dc.html">phal_G4</a></li><li class="navelem"><a class="el" href="dir_66a9c88992d09c7c7e483703b2286fd9.html">rcc</a></li><li class="navelem"><a class="el" href="phal__G4_2rcc_2rcc_8c.html">rcc.c</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>

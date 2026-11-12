@@ -1,17 +1,16 @@
 var indexSectionsWithContent =
 {
-  0: "123456_abcdefghiklmnopqrstuvwxyz⚡",
-  1: "_abcdefgilmnpqrstuvw",
-  2: "bcdflmprsuv",
-  3: "abcdefgilmnopqrstuvw",
-  4: "_abcdefghilmnopqrstuvw",
-  5: "_abcdefghiklmnopqrstuvwyz",
-  6: "bcdfgilprtuw",
-  7: "abcdefghilmnopqrstuw",
-  8: "abcdefghilmnopqrstuw",
-  9: "_abcdefghilmnopqrstuvwxy",
-  10: "12abcdefiorstw",
-  11: "cdfilpstv⚡"
+  0: "123456789_abcdefghijklmnopqrstuvwxyz⚡",
+  1: "abcdefghijklmnoprstuvwxy",
+  2: "t",
+  3: "abcdefghilmnoprstuvw",
+  4: "_abcdefghijklmnoprstuvwz",
+  5: "_abcdefghijklmnopqrstuvwxyz",
+  6: "p",
+  7: "abcdefghilmnoprsuvw",
+  8: "abcdefghilmnoprstuvw",
+  9: "_abcdefghilmnoprstuvx",
+  10: "6abcdfghilmpstuv⚡"
 };
 
 var indexSectionNames =
@@ -26,14 +25,13 @@ var indexSectionNames =
   7: "enums",
   8: "enumvalues",
   9: "defines",
-  10: "groups",
-  11: "pages"
+  10: "pages"
 };
 
 var indexSectionLabels =
 {
   0: "All",
-  1: "Data Structures",
+  1: "Classes",
   2: "Namespaces",
   3: "Files",
   4: "Functions",
@@ -42,7 +40,6 @@ var indexSectionLabels =
   7: "Enumerations",
   8: "Enumerator",
   9: "Macros",
-  10: "Modules",
-  11: "Pages"
+  10: "Pages"
 };
 

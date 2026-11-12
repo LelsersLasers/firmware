@@ -2,6 +2,7 @@ var structmenu__element__t =
 [
     [ "current_value", "structmenu__element__t.html#a33d8619be7bef642d1f2e02bd628cc8e", null ],
     [ "increment", "structmenu__element__t.html#a860844fac65dd2df26b07d7312867f90", null ],
+    [ "labels", "structmenu__element__t.html#ae2d49cffaf39fb09b5f57ab6c14e4183", null ],
     [ "max_value", "structmenu__element__t.html#a6fd95caacc421c9a90a44adee2237a92", null ],
     [ "min_value", "structmenu__element__t.html#af8625365e7de26c3fc26788bd8315756", null ],
     [ "object_name", "structmenu__element__t.html#ae8a67b2ebe969da700aa5211116c2b30", null ],

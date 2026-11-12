@@ -1,0 +1,25 @@
+<map id="firmware/common/utils/linear_algebra.h" name="firmware/common/utils/linear_algebra.h">
+<area shape="rect" id="Node000001" title="Linear algebra functions utility header." alt="" coords="232,5,384,46"/>
+<area shape="rect" id="Node000002" href="$geodetic_8h.html" title="Geodetic coordinate utility header." alt="" coords="232,94,384,135"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="311,62,311,94,306,94,306,62"/>
+<area shape="rect" id="Node000003" href="$lap__timer_8c.html" title="DASHBOARD lap timer task implementations." alt="" coords="98,279,276,320"/>
+<area shape="poly" id="edge12_Node000001_Node000003" title=" " alt="" coords="260,57,239,75,222,95,202,143,191,194,188,242,188,278,183,278,182,242,186,194,197,142,218,93,235,71,256,53"/>
+<area shape="rect" id="Node000004" href="$lap__timer_8h.html" title="DASHBOARD lap timer task implementations." alt="" coords="308,183,485,223"/>
+<area shape="poly" id="edge13_Node000001_Node000004" title=" " alt="" coords="362,53,383,71,399,93,406,116,408,140,404,183,398,182,403,140,401,117,394,95,379,74,359,57"/>
+<area shape="rect" id="Node000008" href="$geometry_8h.html" title="Planar computational geometry utility header." alt="" coords="5,183,158,223"/>
+<area shape="poly" id="edge8_Node000001_Node000008" title=" " alt="" coords="247,55,211,74,178,96,131,141,97,184,93,180,127,137,174,92,209,69,244,51"/>
+<area shape="rect" id="Node000009" href="$orientation_8h.html" title=" " alt="" coords="472,94,624,135"/>
+<area shape="poly" id="edge10_Node000001_Node000009" title=" " alt="" coords="378,49,494,91,493,96,376,54"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="289,149,202,280,198,277,284,146"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="341,144,378,180,374,184,337,148"/>
+<area shape="poly" id="edge6_Node000004_Node000003" title=" " alt="" coords="340,232,232,281,230,276,338,228"/>
+<area shape="rect" id="Node000005" href="$driver__interface_8c.html" title="thread to manage driver&#45;facing LCD, buttons, LEDs" alt="" coords="718,271,896,327"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="501,223,707,269,719,271,717,277,706,274,500,228"/>
+<area shape="rect" id="Node000006" href="$race_8c.html" title="Race page implementation." alt="" coords="300,279,492,320"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="399,239,399,278,394,278,394,239"/>
+<area shape="rect" id="Node000007" href="$dashboard_2main_8c.html" title="&quot;Dashboard&quot; node source code" alt="" coords="517,279,694,320"/>
+<area shape="poly" id="edge7_Node000004_Node000007" title=" " alt="" coords="455,228,563,276,561,281,453,232"/>
+<area shape="poly" id="edge9_Node000008_Node000003" title=" " alt="" coords="116,232,167,276,163,280,113,236"/>
+<area shape="rect" id="Node000010" href="$imu_8c.html" title="IMU calibration and coordinate transformations." alt="" coords="509,183,662,223"/>
+<area shape="poly" id="edge11_Node000009_Node000010" title=" " alt="" coords="565,148,580,181,575,183,560,150"/>
+</map>

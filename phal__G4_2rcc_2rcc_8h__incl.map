@@ -1,0 +1,9 @@
+<map id="firmware/common/phal_G4/rcc/rcc.h" name="firmware/common/phal_G4/rcc/rcc.h">
+<area shape="rect" id="Node000001" title="G4 RCC public API implementation." alt="" coords="58,5,210,46"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,94,79,120"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="113,48,69,86,66,82,110,44"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="102,94,166,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="137,46,137,78,131,78,131,46"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="190,94,297,120"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="163,44,216,82,213,87,159,49"/>
+</map>

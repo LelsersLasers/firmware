@@ -1,0 +1,5 @@
+<map id="adc_dma_irqn" name="adc_dma_irqn">
+<area shape="rect" id="Node000001" title="Return the NVIC interrupt assigned to an ADC instance&#39;s DMA channel." alt="" coords="227,5,329,31"/>
+<area shape="rect" id="Node000002" href="$phal__G4_2adc_2adc_8c.html#a182c3e08bcff1970109448d9c24cb39c" title="Synchronous one&#45;buffer conversion using the DMA engine." alt="" coords="5,5,179,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="211,21,179,21,179,16,211,16"/>
+</map>

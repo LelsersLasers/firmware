@@ -1,5 +1,6 @@
 var syscalls_8h =
 [
+    [ "__errno", "syscalls_8h.html#a39b9754c96beda392bdb080bc5653e9e", null ],
     [ "_close", "syscalls_8h.html#a5aab5e2acfd600e3667dc915a2bbc7cb", null ],
     [ "_fstat", "syscalls_8h.html#a41eef54307912a82d20e71c3d47315aa", null ],
     [ "_getpid", "syscalls_8h.html#a945e539df8e0f66d3c73c533fe1968ee", null ],

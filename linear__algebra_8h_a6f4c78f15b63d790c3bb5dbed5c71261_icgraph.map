@@ -1,0 +1,18 @@
+<map id="vector2_magnitude" name="vector2_magnitude">
+<area shape="rect" id="Node000001" title="Calculate the magnitude of a 2D vector." alt="" coords="854,53,985,79"/>
+<area shape="rect" id="Node000002" href="$linear__algebra_8h.html#a72d10b6160875b23b398cfef9e98a361" title="Distance between two 2D points." alt="" coords="683,24,803,50"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="838,55,803,50,804,44,839,50"/>
+<area shape="rect" id="Node000006" href="$linear__algebra_8h.html#a5752304986a3ca63d99299cb346b1542" title="Normalize a 2D vector." alt="" coords="680,77,806,103"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="839,80,807,84,806,79,838,75"/>
+<area shape="rect" id="Node000003" href="$lap__timer_8c.html#a382636387f4db3d2b08c71b5e7c03f2b" title=" " alt="" coords="103,27,229,52"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="678,23,631,14,521,8,410,12,310,21,230,32,229,26,309,16,410,6,521,3,632,9,679,17"/>
+<area shape="rect" id="Node000005" href="$geometry_8h.html#a5ab177ab3e51deea97c8fcdcea2c72e4" title="Calculate the length of a segment." alt="" coords="490,24,611,50"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="667,40,611,40,611,34,667,34"/>
+<area shape="rect" id="Node000004" href="$dashboard_2main_8c.html#a840291bc02cba5474a4cb46a9b9566fe" title=" " alt="" coords="5,27,55,52"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="87,42,55,42,55,37,87,37"/>
+<area shape="rect" id="Node000007" href="$geometry_8h.html#ae32f7f124472f409f1355551b885bba0" title="Build the segment perpendicular to a segment through its midpoint." alt="" coords="469,74,632,115"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="664,95,632,95,632,90,664,89"/>
+<area shape="rect" id="Node000008" href="$lap__timer_8c.html#ac15d5d84d2d64875ce0d0c0352af35e3" title=" " alt="" coords="277,52,421,78"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="454,83,421,78,422,73,454,78"/>
+<area shape="poly" id="edge8_Node000008_Node000003" title=" " alt="" coords="261,55,229,51,230,46,262,50"/>
+</map>

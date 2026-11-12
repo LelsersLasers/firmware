@@ -1,0 +1,5 @@
+<map id="PHAL_PWM_priv_setCompare" name="PHAL_PWM_priv_setCompare">
+<area shape="rect" id="Node000001" title="Set the capture/compare value for a PWM channel." alt="" coords="220,5,421,31"/>
+<area shape="rect" id="Node000002" href="$phal__G4_2pwm_2pwm_8c.html#af64e20c068902d60cff3cbc911c43b5a" title="Set a PWM channel&#39;s duty cycle." alt="" coords="5,5,172,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="204,21,172,21,172,16,204,16"/>
+</map>

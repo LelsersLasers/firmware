@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.12.0"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>PER Firmware: source/a_box/adbms/pec.h Source File</title>
+<title>PER Firmware: firmware/source/a_box/adbms/pec.h Source File</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -19,6 +19,7 @@
 <script type="text/javascript" src="search/searchdata.js"></script>
 <script type="text/javascript" src="search/search.js"></script>
 <link href="doxygen.css" rel="stylesheet" type="text/css" />
+<link href="doxygen-awesome.css" rel="stylesheet" type="text/css"/>
 </head>
 <body>
 <div id="top"><!-- do not remove this div, it is closed by doxygen! -->
@@ -100,24 +101,25 @@ $(function(){initNavTree('pec_8h_source.html',''); initResizable(true); });
 </div><!--header-->
 <div class="contents">
 <a href="pec_8h.html">Go to the documentation of this file.</a><div class="fragment"><div class="line"><a id="l00001" name="l00001"></a><span class="lineno">    1</span> </div>
-<div class="line"><a id="l00008" name="l00008"></a><span class="lineno">    8</span><span class="preprocessor">#ifndef _ADBMS_PEC_H_</span></div>
-<div class="line"><a id="l00009" name="l00009"></a><span class="lineno">    9</span><span class="preprocessor">#define _ADBMS_PEC_H_</span></div>
-<div class="line"><a id="l00010" name="l00010"></a><span class="lineno">   10</span> </div>
-<div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span><span class="preprocessor">#include &lt;stdbool.h&gt;</span></div>
-<div class="line"><a id="l00012" name="l00012"></a><span class="lineno">   12</span><span class="preprocessor">#include &lt;stdint.h&gt;</span></div>
-<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span> </div>
-<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span>uint16_t <a class="code hl_function" href="pec_8h.html#acf61d2142265cf21d2a680bff41883b9">adbms_pec_get_pec15</a>(uint8_t len, <span class="keyword">const</span> uint8_t *data);</div>
-<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span>uint16_t <a class="code hl_function" href="pec_8h.html#af26a3fb59c4ae59fb10ac19030eef174">adbms_pec_get_pec10</a>(<span class="keywordtype">bool</span> bIsRxCmd, uint8_t nLength, <span class="keyword">const</span> uint8_t *pDataBuf);</div>
+<div class="line"><a id="l00010" name="l00010"></a><span class="lineno">   10</span><span class="preprocessor">#ifndef PEC_H</span></div>
+<div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span><span class="preprocessor">#define PEC_H</span></div>
+<div class="line"><a id="l00012" name="l00012"></a><span class="lineno">   12</span> </div>
+<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span><span class="preprocessor">#include &lt;stdbool.h&gt;</span></div>
+<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span><span class="preprocessor">#include &lt;stddef.h&gt;</span></div>
+<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span><span class="preprocessor">#include &lt;stdint.h&gt;</span></div>
 <div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span> </div>
-<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span><span class="preprocessor">#endif </span><span class="comment">// _ADBMS_PEC_H_</span></div>
-<div class="ttc" id="apec_8h_html_acf61d2142265cf21d2a680bff41883b9"><div class="ttname"><a href="pec_8h.html#acf61d2142265cf21d2a680bff41883b9">adbms_pec_get_pec15</a></div><div class="ttdeci">uint16_t adbms_pec_get_pec15(uint8_t len, const uint8_t *data)</div><div class="ttdoc">CRC15 Pec Calculation Function.</div><div class="ttdef"><b>Definition</b> <a href="pec_8c_source.html#l00075">pec.c:75</a></div></div>
-<div class="ttc" id="apec_8h_html_af26a3fb59c4ae59fb10ac19030eef174"><div class="ttname"><a href="pec_8h.html#af26a3fb59c4ae59fb10ac19030eef174">adbms_pec_get_pec10</a></div><div class="ttdeci">uint16_t adbms_pec_get_pec10(bool bIsRxCmd, uint8_t nLength, const uint8_t *pDataBuf)</div><div class="ttdef"><b>Definition</b> <a href="pec_8c_source.html#l00086">pec.c:86</a></div></div>
+<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span>uint16_t <a class="code hl_function" href="pec_8h.html#adfdb13c48ece2669912098bc5fa0df20">PEC_calc_pec15</a>(<span class="keyword">const</span> uint8_t *data, uint8_t len);</div>
+<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span>uint16_t <a class="code hl_function" href="pec_8h.html#aedc3f788a817022f5d878adac6dce2e5">PEC_calc_pec10</a>(<span class="keyword">const</span> uint8_t *data_buf, <span class="keywordtype">size_t</span> length, <span class="keywordtype">bool</span> is_rx_cmd);</div>
+<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span> </div>
+<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span><span class="preprocessor">#endif </span><span class="comment">// PEC_H</span></div>
+<div class="ttc" id="apec_8h_html_adfdb13c48ece2669912098bc5fa0df20"><div class="ttname"><a href="pec_8h.html#adfdb13c48ece2669912098bc5fa0df20">PEC_calc_pec15</a></div><div class="ttdeci">uint16_t PEC_calc_pec15(const uint8_t *data, uint8_t len)</div><div class="ttdoc">CRC15 Pec Calculation Function.</div><div class="ttdef"><b>Definition</b> pec.c:75</div></div>
+<div class="ttc" id="apec_8h_html_aedc3f788a817022f5d878adac6dce2e5"><div class="ttname"><a href="pec_8h.html#aedc3f788a817022f5d878adac6dce2e5">PEC_calc_pec10</a></div><div class="ttdeci">uint16_t PEC_calc_pec10(const uint8_t *data_buf, size_t length, bool is_rx_cmd)</div><div class="ttdef"><b>Definition</b> pec.c:85</div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->
   <ul>
-    <li class="navelem"><a class="el" href="dir_b2f33c71d4aa5e7af42a1ca61ff5af1b.html">source</a></li><li class="navelem"><a class="el" href="dir_463a06e8c8df3dfb8722b56866f4fb0c.html">a_box</a></li><li class="navelem"><a class="el" href="dir_b9ac109653960c1c094259a09df46e85.html">adbms</a></li><li class="navelem"><a class="el" href="pec_8h.html">pec.h</a></li>
+    <li class="navelem"><a class="el" href="dir_d9edf6c004b4a7ff14fe9ae7a92214ee.html">firmware</a></li><li class="navelem"><a class="el" href="dir_05e217f700315e70ae47203d567fe0c9.html">source</a></li><li class="navelem"><a class="el" href="dir_c5ffd08ff9aa00277f014903005f1bc0.html">a_box</a></li><li class="navelem"><a class="el" href="dir_ea9193e9e86f9bc4ee2f809bd800c685.html">adbms</a></li><li class="navelem"><a class="el" href="pec_8h.html">pec.h</a></li>
     <li class="footer">Generated by <a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.12.0 </li>
   </ul>
 </div>
