@@ -17,6 +17,10 @@ pub use types::{
 };
 
 use crate::{
+    analysis::{
+        AnalysisError, DistanceSeries, Expr, FormulaEngine, TargetGrid, canonicalize_signal_ref,
+        map_series_to_distance,
+    },
     frame::ParsedFrame,
     storage::{Annotation, PartitionManifest, RegisteredPartition, Registry, TrackDay},
     time::Time,
@@ -40,6 +44,7 @@ pub struct VirtualTimelineRouter {
     store_dir: Option<path::PathBuf>,
     partitions: Vec<RegisteredPartition>,
     timeline: MasterTimeline,
+    formula_engine: FormulaEngine,
 }
 
 impl VirtualTimelineRouter {
@@ -54,6 +59,7 @@ impl VirtualTimelineRouter {
             store_dir: None,
             partitions: Vec::new(),
             timeline,
+            formula_engine: FormulaEngine::with_builtin_config(),
         })
     }
 
@@ -74,6 +80,7 @@ impl VirtualTimelineRouter {
             store_dir: Some(store_dir),
             partitions: Vec::new(),
             timeline,
+            formula_engine: FormulaEngine::with_builtin_config(),
         };
         router.refresh_store()?;
         Ok(router)
@@ -202,6 +209,83 @@ impl VirtualTimelineRouter {
         &mut self.timeline
     }
 
+    pub fn formula_engine(&self) -> &FormulaEngine {
+        &self.formula_engine
+    }
+
+    pub fn formula_engine_mut(&mut self) -> &mut FormulaEngine {
+        &mut self.formula_engine
+    }
+
+    /// Evaluate an arbitrary [`Expr`] across `range` (`[start_utc_ms..=end_utc_ms]`) at `resolution`
+    /// without blocking the calling thread.
+    pub fn evaluate_expression(
+        &self,
+        expr: &Expr,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, AnalysisError> {
+        self.tile_cache.poll_completed();
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+        self.formula_engine
+            .evaluate_expr_with(expr, &TargetGrid::Union, resolution, |raw_id| {
+                self.query_raw_signal(raw_id, range.clone(), resolution)
+            })
+    }
+
+    /// Synchronously evaluate an arbitrary [`Expr`] across `range` at exact `resolution`
+    /// (blocking if any referenced raw partition column is not yet cached in `TileCache`).
+    pub fn evaluate_expression_blocking(
+        &self,
+        expr: &Expr,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, RouterError> {
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+        let (_, raw_ids) = self
+            .formula_engine
+            .execution_plan_for_expr(expr)
+            .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))?;
+
+        let mut prefetched = std::collections::BTreeMap::new();
+        for raw_id in raw_ids {
+            let series = self.query_raw_signal_blocking(&raw_id, range.clone(), resolution)?;
+            prefetched.insert(raw_id, series);
+        }
+
+        self.formula_engine
+            .evaluate_expr_with(expr, &TargetGrid::Union, resolution, |raw_id| {
+                prefetched
+                    .get(raw_id)
+                    .cloned()
+                    .unwrap_or_else(|| SignalSeries::empty_for(resolution))
+            })
+            .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))
+    }
+
+    /// Query `signal_id` (raw or derived) re-indexed against cumulative track distance integrated
+    /// from `speed_signal_id` over `range`.
+    pub fn query_signal_vs_distance(
+        &self,
+        signal_id: &str,
+        speed_signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> DistanceSeries {
+        let sig_series = self.query_signal(signal_id, range.clone(), resolution);
+        let spd_series = self.query_signal(speed_signal_id, range.clone(), resolution);
+        map_series_to_distance(
+            &sig_series,
+            &spd_series,
+            range,
+            self.formula_engine.max_staleness_ms(),
+        )
+    }
+
     /// Poll completed background tile reads into the LRU cache.
     pub fn poll_background_tiles(&self) -> usize {
         self.tile_cache.poll_completed()
@@ -270,8 +354,61 @@ impl VirtualTimelineRouter {
             .max()
     }
 
-    /// Query `signal_id` across `range` (`[start_utc_ms..=end_utc_ms]`) at `resolution` without
-    /// blocking the calling thread.
+    /// Query a raw CAN `signal_id` directly from `TileCache` and `LiveColumnBuffer` without
+    /// checking `FormulaEngine`.
+    pub fn query_raw_signal(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> SignalSeries {
+        self.tile_cache.poll_completed();
+        if range.is_empty() {
+            return SignalSeries::empty_for(resolution);
+        }
+
+        let canonical_id = canonicalize_signal_ref(signal_id);
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+
+        let overlapping_ids: Vec<String> = self
+            .partitions
+            .iter()
+            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
+            .map(|p| p.partition_id.clone())
+            .collect();
+
+        let mut chunks = Vec::new();
+        for part_id in &overlapping_ids {
+            if let Some(lookup) = self
+                .tile_cache
+                .query_signal(part_id, &canonical_id, resolution)
+            {
+                let sliced = lookup.series().slice_range(range.clone());
+                if !sliced.is_empty() {
+                    chunks.push(sliced);
+                }
+            }
+        }
+
+        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        };
+        if live_start_ms <= end_ms
+            && let Some(live_series) =
+                self.live_buffer
+                    .query_signal(&canonical_id, live_start_ms..=end_ms, resolution)
+            && !live_series.is_empty()
+        {
+            chunks.push(live_series);
+        }
+
+        SignalSeries::stitch(chunks, resolution)
+    }
+
+    /// Query `signal_id` (raw CAN signal or derived formula channel) across `range`
+    /// (`[start_utc_ms..=end_utc_ms]`) at `resolution` without blocking the calling thread.
     ///
     /// Canonical SD partitions take precedence over `live_buffer`. If `range.end()` extends past
     /// the latest canonical SD partition into the live buffer's range, live samples for
@@ -287,45 +424,19 @@ impl VirtualTimelineRouter {
             return SignalSeries::empty_for(resolution);
         }
 
-        let start_ms = *range.start();
-        let end_ms = *range.end();
-
-        let overlapping_ids: Vec<String> = self
-            .partitions
-            .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
-            .map(|p| p.partition_id.clone())
-            .collect();
-
-        let mut chunks = Vec::new();
-        for part_id in &overlapping_ids {
-            if let Some(lookup) = self.tile_cache.query_signal(part_id, signal_id, resolution) {
-                let sliced = lookup.series().slice_range(range.clone());
-                if !sliced.is_empty() {
-                    chunks.push(sliced);
-                }
-            }
+        if let Some(compiled) = self.formula_engine.get(signal_id) {
+            let ast = compiled.ast.clone();
+            return self
+                .evaluate_expression(&ast, range, resolution)
+                .unwrap_or_else(|_| SignalSeries::empty_for(resolution));
         }
 
-        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
-            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
-            None => start_ms,
-        };
-        if live_start_ms <= end_ms
-            && let Some(live_series) =
-                self.live_buffer
-                    .query_signal(signal_id, live_start_ms..=end_ms, resolution)
-            && !live_series.is_empty()
-        {
-            chunks.push(live_series);
-        }
-
-        SignalSeries::stitch(chunks, resolution)
+        self.query_raw_signal(signal_id, range, resolution)
     }
 
-    /// Synchronously query `signal_id` across `range` at exact `resolution` (blocking if any
-    /// overlapping partition column is not yet cached in `TileCache`).
-    pub fn query_signal_blocking(
+    /// Synchronously query a raw CAN `signal_id` across `range` at exact `resolution`
+    /// (blocking if any overlapping partition column is not yet cached in `TileCache`).
+    pub fn query_raw_signal_blocking(
         &self,
         signal_id: &str,
         range: ops::RangeInclusive<i64>,
@@ -335,6 +446,7 @@ impl VirtualTimelineRouter {
             return Ok(SignalSeries::empty_for(resolution));
         }
 
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let start_ms = *range.start();
         let end_ms = *range.end();
 
@@ -347,9 +459,9 @@ impl VirtualTimelineRouter {
 
         let mut chunks = Vec::new();
         for part_id in &overlapping_ids {
-            if let Some(series) = self
-                .tile_cache
-                .query_signal_blocking(part_id, signal_id, resolution)?
+            if let Some(series) =
+                self.tile_cache
+                    .query_signal_blocking(part_id, &canonical_id, resolution)?
             {
                 let sliced = series.slice_range(range.clone());
                 if !sliced.is_empty() {
@@ -365,13 +477,33 @@ impl VirtualTimelineRouter {
         if live_start_ms <= end_ms
             && let Some(live_series) =
                 self.live_buffer
-                    .query_signal(signal_id, live_start_ms..=end_ms, resolution)
+                    .query_signal(&canonical_id, live_start_ms..=end_ms, resolution)
             && !live_series.is_empty()
         {
             chunks.push(live_series);
         }
 
         Ok(SignalSeries::stitch(chunks, resolution))
+    }
+
+    /// Synchronously query `signal_id` (raw CAN signal or derived formula channel) across `range`
+    /// at exact `resolution` (blocking if any overlapping partition column is not yet cached in `TileCache`).
+    pub fn query_signal_blocking(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, RouterError> {
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+
+        if let Some(compiled) = self.formula_engine.get(signal_id) {
+            let ast = compiled.ast.clone();
+            return self.evaluate_expression_blocking(&ast, range, resolution);
+        }
+
+        self.query_raw_signal_blocking(signal_id, range, resolution)
     }
 
     /// Query discrete state intervals for `signal_id` across `range`, stitching canonical SD
@@ -384,6 +516,7 @@ impl VirtualTimelineRouter {
         if range.is_empty() {
             return Vec::new();
         }
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let start_ms = *range.start();
         let end_ms = *range.end();
 
@@ -392,7 +525,10 @@ impl VirtualTimelineRouter {
             if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
                 continue;
             }
-            if let Some(intervals) = self.tile_cache.query_states(&part.partition_id, signal_id) {
+            if let Some(intervals) = self
+                .tile_cache
+                .query_states(&part.partition_id, &canonical_id)
+            {
                 for interval in intervals.iter() {
                     if let Some(clamped) = interval.clamped_to(&range) {
                         out.push(clamped);
@@ -408,20 +544,28 @@ impl VirtualTimelineRouter {
         if live_start_ms <= end_ms {
             out.extend(
                 self.live_buffer
-                    .query_states(signal_id, live_start_ms..=end_ms),
+                    .query_states(&canonical_id, live_start_ms..=end_ms),
             );
         }
 
         out
     }
 
-    /// Find the latest sample `(utc_ms, value)` for `signal_id` at or before `target_utc_ms`
-    /// without blocking.
+    /// Find the latest sample `(utc_ms, value)` for `signal_id` (raw or derived) at or before
+    /// `target_utc_ms` without blocking.
     pub fn latest_signal_value_at(
         &self,
         signal_id: &str,
         target_utc_ms: i64,
     ) -> Option<(i64, f64)> {
+        if self.formula_engine.contains(signal_id) {
+            let lookback_ms = (self.formula_engine.max_staleness_ms() * 8).max(2_000);
+            let window = target_utc_ms.saturating_sub(lookback_ms)..=target_utc_ms;
+            let series = self.query_signal(signal_id, window, Resolution::FullRes);
+            return series.latest_at_or_before(target_utc_ms);
+        }
+
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let max_canonical = self.max_canonical_end_ms(target_utc_ms);
 
         // If target_utc_ms is beyond all canonical partitions (or no partitions exist),
@@ -429,7 +573,7 @@ impl VirtualTimelineRouter {
         if max_canonical.is_none_or(|max_end| target_utc_ms > max_end)
             && let Some((live_t, live_v)) = self
                 .live_buffer
-                .latest_signal_value_at(signal_id, target_utc_ms)
+                .latest_signal_value_at(&canonical_id, target_utc_ms)
             && max_canonical.is_none_or(|max_end| live_t > max_end)
         {
             return Some((live_t, live_v));
@@ -442,7 +586,7 @@ impl VirtualTimelineRouter {
             }
             if let Some(found) = self.tile_cache.latest_resident_at_or_before(
                 &part.partition_id,
-                signal_id,
+                &canonical_id,
                 target_utc_ms,
             ) {
                 return Some(found);
@@ -450,7 +594,7 @@ impl VirtualTimelineRouter {
         }
 
         self.live_buffer
-            .latest_signal_value_at(signal_id, target_utc_ms)
+            .latest_signal_value_at(&canonical_id, target_utc_ms)
     }
 
     /// Return the data coverage spans (`CanonicalSd` and `LiveProvisional`) overlapping `range`.
