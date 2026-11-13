@@ -8,6 +8,7 @@ pub mod formatter;
 pub mod frame;
 pub mod hil;
 pub mod log_parse;
+pub mod router;
 pub mod session;
 pub mod storage;
 pub mod superdbc;
