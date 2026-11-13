@@ -104,9 +104,14 @@ impl ViewerTable {
                     let timestamp_label = latest_msg_ms
                         .map(|ms| daqcore::time::Time::from_unix_millis(ms).label())
                         .unwrap_or_else(|| "SD Store".to_owned());
+                    // Resident 1Hz overview buckets are quantized to 1,000 ms boundaries,
+                    // so include a 1,000 ms bucket window before marking an SD message stale.
                     let stale = latest_msg_ms.is_some_and(|ms| {
-                        message
-                            .is_stale(daqcore::time::Time::from_unix_millis(ms), view.view_time())
+                        let Some(timeout_ms) = message.stale_timeout_ms() else {
+                            return false;
+                        };
+                        let elapsed_ms = view.view_time().unix_millis().saturating_sub(ms);
+                        elapsed_ms > timeout_ms.saturating_add(1_000)
                     });
 
                     actions.extend(

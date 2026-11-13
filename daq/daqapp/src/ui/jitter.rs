@@ -60,6 +60,23 @@ impl Jitter {
             ui.label(format!("[{bus_name}] {} (0x{identity:03X})", msg.name()));
 
             let mut deviations = interval_deviations(view.setpoint_frames, key, self.period_ms);
+            if deviations.is_empty()
+                && let Some(first_sig) = msg.signals().first()
+            {
+                let signal_id = daqcore::storage::format_signal_id(msg.name(), first_sig.name());
+                if let daqcore::router::SignalSeries::Exact { timestamps_ms, .. } =
+                    view.query_signal_to_setpoint(&signal_id, daqcore::router::Resolution::FullRes)
+                {
+                    let period = self.period_ms.max(1) as f64;
+                    deviations = timestamps_ms
+                        .windows(2)
+                        .map(|w| {
+                            let elapsed_ms = (w[1] - w[0]) as f64;
+                            100.0 * (elapsed_ms - period) / period
+                        })
+                        .collect();
+                }
+            }
             ui.label("Deviation from nominal period over the shared interval");
             ui.label(format!("Intervals recorded: {}", deviations.len()));
 
