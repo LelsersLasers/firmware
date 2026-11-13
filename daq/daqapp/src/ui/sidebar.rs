@@ -1,4 +1,4 @@
-use crate::{action, app, assets, settings, util, widget_constructor};
+use crate::{action, app, assets, settings, ui, util, widget_constructor};
 use std::path;
 
 pub fn select_database(app: &mut app::DAQApp) {
@@ -43,6 +43,18 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     }
 
     ui.separator();
+
+    ui::signal_browser::show_signal_browser(
+        ui,
+        &mut app.signal_browser,
+        app.database.as_ref(),
+        &mut app.router,
+        &mut app.action_queue,
+        &mut app.diagnostic,
+    );
+
+    ui.separator();
+    ui.heading("Widgets");
 
     if ui.button("Add CAN Viewer Table").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(

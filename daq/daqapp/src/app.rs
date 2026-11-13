@@ -67,6 +67,7 @@ pub struct DAQApp {
     pub diagnostic: Option<String>,
     pub log_folder: Option<path::PathBuf>,
     pub timeline_ui: ui::timeline::TimelineUiState,
+    pub signal_browser: ui::signal_browser::SignalBrowserState,
 }
 
 impl DAQApp {
@@ -170,6 +171,7 @@ impl DAQApp {
             diagnostic: None,
             log_folder: settings.log_folder,
             timeline_ui: ui::timeline::TimelineUiState::default(),
+            signal_browser: ui::signal_browser::SignalBrowserState::default(),
         };
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;

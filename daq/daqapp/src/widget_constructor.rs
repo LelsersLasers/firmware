@@ -38,6 +38,11 @@ pub enum WidgetConstructor {
         msg_name: String,
         signal_name: String,
     },
+    ScopeChannel {
+        signal_id: String,
+        label: String,
+        unit: String,
+    },
     ScopeEmpty,
     LogParser,
     SendUi,
@@ -58,7 +63,9 @@ impl WidgetConstructor {
             WidgetConstructor::ViewerTable => WidgetKind::ViewerTable,
             WidgetConstructor::ViewerList => WidgetKind::ViewerList,
             WidgetConstructor::Bootloader => WidgetKind::Bootloader,
-            WidgetConstructor::Scope { .. } | WidgetConstructor::ScopeEmpty => WidgetKind::Scope,
+            WidgetConstructor::Scope { .. }
+            | WidgetConstructor::ScopeChannel { .. }
+            | WidgetConstructor::ScopeEmpty => WidgetKind::Scope,
             WidgetConstructor::LogParser => WidgetKind::LogParser,
             WidgetConstructor::SendUi => WidgetKind::SendUi,
             WidgetConstructor::BusLoad => WidgetKind::BusLoad,
@@ -99,6 +106,11 @@ impl WidgetConstructor {
                 msg_name,
                 signal_name,
             } => widgets::Widget::Scope(ui::scope::Scope::new(id, key, msg_name, signal_name)),
+            WidgetConstructor::ScopeChannel {
+                signal_id,
+                label,
+                unit,
+            } => widgets::Widget::Scope(ui::scope::Scope::new_channel(id, signal_id, label, unit)),
             WidgetConstructor::ScopeEmpty => {
                 widgets::Widget::Scope(ui::scope::Scope::new_empty(id))
             }
