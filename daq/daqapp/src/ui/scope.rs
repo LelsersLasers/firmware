@@ -173,7 +173,7 @@ impl Scope {
         let resolution = view.timeline.resolution_for_width(width_px);
         let series = view.query_signal(&signal_id, resolution);
 
-        let (points, envelope_band) = match &series {
+        let (points, envelope_min_max) = match &series {
             daqcore::router::SignalSeries::Exact {
                 timestamps_ms,
                 values,
@@ -190,14 +190,19 @@ impl Scope {
                     .iter()
                     .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.mean])
                     .collect();
-                let mut band = Vec::with_capacity(buckets.len() * 2);
-                for b in buckets {
-                    band.push([((b.utc_ms - start_ms) as f64) / 1000.0, b.max]);
-                }
-                for b in buckets.iter().rev() {
-                    band.push([((b.utc_ms - start_ms) as f64) / 1000.0, b.min]);
-                }
-                (mean_pts, (!band.is_empty()).then_some(band))
+                let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
+                let min_max = has_spread.then(|| {
+                    let min_pts: Vec<[f64; 2]> = buckets
+                        .iter()
+                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.min])
+                        .collect();
+                    let max_pts: Vec<[f64; 2]> = buckets
+                        .iter()
+                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.max])
+                        .collect();
+                    (min_pts, max_pts)
+                });
+                (mean_pts, min_max)
             }
         };
 
@@ -237,7 +242,11 @@ impl Scope {
         let pixels = width_px as usize;
         let points = telemetry::decimate(&points, pixels);
 
+        let trace_color = eframe::egui::Color32::from_rgb(80, 190, 255);
+        let envelope_color = eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 90);
+
         egui_plot::Plot::new(&self.title)
+            .legend(egui_plot::Legend::default())
             .view_aspect(2.0)
             .allow_zoom([false, true])
             .allow_drag([false, true])
@@ -250,21 +259,28 @@ impl Scope {
             .y_axis_label(&signal)
             .show(ui, |plot| {
                 plot.set_plot_bounds_x(0.0..=duration);
-                if let Some(band) = envelope_band {
-                    plot.polygon(
-                        egui_plot::Polygon::new(
-                            format!("{signal} [min..max]"),
-                            egui_plot::PlotPoints::from(band),
+                if let Some((min_pts, max_pts)) = envelope_min_max {
+                    let min_pts = telemetry::decimate(&min_pts, pixels);
+                    let max_pts = telemetry::decimate(&max_pts, pixels);
+                    plot.line(
+                        egui_plot::Line::new(
+                            format!("{signal} (bucket max)"),
+                            egui_plot::PlotPoints::from(max_pts),
                         )
-                        .fill_color(
-                            eframe::egui::Color32::from_rgba_unmultiplied(100, 180, 255, 45),
-                        ),
+                        .color(envelope_color),
+                    );
+                    plot.line(
+                        egui_plot::Line::new(
+                            format!("{signal} (bucket min)"),
+                            egui_plot::PlotPoints::from(min_pts),
+                        )
+                        .color(envelope_color),
                     );
                 }
-                plot.line(egui_plot::Line::new(
-                    &signal,
-                    egui_plot::PlotPoints::from(points),
-                ));
+                plot.line(
+                    egui_plot::Line::new(&signal, egui_plot::PlotPoints::from(points))
+                        .color(trace_color),
+                );
                 plot.vline(
                     egui_plot::VLine::new("Playhead", playhead)
                         .color(eframe::egui::Color32::YELLOW),
