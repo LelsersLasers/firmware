@@ -67,6 +67,21 @@ impl Scope {
         database: Option<&app::DatabaseSelection>,
         formula_engine: &daqcore::analysis::FormulaEngine,
     ) -> bool {
+        eframe::egui::ScrollArea::vertical()
+            .id_salt(("scope_picker", self.instance_num))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.show_picker_inner(ui, database, formula_engine)
+            })
+            .inner
+    }
+
+    fn show_picker_inner(
+        &mut self,
+        ui: &mut eframe::egui::Ui,
+        database: Option<&app::DatabaseSelection>,
+        formula_engine: &daqcore::analysis::FormulaEngine,
+    ) -> bool {
         let mut picked_derived: Option<(String, String, String)> = None;
         if matches!(self.state, ScopeState::PickingMessage { .. }) {
             eframe::egui::CollapsingHeader::new(
@@ -82,7 +97,10 @@ impl Scope {
                         format!(" ({})", def.unit)
                     };
                     let btn_label = format!("{} — {}{}", def.id, def.label, unit_suffix);
-                    if ui.button(btn_label).clicked() {
+                    if ui
+                        .add(eframe::egui::Button::new(btn_label).wrap())
+                        .clicked()
+                    {
                         picked_derived =
                             Some((def.id.clone(), def.label.clone(), def.unit.clone()));
                     }
@@ -125,17 +143,23 @@ impl Scope {
                 let identity = message.identity();
 
                 ui.separator();
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "Selected Message: [{bus_name}] {} (0x{identity:03X}) — pick a signal:",
-                        message.name()
-                    ))
-                    .strong(),
+                ui.add(
+                    eframe::egui::Label::new(
+                        eframe::egui::RichText::new(format!(
+                            "Selected Message: [{bus_name}] {} (0x{identity:03X}) — pick a signal:",
+                            message.name()
+                        ))
+                        .strong(),
+                    )
+                    .wrap(),
                 );
 
                 let mut picked_signal = None;
                 for sig in message.signals() {
-                    if ui.button(sig.name()).clicked() {
+                    if ui
+                        .add(eframe::egui::Button::new(sig.name()).wrap())
+                        .clicked()
+                    {
                         picked_signal = Some(sig.name().to_owned());
                         break;
                     }
@@ -280,8 +304,8 @@ impl Scope {
         };
 
         let mut change = false;
-        ui.horizontal(|ui| {
-            ui.heading(&heading_text);
+        ui.horizontal_wrapped(|ui| {
+            ui.strong(&heading_text);
             change = ui.button("Change signal").clicked();
             if ui.button("Export CSV").clicked()
                 && let Some(path) = rfd::FileDialog::new()
@@ -315,9 +339,12 @@ impl Scope {
         let trace_color = eframe::egui::Color32::from_rgb(80, 190, 255);
         let envelope_color = eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 90);
 
-        egui_plot::Plot::new(&self.title)
+        let plot_width = ui.available_width().max(60.0);
+        let plot_height = ui.available_height().max(60.0);
+        egui_plot::Plot::new(("scope_plot", self.instance_num))
             .legend(egui_plot::Legend::default())
-            .view_aspect(2.0)
+            .width(plot_width)
+            .height(plot_height)
             .allow_zoom([false, true])
             .allow_drag([false, true])
             .allow_scroll([false, true])

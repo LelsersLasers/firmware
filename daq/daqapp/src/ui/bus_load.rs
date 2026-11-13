@@ -91,12 +91,19 @@ impl BusLoad {
             window_samples.partition_point(|sample| sample.timestamp <= view.timeline.setpoint());
         let upto_cursor = &window_samples[..cursor];
 
+        let max_table_h = (ui.available_height() * 0.42).max(44.0);
         eframe::egui::TopBottomPanel::bottom(eframe::egui::Id::new((&self.title, "loads_panel")))
             .frame(eframe::egui::Frame::NONE)
             .show_separator_line(false)
+            .max_height(max_table_h)
             .show_inside(ui, |ui| {
                 ui.add_space(4.0);
-                self.show_load_table(ui, upto_cursor);
+                eframe::egui::ScrollArea::both()
+                    .id_salt((&self.title, "loads_scroll"))
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        self.show_load_table(ui, upto_cursor);
+                    });
             });
 
         if !decimated_series.is_empty() {
@@ -109,8 +116,11 @@ impl BusLoad {
             });
         }
 
+        let plot_width = ui.available_width().max(60.0);
+        let plot_height = ui.available_height().max(60.0);
         egui_plot::Plot::new(&self.title)
-            .height(ui.available_height())
+            .width(plot_width)
+            .height(plot_height)
             .allow_zoom([false, true])
             .allow_drag([false, true])
             .allow_scroll([false, true])

@@ -44,16 +44,56 @@ pub fn stale_banner(
         .inner_margin(eframe::egui::Margin::symmetric(10, 6))
         .corner_radius(eframe::egui::CornerRadius::same(4))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let (rect, _) = ui.allocate_exact_size(
                     eframe::egui::Vec2::splat(8.0),
                     eframe::egui::Sense::hover(),
                 );
                 ui.painter().circle_filled(rect.center(), 4.0, dot);
                 ui.add_space(4.0);
-                ui.colored_label(dot, &text);
+                ui.add(
+                    eframe::egui::Label::new(eframe::egui::RichText::new(&text).color(dot)).wrap(),
+                );
             });
         });
+}
+
+pub struct StatCardSpec<'a> {
+    pub label: &'a str,
+    pub value: Option<f64>,
+    pub unit: &'a str,
+    pub override_color: Option<eframe::egui::Color32>,
+}
+
+pub fn stat_cards_grid(
+    ui: &mut eframe::egui::Ui,
+    theme: &ui::theme::ThemeColors,
+    stale: bool,
+    cards: &[StatCardSpec<'_>],
+) {
+    if cards.is_empty() {
+        return;
+    }
+    let avail_w = ui.available_width().max(80.0);
+    let cols_per_row = ((avail_w / 92.0).floor() as usize).clamp(1, cards.len());
+    for (row_idx, row_cards) in cards.chunks(cols_per_row).enumerate() {
+        if row_idx > 0 {
+            ui.add_space(4.0);
+        }
+        ui.columns(row_cards.len(), |cols| {
+            for (col_ui, spec) in cols.iter_mut().zip(row_cards.iter()) {
+                stat_card(
+                    col_ui,
+                    theme,
+                    spec.label,
+                    spec.value,
+                    spec.unit,
+                    stale,
+                    spec.override_color,
+                );
+            }
+        });
+    }
 }
 
 pub fn stat_card(
@@ -65,25 +105,32 @@ pub fn stat_card(
     stale: bool,
     override_color: Option<eframe::egui::Color32>,
 ) {
+    let compact = ui.available_width() < 110.0;
+    let margin = if compact { 6 } else { 10 };
+    let value_font_size = if compact { 15.0 } else { 20.0 };
+
     eframe::egui::Frame::NONE
         .fill(theme.panel_color())
         .stroke(eframe::egui::Stroke::new(1.0_f32, theme.accent_color()))
-        .inner_margin(eframe::egui::Margin::same(10))
+        .inner_margin(eframe::egui::Margin::same(margin))
         .corner_radius(eframe::egui::CornerRadius::same(4))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.vertical(|ui| {
-                ui.label(
-                    eframe::egui::RichText::new(label)
-                        .size(10.0)
-                        .color(theme.text_color().linear_multiply(0.5)),
+                ui.add(
+                    eframe::egui::Label::new(
+                        eframe::egui::RichText::new(label)
+                            .size(10.0)
+                            .color(theme.text_color().linear_multiply(0.5)),
+                    )
+                    .truncate(),
                 );
                 ui.add_space(2.0);
                 let val_color = override_color.unwrap_or(theme.info_color());
                 if stale {
                     ui.label(
                         eframe::egui::RichText::new("—")
-                            .size(20.0)
+                            .size(value_font_size)
                             .color(theme.text_color().linear_multiply(0.25)),
                     );
                 } else {
@@ -93,10 +140,13 @@ pub fn stat_card(
                         "—".to_string()
                     };
 
-                    ui.label(
-                        eframe::egui::RichText::new(text)
-                            .size(20.0)
-                            .color(val_color),
+                    ui.add(
+                        eframe::egui::Label::new(
+                            eframe::egui::RichText::new(text)
+                                .size(value_font_size)
+                                .color(val_color),
+                        )
+                        .truncate(),
                     );
                     ui.label(
                         eframe::egui::RichText::new(unit)

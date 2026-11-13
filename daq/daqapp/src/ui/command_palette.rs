@@ -84,7 +84,10 @@ impl CommandPalette {
                 // Search Input
                 ui.horizontal(|ui| {
                     ui.label("🔍");
-                    let response = ui.text_edit_singleline(&mut self.palette_search);
+                    let response = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.palette_search)
+                            .desired_width(ui.available_width().max(60.0)),
+                    );
 
                     response.request_focus(); // focus the search box when palette is open
 
@@ -95,38 +98,43 @@ impl CommandPalette {
                 ui.separator();
 
                 // Results List
-                ui.vertical_centered_justified(|ui| {
-                    if filtered_options.is_empty() {
-                        ui.label("No commands found");
-                    } else {
-                        for (i, (label, widget_type)) in filtered_options.iter().enumerate() {
-                            let is_selected = i == self.palette_index;
-                            let selection = ui.visuals().selection;
-                            let fill = if is_selected {
-                                selection.bg_fill
+                eframe::egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.vertical_centered_justified(|ui| {
+                            if filtered_options.is_empty() {
+                                ui.label("No commands found");
                             } else {
-                                eframe::egui::Color32::TRANSPARENT
-                            };
+                                for (i, (label, widget_type)) in filtered_options.iter().enumerate()
+                                {
+                                    let is_selected = i == self.palette_index;
+                                    let selection = ui.visuals().selection;
+                                    let fill = if is_selected {
+                                        selection.bg_fill
+                                    } else {
+                                        eframe::egui::Color32::TRANSPARENT
+                                    };
 
-                            let stroke = if is_selected {
-                                selection.stroke
-                            } else {
-                                eframe::egui::Stroke::NONE
-                            };
+                                    let stroke = if is_selected {
+                                        selection.stroke
+                                    } else {
+                                        eframe::egui::Stroke::NONE
+                                    };
 
-                            // todo this styling is kinda janky, theres probably an easy way to do this
-                            let button =
-                                eframe::egui::Button::new(*label).fill(fill).stroke(stroke);
+                                    let button =
+                                        eframe::egui::Button::new(*label).fill(fill).stroke(stroke);
 
-                            let response = ui.add(button);
-                            if response.clicked() {
-                                action_queue
-                                    .push(action::AppAction::SpawnWidget((*widget_type).clone()));
-                                self.show_command_palette = false;
+                                    let response = ui.add(button);
+                                    if response.clicked() {
+                                        action_queue.push(action::AppAction::SpawnWidget(
+                                            (*widget_type).clone(),
+                                        ));
+                                        self.show_command_palette = false;
+                                    }
+                                }
                             }
-                        }
-                    }
-                });
+                        });
+                    });
             });
 
         action_queue

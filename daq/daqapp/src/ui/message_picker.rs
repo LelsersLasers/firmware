@@ -17,10 +17,11 @@ impl MessagePickerState {
             ui.label("Search:");
             ui.add(
                 eframe::egui::TextEdit::singleline(&mut self.search_text)
+                    .desired_width(ui.available_width().max(60.0))
                     .hint_text("Message name, CAN ID, or bus…"),
             );
         });
-        ui.add_space(8.0);
+        ui.add_space(6.0);
         if self.search_text.is_empty() {
             if selected_msg_is_none {
                 ui.label(
@@ -37,33 +38,44 @@ impl MessagePickerState {
         let mut found = false;
         let mut picked = None;
         let active_buses = database.active_buses();
-        for bus in active_buses {
-            let bus_name_lower = bus.name().to_lowercase();
-            for message in bus.messages().iter().filter(|message| {
-                search.trim() == "*"
-                    || message.name().to_lowercase().contains(&search)
-                    || format!("0x{:03x}", message.identity()).contains(&search)
-                    || bus_name_lower.contains(&search)
-            }) {
-                found = true;
-                let label = format!(
-                    "[{}] {} (0x{:03X})",
-                    bus.name(),
-                    message.name(),
-                    message.identity()
-                );
-                if ui.button(label).clicked() {
-                    picked = Some(message.key());
+        let scroll_max_h = if selected_msg_is_none {
+            ui.available_height().max(80.0)
+        } else {
+            ui.available_height().clamp(80.0, 220.0)
+        };
+        eframe::egui::ScrollArea::vertical()
+            .id_salt("message_picker_results")
+            .max_height(scroll_max_h)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for bus in active_buses {
+                    let bus_name_lower = bus.name().to_lowercase();
+                    for message in bus.messages().iter().filter(|message| {
+                        search.trim() == "*"
+                            || message.name().to_lowercase().contains(&search)
+                            || format!("0x{:03x}", message.identity()).contains(&search)
+                            || bus_name_lower.contains(&search)
+                    }) {
+                        found = true;
+                        let label = format!(
+                            "[{}] {} (0x{:03X})",
+                            bus.name(),
+                            message.name(),
+                            message.identity()
+                        );
+                        if ui.add(eframe::egui::Button::new(label).wrap()).clicked() {
+                            picked = Some(message.key());
+                        }
+                    }
                 }
-            }
-        }
-        if !found {
-            ui.label(
-                eframe::egui::RichText::new("No messages found.")
-                    .italics()
-                    .weak(),
-            );
-        }
+                if !found {
+                    ui.label(
+                        eframe::egui::RichText::new("No messages found.")
+                            .italics()
+                            .weak(),
+                    );
+                }
+            });
         if picked.is_some() {
             self.search_text.clear();
         }

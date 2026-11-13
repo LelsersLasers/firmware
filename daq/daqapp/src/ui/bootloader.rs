@@ -137,7 +137,7 @@ impl Bootloader {
                 if self.running {
                     self.show_run_summary(ui);
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button("Cancel update").clicked() {
                             if ui_to_can_tx
                                 .send(daqcore::can_thread::CanThreadCommand::CancelFirmwareUpdate)
@@ -170,7 +170,7 @@ impl Bootloader {
                         now,
                     );
                 } else {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         let upload = ui.add_enabled(
                             !selected_names.is_empty(),
                             eframe::egui::Button::new(format!(
@@ -202,46 +202,18 @@ impl Bootloader {
     fn show_package_panel(&mut self, ui: &mut eframe::egui::Ui) {
         eframe::egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
+            ui.vertical(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.strong("Firmware package");
-                    if let (Some(path), Some(package)) = (&self.manifest_path, &self.package) {
-                        let filename = path
-                            .file_name()
-                            .map(|name| name.to_string_lossy())
-                            .unwrap_or_else(|| path.display().to_string().into());
-                        ui.label(eframe::egui::RichText::new(filename).monospace())
-                            .on_hover_text(path.display().to_string());
-                        let total_bytes: usize =
-                            package.images.iter().map(|image| image.bytes.len()).sum();
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "{} verified images • {}",
-                                package.images.len(),
-                                format_bytes(total_bytes)
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                    } else {
-                        ui.label("Choose a manifest.json or firmware_*.tar.gz package.");
-                        ui.label(
-                            eframe::egui::RichText::new(
-                                "DaqApp validates every image and checksum before enabling updates.",
-                            )
-                            .small()
-                            .weak(),
-                        );
-                    }
-                });
-                ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
                     let label = if self.package.is_some() {
                         "Change package"
                     } else {
                         "Choose package"
                     };
 
-                    if ui.add_enabled(!self.running, eframe::egui::Button::new(label)).clicked()
+                    if ui
+                        .add_enabled(!self.running, eframe::egui::Button::new(label))
+                        .clicked()
                         && let Some(path) = rfd::FileDialog::new()
                             .add_filter("Firmware package", &["json", "gz"])
                             .pick_file()
@@ -249,6 +221,37 @@ impl Bootloader {
                         self.load_package(path);
                     }
                 });
+                if let (Some(path), Some(package)) = (&self.manifest_path, &self.package) {
+                    let filename = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy())
+                        .unwrap_or_else(|| path.display().to_string().into());
+                    ui.add(
+                        eframe::egui::Label::new(eframe::egui::RichText::new(filename).monospace())
+                            .wrap(),
+                    )
+                    .on_hover_text(path.display().to_string());
+                    let total_bytes: usize =
+                        package.images.iter().map(|image| image.bytes.len()).sum();
+                    ui.label(
+                        eframe::egui::RichText::new(format!(
+                            "{} verified images • {}",
+                            package.images.len(),
+                            format_bytes(total_bytes)
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                } else {
+                    ui.label("Choose a manifest.json or firmware_*.tar.gz package.");
+                    ui.label(
+                        eframe::egui::RichText::new(
+                            "DaqApp validates every image and checksum before enabling updates.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
             });
         });
     }
@@ -286,7 +289,7 @@ impl Bootloader {
         selected_count: usize,
         now: time::Instant,
     ) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.strong("Targets");
             ui.label(
                 eframe::egui::RichText::new(format!(
@@ -296,38 +299,30 @@ impl Bootloader {
                 .small()
                 .weak(),
             );
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    if ui
-                        .add_enabled(
-                            !self.running && !self.selected_targets.is_empty(),
-                            eframe::egui::Button::new("Clear"),
-                        )
-                        .clicked()
-                    {
-                        self.selected_targets.clear();
-                        self.confirming_update = false;
-                    }
-
-                    if ui
-                        .add_enabled(
-                            !self.running && available_count > 0,
-                            eframe::egui::Button::new("Select available"),
-                        )
-                        .clicked()
-                    {
-                        self.selected_targets = target_names
-                            .iter()
-                            .filter(|name| {
-                                self.capability_state(name, now) == CapabilityState::Available
-                            })
-                            .cloned()
-                            .collect();
-                        self.confirming_update = false;
-                    }
-                },
-            );
+            if ui
+                .add_enabled(
+                    !self.running && available_count > 0,
+                    eframe::egui::Button::new("Select available"),
+                )
+                .clicked()
+            {
+                self.selected_targets = target_names
+                    .iter()
+                    .filter(|name| self.capability_state(name, now) == CapabilityState::Available)
+                    .cloned()
+                    .collect();
+                self.confirming_update = false;
+            }
+            if ui
+                .add_enabled(
+                    !self.running && !self.selected_targets.is_empty(),
+                    eframe::egui::Button::new("Clear"),
+                )
+                .clicked()
+            {
+                self.selected_targets.clear();
+                self.confirming_update = false;
+            }
         });
     }
 
@@ -510,7 +505,7 @@ impl Bootloader {
                 );
             }
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let start_label = if has_protocol_warning {
                     "Acknowledge warning & start update"
                 } else {

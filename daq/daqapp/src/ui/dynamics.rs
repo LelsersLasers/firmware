@@ -4,8 +4,8 @@ const STALE_TIMEOUT_SECONDS: u64 = 1;
 const WHEELBASE_M: f32 = 1.530; // Standard Formula Student wheelbase
 const CHASSIS_WIDTH_M: f32 = 1.4;
 const CHASSIS_LENGTH_M: f32 = 2.5;
-const ACCEL_VECTOR_SCALE: f32 = 20.0;
-const SPEED_VECTOR_SCALE: f32 = 2.0;
+const ACCEL_VECTOR_METERS_PER_UNIT: f32 = 0.30;
+const SPEED_VECTOR_METERS_PER_MPS: f32 = 0.03;
 const YAW_RATE_MAX_FOR_DRAW: f32 = 2.0; // rad/s clamp for visualization
 const YAW_ARC_MIN_SWEEP_RAD: f32 = std::f32::consts::PI / 8.0;
 const YAW_ARC_MAX_SWEEP_RAD: f32 = std::f32::consts::PI * 1.4;
@@ -60,21 +60,40 @@ impl Dynamics {
 
         let theme = ui::theme::get_theme(ui.ctx());
 
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.heading(&self.title);
-            ui.add_space(4.0);
-
+        ui.horizontal_wrapped(|ui| {
+            ui.strong(&self.title);
             draw_status_banner(ui, &theme, stale, elapsed);
+        });
 
-            ui.add_space(8.0);
+        if !stale {
+            ui.horizontal_wrapped(|ui| {
+                ui.monospace(format!("Yaw: {:+.2} rad/s", values.yaw_rate_rads));
+                ui.separator();
+                ui.colored_label(
+                    theme.error_color(),
+                    eframe::egui::RichText::new(format!("Accel X: {:+.2} m/s²", values.accel_x))
+                        .monospace(),
+                );
+                ui.separator();
+                ui.colored_label(
+                    theme.error_color(),
+                    eframe::egui::RichText::new(format!("Accel Y: {:+.2} m/s²", values.accel_y))
+                        .monospace(),
+                );
+            });
+        }
 
-            // Allocation for custom visualization
-            let available_w = ui.available_width();
-            let size = eframe::egui::Vec2::splat(available_w.min(400.0));
-            let (rect, _response) = ui.allocate_exact_size(size, eframe::egui::Sense::hover());
+        ui.add_space(4.0);
 
-            let painter = ui.painter();
+        let avail = ui.available_size();
+        let side = avail.x.min(avail.y).max(60.0);
+        ui.vertical_centered(|ui| {
+            let (rect, _response) = ui.allocate_exact_size(
+                eframe::egui::Vec2::splat(side),
+                eframe::egui::Sense::hover(),
+            );
+
+            let painter = ui.painter_at(rect);
             painter.rect_filled(rect, 4.0, theme.panel_color());
             painter.rect_stroke(
                 rect,
@@ -87,10 +106,10 @@ impl Dynamics {
             let center = rect.center();
             let pixels_per_meter = rect.width() / 6.0; // 6 meters total width
 
-            draw_chassis(painter, center, pixels_per_meter, &theme);
+            draw_chassis(&painter, center, pixels_per_meter, &theme);
 
             if !stale {
-                draw_dynamics(painter, center, pixels_per_meter, &theme, &values);
+                draw_dynamics(&painter, center, pixels_per_meter, &theme, &values);
             }
         });
 
@@ -251,9 +270,10 @@ fn draw_dynamics(
     let front_axle_y = center.y - axle_dist_px / 2.0;
     let rear_axle_y = center.y + axle_dist_px / 2.0;
 
-    // 3. Acceleration Vectors (separate X and Y)
-    let accel_x_vec = eframe::egui::Vec2::new(0.0, -values.accel_x * ACCEL_VECTOR_SCALE);
-    let accel_y_vec = eframe::egui::Vec2::new(-values.accel_y * ACCEL_VECTOR_SCALE, 0.0);
+    // 3. Acceleration Vectors (separate X and Y, scaled with canvas size)
+    let accel_scale = ACCEL_VECTOR_METERS_PER_UNIT * pixels_per_meter;
+    let accel_x_vec = eframe::egui::Vec2::new(0.0, -values.accel_x * accel_scale);
+    let accel_y_vec = eframe::egui::Vec2::new(-values.accel_y * accel_scale, 0.0);
     painter.line_segment(
         [center, center + accel_x_vec],
         eframe::egui::Stroke::new(3.0_f32, theme.error_color()),
@@ -266,7 +286,8 @@ fn draw_dynamics(
     painter.circle_filled(center + accel_y_vec, 4.0, theme.error_color());
 
     // 4. Velocity Vector (Green)
-    let vel_vec = eframe::egui::Vec2::new(0.0, -values.velocity_mps * SPEED_VECTOR_SCALE);
+    let speed_scale = SPEED_VECTOR_METERS_PER_MPS * pixels_per_meter;
+    let vel_vec = eframe::egui::Vec2::new(0.0, -values.velocity_mps * speed_scale);
     painter.line_segment(
         [
             eframe::egui::Pos2::new(center.x, front_axle_y),
@@ -278,34 +299,7 @@ fn draw_dynamics(
     // 5. Yaw rotation arc + arrowhead
     draw_yaw_rotation_arrow(painter, center, pixels_per_meter, theme, values);
 
-    // 6. Labels
-    let label_top_left = eframe::egui::Pos2::new(
-        center.x - 110.0,
-        center.y - (CHASSIS_LENGTH_M * pixels_per_meter / 2.0) - 48.0,
-    );
-    painter.text(
-        label_top_left,
-        eframe::egui::Align2::LEFT_TOP,
-        format!("Yaw: {:+.2} rad/s", values.yaw_rate_rads),
-        eframe::egui::FontId::monospace(12.0),
-        theme.text_color(),
-    );
-    painter.text(
-        label_top_left + eframe::egui::Vec2::new(0.0, 16.0),
-        eframe::egui::Align2::LEFT_TOP,
-        format!("Accel X: {:+.2} m/s²", values.accel_x),
-        eframe::egui::FontId::monospace(12.0),
-        theme.error_color(),
-    );
-    painter.text(
-        label_top_left + eframe::egui::Vec2::new(0.0, 32.0),
-        eframe::egui::Align2::LEFT_TOP,
-        format!("Accel Y: {:+.2} m/s²", values.accel_y),
-        eframe::egui::FontId::monospace(12.0),
-        theme.error_color(),
-    );
-
-    // 7. Turn Radius Projection
+    // 6. Turn Radius Projection
     if values.steer_angle_rad.abs() > 0.01 {
         let r_m = WHEELBASE_M / values.steer_angle_rad.tan();
         let r_px = r_m * pixels_per_meter;
