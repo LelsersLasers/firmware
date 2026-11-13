@@ -124,7 +124,9 @@ impl SendUi {
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .stroke(eframe::egui::Stroke::NONE)
             .show(ui, |ui| {
-                eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+                eframe::egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
                     if let Some(picked) =
                         self.msg_picker
                             .show(ui, database, self.selected_msg.is_none())
@@ -175,7 +177,7 @@ impl SendUi {
                         // Send Amount selector
                         ui.label(eframe::egui::RichText::new("Send Options").strong());
 
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.selectable_value(&mut self.send_mode, SendMode::Once, "Once");
                             ui.selectable_value(
                                 &mut self.send_mode,
@@ -188,7 +190,7 @@ impl SendUi {
                         match self.send_mode {
                             SendMode::Once => {}
                             SendMode::Infinite => {
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     ui.label("Period (ms)");
                                     ui.add(
                                         eframe::egui::DragValue::new(&mut self.period_ms)
@@ -198,7 +200,7 @@ impl SendUi {
                                 });
                             }
                             SendMode::Finite => {
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     ui.label("Amount");
                                     ui.add(
                                         eframe::egui::DragValue::new(&mut self.finite_amount)
@@ -206,7 +208,7 @@ impl SendUi {
                                             .range(1..=10_000),
                                     );
                                 });
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     ui.label("Period (ms)");
                                     ui.add(
                                         eframe::egui::DragValue::new(&mut self.period_ms)
@@ -218,7 +220,7 @@ impl SendUi {
                         }
                         ui.checkbox(&mut self.adjustable_values_enabled, "Adjustable values");
                         for signal in &mut self.signal_values {
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(signal.name.as_str());
                                 let expected_decimals = formatter
                                     .as_ref()
@@ -439,7 +441,10 @@ impl SendingMessage {
             .join(" ");
 
         // Header (outside card)
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("🗑").on_hover_text("Delete message").clicked() {
+                delete_action = Some(SendUiActions::DeleteMessage { key: self.key });
+            }
             ui.label(
                 eframe::egui::RichText::new(format!(
                     "[{}] {}  (0x{:03X})",
@@ -460,20 +465,10 @@ impl SendingMessage {
                 .italics()
                 .color(ui.visuals().weak_text_color()),
             );
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    if ui.button("🗑").on_hover_text("Delete message").clicked() {
-                        delete_action = Some(SendUiActions::DeleteMessage { key: self.key });
-                    }
-                    ui.label(
-                        eframe::egui::RichText::new(raw_bytes_str)
-                            .monospace()
-                            .color(ui.visuals().text_color()),
-                    );
-
-                    ui.add_space(2.0);
-                },
+            ui.label(
+                eframe::egui::RichText::new(raw_bytes_str)
+                    .monospace()
+                    .color(ui.visuals().text_color()),
             );
         });
 
@@ -485,46 +480,42 @@ impl SendingMessage {
             .corner_radius(eframe::egui::CornerRadius::same(8))
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.vertical(|ui| {
                     let total_signals = self.signal_values.len();
                     for (i, signal) in self.signal_values.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label(
                                 eframe::egui::RichText::new(&signal.name)
                                     .monospace()
                                     .color(ui.visuals().text_color()),
                             );
-                            ui.with_layout(
-                                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                                |ui| {
-                                    let expected_decimals = formatter
-                                        .as_ref()
-                                        .map(|f| f.expected_decimals(&self.msg_name, &signal.name))
-                                        .unwrap_or(2);
+                            let expected_decimals = formatter
+                                .as_ref()
+                                .map(|f| f.expected_decimals(&self.msg_name, &signal.name))
+                                .unwrap_or(2);
 
-                                    if self.adjustable_values_enabled {
-                                        let speed = 10f64.powi(-(expected_decimals as i32));
-                                        if ui
-                                            .add(
-                                                eframe::egui::DragValue::new(&mut signal.value)
-                                                    .range(signal.min..=signal.max)
-                                                    .speed(speed),
-                                            )
-                                            .changed()
-                                        {
-                                            updates_to_send.push(msg_idx);
-                                        }
-                                    } else {
-                                        ui.label(
-                                            eframe::egui::RichText::new(format!(
-                                                "{:.*}",
-                                                expected_decimals, signal.value
-                                            ))
-                                            .monospace(),
-                                        );
-                                    }
-                                },
-                            );
+                            if self.adjustable_values_enabled {
+                                let speed = 10f64.powi(-(expected_decimals as i32));
+                                if ui
+                                    .add(
+                                        eframe::egui::DragValue::new(&mut signal.value)
+                                            .range(signal.min..=signal.max)
+                                            .speed(speed),
+                                    )
+                                    .changed()
+                                {
+                                    updates_to_send.push(msg_idx);
+                                }
+                            } else {
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "= {:.*}",
+                                        expected_decimals, signal.value
+                                    ))
+                                    .monospace(),
+                                );
+                            }
                         });
                         if i < total_signals - 1 {
                             ui.separator();

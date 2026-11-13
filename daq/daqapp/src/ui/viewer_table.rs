@@ -29,9 +29,12 @@ impl ViewerTable {
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
         ui.heading(&self.title);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Search:");
-            ui.text_edit_singleline(&mut self.search);
+            let search_width = (ui.available_width() - 150.0).clamp(80.0, 260.0);
+            ui.add(
+                eframe::egui::TextEdit::singleline(&mut self.search).desired_width(search_width),
+            );
             let mut nodes: Vec<_> = view
                 .latest_setpoint_frames
                 .values()
@@ -59,7 +62,9 @@ impl ViewerTable {
         }
 
         let search = self.search.to_lowercase();
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
             if view.latest_setpoint_frames.is_empty()
                 && let Some(db) = database
             {
@@ -231,7 +236,7 @@ impl MessageCard<'_> {
         let error_color = theme.error_color();
 
         // Header (outside card)
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let search = self.search.to_lowercase();
             let matches_name = search.is_empty()
                 || self.msg_name.to_lowercase().contains(&search)
@@ -280,17 +285,13 @@ impl MessageCard<'_> {
                         .color(error_color),
                 );
             }
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    ui.label(
-                        eframe::egui::RichText::new(self.raw_bytes)
-                            .monospace()
-                            .color(ui.visuals().text_color()),
-                    );
-                    ui.add_space(2.0);
-                },
-            );
+            if !self.raw_bytes.is_empty() {
+                ui.label(
+                    eframe::egui::RichText::new(self.raw_bytes)
+                        .monospace()
+                        .color(ui.visuals().text_color()),
+                );
+            }
         });
 
         ui.add_space(4.0);
@@ -326,9 +327,10 @@ impl MessageCard<'_> {
             .corner_radius(eframe::egui::CornerRadius::same(8))
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.vertical(|ui| {
                     for (i, (sig_name, value)) in self.signals.iter().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             let search = self.search.to_lowercase();
                             let matches_signal =
                                 search.is_empty() || sig_name.to_lowercase().contains(&search);
@@ -338,27 +340,26 @@ impl MessageCard<'_> {
                                 ui.visuals().weak_text_color()
                             };
 
+                            if ui.small_button("📊").on_hover_text("Open in Scope").clicked() {
+                                action_queue.push(action::AppAction::SpawnWidget(
+                                    widget_constructor::WidgetConstructor::Scope {
+                                        key: self.key,
+                                        msg_name: self.msg_name.to_string(),
+                                        signal_name: sig_name.to_string(),
+                                    },
+                                ));
+                            }
                             ui.label(
                                 eframe::egui::RichText::new(*sig_name)
                                     .monospace()
                                     .color(signal_color),
                             );
-                            ui.with_layout(
-                                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                                |ui| {
-                                    if ui.small_button("📊").clicked() {
-                                        action_queue.push(action::AppAction::SpawnWidget(
-                                            widget_constructor::WidgetConstructor::Scope {
-                                                key: self.key,
-                                                msg_name: self.msg_name.to_string(),
-                                                signal_name: sig_name.to_string(),
-                                            },
-                                        ));
-                                    }
-                                    ui.add_space(8.0);
-                                    ui.label(eframe::egui::RichText::new(value).monospace());
-                                },
+                            ui.label(
+                                eframe::egui::RichText::new("=")
+                                    .monospace()
+                                    .color(ui.visuals().weak_text_color()),
                             );
+                            ui.label(eframe::egui::RichText::new(value).monospace());
                         });
                         if i < self.signals.len() - 1 {
                             ui.separator();
