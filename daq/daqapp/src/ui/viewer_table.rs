@@ -37,6 +37,11 @@ impl ViewerTable {
                 .values()
                 .filter_map(|f| f.decoded.as_ref().map(|d| d.tx_node().to_owned()))
                 .collect();
+            if nodes.is_empty()
+                && let Some(db) = database
+            {
+                nodes.extend(db.database.messages().map(|m| m.transmitter().to_owned()));
+            }
             nodes.sort();
             nodes.dedup();
             eframe::egui::ComboBox::from_id_salt(("tx_node", &self.title))
@@ -49,12 +54,80 @@ impl ViewerTable {
                     }
                 });
         });
-        if view.setpoint_frames.is_empty() {
+        if view.setpoint_frames.is_empty() && view.router.partitions().is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
 
         let search = self.search.to_lowercase();
         eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+            if view.latest_setpoint_frames.is_empty()
+                && let Some(db) = database
+            {
+                for message in db.database.messages() {
+                    let key = message.key();
+                    let name = message.name();
+                    let node = message.transmitter();
+                    let bus_name = db.bus_name(key.bus_id);
+                    if self.tx_node != "Any" && self.tx_node != node {
+                        continue;
+                    }
+                    if !search.is_empty()
+                        && !name.to_lowercase().contains(&search)
+                        && !node.to_lowercase().contains(&search)
+                        && !bus_name.to_lowercase().contains(&search)
+                        && !format!("{:03X}", key.identity)
+                            .to_lowercase()
+                            .contains(&search)
+                        && !message
+                            .signals()
+                            .iter()
+                            .any(|s| s.name().to_lowercase().contains(&search))
+                    {
+                        continue;
+                    }
+
+                    let mut latest_msg_ms: Option<i64> = None;
+                    let mut signals = Vec::with_capacity(message.signals().len());
+                    for sig_def in message.signals() {
+                        let signal_id = daqcore::storage::format_signal_id(name, sig_def.name());
+                        let formatted = match view.latest_signal_value_at_setpoint(&signal_id) {
+                            Some((utc_ms, val)) => {
+                                latest_msg_ms =
+                                    Some(latest_msg_ms.map_or(utc_ms, |m| m.max(utc_ms)));
+                                format_partition_signal_value(sig_def, val)
+                            }
+                            None => "—".to_owned(),
+                        };
+                        signals.push((sig_def.name(), formatted));
+                    }
+
+                    let timestamp_label = latest_msg_ms
+                        .map(|ms| daqcore::time::Time::from_unix_millis(ms).label())
+                        .unwrap_or_else(|| "SD Store".to_owned());
+                    let stale = latest_msg_ms.is_some_and(|ms| {
+                        message
+                            .is_stale(daqcore::time::Time::from_unix_millis(ms), view.view_time())
+                    });
+
+                    actions.extend(
+                        MessageCard {
+                            msg_name: name,
+                            bus_name,
+                            key,
+                            tx_node: node,
+                            raw_bytes: "",
+                            timestamp: &timestamp_label,
+                            stale,
+                            signals,
+                            search: &self.search,
+                        }
+                        .ui(ui),
+                    );
+                    ui.add_space(8.0);
+                }
+                return;
+            }
+
             for frame in view.latest_setpoint_frames.values() {
                 let decoded = frame.decoded.as_ref();
                 let name = decoded.map_or("Error: Unknown", |d| d.name());
@@ -290,5 +363,36 @@ impl MessageCard<'_> {
             });
 
         action_queue
+    }
+}
+
+fn format_partition_signal_value(
+    sig_def: &daqcore::superdbc::message::SignalDefinition,
+    val: f64,
+) -> String {
+    if sig_def.scale().abs() > f64::EPSILON {
+        let raw_approx = ((val - sig_def.offset()) / sig_def.scale()).round() as i128;
+        if let Some(label) = sig_def.choice_label(raw_approx) {
+            return format!("{label} ({val:.0})");
+        }
+    }
+    let unit = sig_def.unit();
+    let formatted_num = match sig_def.display_format() {
+        Some(daqcore::superdbc::message::DisplayFormat::Integer) => format!("{val:.0}"),
+        Some(daqcore::superdbc::message::DisplayFormat::Decimal(prec)) => {
+            format!("{val:.*}", usize::from(prec))
+        }
+        _ => {
+            if (val - val.round()).abs() < 1e-6 {
+                format!("{val:.0}")
+            } else {
+                format!("{val:.3}")
+            }
+        }
+    };
+    if unit.is_empty() {
+        formatted_num
+    } else {
+        format!("{formatted_num} {unit}")
     }
 }

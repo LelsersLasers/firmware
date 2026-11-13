@@ -91,7 +91,7 @@ impl DAQApp {
     pub fn new(
         can_to_ui_rx: mpsc::Receiver<daqcore::can_thread::CanThreadEvent>,
         can_thread: daqcore::can_thread::CanThreadHandle,
-        settings: settings::Settings,
+        mut settings: settings::Settings,
         cc: &eframe::CreationContext,
     ) -> Result<Self, Box<dyn error::Error + Send + Sync>> {
         let theme_selection = settings.theme;
@@ -112,16 +112,22 @@ impl DAQApp {
         router.set_repaint_callback(Some(std::sync::Arc::new(move || {
             egui_ctx.request_repaint();
         })));
-        if let Some(ref store_dir) = settings.log_folder
-            && (store_dir
-                .join(daqcore::storage::LOCAL_REGISTRY_FILENAME)
-                .exists()
-                || store_dir.join("partitions").is_dir())
-        {
-            match router.attach_store(store_dir) {
+        let candidate_store_dirs = [
+            settings.log_folder.clone(),
+            Some(path::PathBuf::from(settings::DEFAULT_LOG_FOLDER)),
+            Some(path::PathBuf::from("/tmp/per26_store")),
+        ];
+        if let Some(store_dir) = candidate_store_dirs.into_iter().flatten().find(|dir| {
+            dir.join(daqcore::storage::LOCAL_REGISTRY_FILENAME).exists()
+                || dir.join("partitions").is_dir()
+        }) {
+            match router.attach_store(&store_dir) {
                 Ok(_) => {
                     if let Some((day_min, day_max)) = router.timeline().day_bounds_ms() {
                         router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                    }
+                    if settings.log_folder.is_none() {
+                        settings.log_folder = Some(store_dir);
                     }
                 }
                 Err(err) => {
@@ -163,7 +169,17 @@ impl DAQApp {
             diagnostic: None,
             log_folder: settings.log_folder,
         };
-        if let Some(path) = settings.superdbc_path {
+        let default_dbc_path = settings.superdbc_path.or_else(|| {
+            let db_dir = settings::database_dir()?;
+            for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {
+                let path = db_dir.join(candidate);
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+            None
+        });
+        if let Some(path) = default_dbc_path {
             app.request_database(&path, preferred_selection);
         }
         Ok(app)
