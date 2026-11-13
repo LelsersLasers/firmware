@@ -501,13 +501,12 @@ mod tests {
         assert_eq!(timestamps_ms.len(), 103);
 
         let v1_expected = 2000.0 * 0.14659808276;
-        for idx in 0..=50 {
+        for (idx, &val) in values.iter().enumerate().take(51) {
             let t = (idx * 2) as f64;
             let expected_w = v1_expected * (10.0 + 0.1 * t);
             assert!(
-                (values[idx] - expected_w).abs() < 1e-6,
-                "mismatch at idx={idx} (t={t}): got {}, expected {expected_w}",
-                values[idx]
+                (val - expected_w).abs() < 1e-6,
+                "mismatch at idx={idx} (t={t}): got {val}, expected {expected_w}",
             );
         }
 
@@ -521,12 +520,11 @@ mod tests {
 
         // Stint 2 (idx 52..=102, t = 10,100 ..= 10,200 ms)
         let v2_expected = 3000.0 * 0.14659808276;
-        for idx in 52..=102 {
+        for (idx, &val) in values.iter().enumerate().take(103).skip(52) {
             let expected_w = v2_expected * 50.0;
             assert!(
-                (values[idx] - expected_w).abs() < 1e-6,
-                "mismatch at idx={idx}: got {}, expected {expected_w}",
-                values[idx]
+                (val - expected_w).abs() < 1e-6,
+                "mismatch at idx={idx}: got {val}, expected {expected_w}",
             );
         }
     }

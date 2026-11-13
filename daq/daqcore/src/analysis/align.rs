@@ -126,10 +126,10 @@ fn normalize_source_samples(timestamps_ms: &[i64], values: &[f64]) -> (Vec<i64>,
 
     for (t, v) in pairs {
         if out_ts.last().copied() == Some(t) {
-            if v.is_finite() {
-                if let Some(last_v) = out_vals.last_mut() {
-                    *last_v = v;
-                }
+            if v.is_finite()
+                && let Some(last_v) = out_vals.last_mut()
+            {
+                *last_v = v;
             }
         } else {
             out_ts.push(t);
