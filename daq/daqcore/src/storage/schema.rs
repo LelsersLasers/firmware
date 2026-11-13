@@ -1,4 +1,4 @@
-// @generated automatically by Diesel CLI / canonical registry schema.
+// @generated automatically by Diesel CLI.
 
 diesel::table! {
     annotations (id) {
