@@ -117,12 +117,20 @@ impl DAQApp {
                 .join(daqcore::storage::LOCAL_REGISTRY_FILENAME)
                 .exists()
                 || store_dir.join("partitions").is_dir())
-            && let Err(err) = router.attach_store(store_dir)
         {
-            log::warn!(
-                "Failed to attach store directory {}: {err}",
-                store_dir.display()
-            );
+            match router.attach_store(store_dir) {
+                Ok(_) => {
+                    if let Some((day_min, day_max)) = router.timeline().day_bounds_ms() {
+                        router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Failed to attach store directory {}: {err}",
+                        store_dir.display()
+                    );
+                }
+            }
         }
         let preferred_selection = settings.bus_selection;
 

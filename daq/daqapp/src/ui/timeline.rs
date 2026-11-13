@@ -5,12 +5,18 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         let captured = app.router.captured_time_span();
         let partition_count = app.router.partitions().len();
         let live_frame_count = app.router.live_buffer().len();
+        let tile_cache_mib = app.router.tile_cache().lru_bytes() as f64 / (1024.0 * 1024.0);
         let previous_span = app.router.timeline().window_secs();
         let timeline = app.router.timeline_mut();
 
         ui.horizontal_wrapped(|ui| {
             if ui.button("Go live").clicked() {
                 timeline.go_live();
+            }
+            if let Some((day_min, day_max)) = timeline.day_bounds_ms()
+                && ui.button("Fit track day").clicked()
+            {
+                timeline.snap_to_range_ms(day_min, day_max);
             }
 
             ui.separator();
@@ -59,6 +65,11 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
 
         ruler(ui, timeline, left, right);
 
+        let active_res = match timeline.resolution_for_width(ui.available_width().max(1.0)) {
+            daqcore::router::Resolution::Overview1Hz => "1Hz Overview",
+            daqcore::router::Resolution::Overview10Hz => "10Hz Overview",
+            daqcore::router::Resolution::FullRes => "Full-Res",
+        };
         ui.horizontal_wrapped(|ui| {
             ui.label(format!(
                 "Selected: {} - {}",
@@ -66,6 +77,9 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                 timeline.end().label(),
             ));
             ui.label(format!("Playhead: {}", timeline.setpoint().label()));
+            ui.label(format!(
+                "Tier: {active_res} · Tile Cache: {tile_cache_mib:.1} MiB"
+            ));
         });
 
         let span_changed = previous_span != timeline.window_secs();
