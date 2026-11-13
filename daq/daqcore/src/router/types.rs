@@ -322,6 +322,38 @@ pub struct CoverageSpan {
     pub partition_id: Option<String>,
 }
 
+/// Clock correlation provenance for the active timeline playhead or viewport.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ClockProvenance {
+    CanonicalPartition(crate::log_parse::correlate::ClockMapping),
+    LiveProvisional,
+}
+
+impl ClockProvenance {
+    /// Human-readable badge text for the Master Timeline Bar (`"GPS Synced ±1.2ms"`, `"RTC Estimated"`, `"Live UDP"`, etc.).
+    pub fn badge_label(&self) -> String {
+        match self {
+            Self::CanonicalPartition(mapping) => match &mapping.confidence {
+                crate::log_parse::correlate::ClockConfidence::GpsSynced {
+                    rms_error_ms, ..
+                } => {
+                    format!("GPS Synced ±{rms_error_ms:.1}ms")
+                }
+                crate::log_parse::correlate::ClockConfidence::RtcEstimated => {
+                    "RTC Estimated".to_owned()
+                }
+                crate::log_parse::correlate::ClockConfidence::FileMtimeEstimated => {
+                    "Mtime Estimated (Unverified)".to_owned()
+                }
+                crate::log_parse::correlate::ClockConfidence::ManualOffset => {
+                    "Manual Offset".to_owned()
+                }
+            },
+            Self::LiveProvisional => "Live UDP".to_owned(),
+        }
+    }
+}
+
 /// Aggregate ordered `(utc_ms, value)` pairs into fixed-width `[min, max, mean]` buckets.
 pub fn build_envelope_buckets<'a>(
     samples: impl IntoIterator<Item = (i64, f64)> + 'a,

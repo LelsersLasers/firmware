@@ -7,11 +7,11 @@ pub use live_buffer::{
 };
 pub use tile_cache::{
     DEFAULT_TILE_CACHE_BYTES, RepaintCallback, RouterError, TileCache, TileKey, TileLookup,
-    read_all_signals_overview, read_all_signals_states, read_single_signal_full_res,
-    read_single_signal_overview,
+    read_all_signals_overview, read_all_signals_overview_with_activity, read_all_signals_states,
+    read_single_signal_full_res, read_single_signal_overview,
 };
 pub use types::{
-    BUCKET_1HZ_MS, BUCKET_10HZ_MS, CoverageSpan, DataSourceKind, EnvelopePoint,
+    BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan, DataSourceKind, EnvelopePoint,
     OVERVIEW_1HZ_THRESHOLD_MS, OVERVIEW_10HZ_THRESHOLD_MS, Resolution, SignalSeries, StateInterval,
     build_envelope_buckets,
 };
@@ -661,6 +661,154 @@ impl VirtualTimelineRouter {
         Ok(self.registry.list_track_days()?)
     }
 
+    /// Select a specific `TrackDay` (or `None` for all captured days), recomputing `day_bounds_ms`
+    /// and snapping the viewport `[start, end]` to the selected day's bounds.
+    pub fn select_track_day(
+        &mut self,
+        track_day_id: Option<String>,
+    ) -> Result<Option<(i64, i64)>, RouterError> {
+        self.timeline.set_active_track_day_id(track_day_id.clone());
+        self.timeline.clear_selected_annotations();
+
+        let mut min_ms: Option<i64> = None;
+        let mut max_ms: Option<i64> = None;
+
+        match track_day_id.as_deref() {
+            Some(day_id) => {
+                for part in &self.partitions {
+                    if part.track_day_id == day_id {
+                        min_ms = Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
+                        max_ms = Some(max_ms.map_or(part.end_utc_ms, |m| m.max(part.end_utc_ms)));
+                    }
+                }
+                if min_ms.is_none()
+                    && let Some(day) = self.registry.get_track_day(day_id)?
+                {
+                    min_ms = Some(day.start_utc_ms);
+                    max_ms = Some(day.end_utc_ms);
+                }
+            }
+            None => {
+                for part in &self.partitions {
+                    min_ms = Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
+                    max_ms = Some(max_ms.map_or(part.end_utc_ms, |m| m.max(part.end_utc_ms)));
+                }
+                if let Some((live_min, live_max)) = self.live_buffer.time_bounds_ms() {
+                    min_ms = Some(min_ms.map_or(live_min, |m| m.min(live_min)));
+                    max_ms = Some(max_ms.map_or(live_max, |m| m.max(live_max)));
+                }
+            }
+        }
+
+        let bounds = min_ms.zip(max_ms).map(|(lo, hi)| (lo, hi.max(lo)));
+        self.timeline.set_day_bounds_ms(bounds);
+        if let Some((lo, hi)) = bounds {
+            self.timeline.snap_to_range_ms(lo, hi);
+        }
+        Ok(bounds)
+    }
+
+    /// Return normalized `(bucket_utc_ms, normalized_intensity)` (`0.0..=1.0`) 1Hz activity buckets
+    /// across `range` from preloaded partition overviews and the live buffer.
+    pub fn activity_envelope_1hz(&self, range: ops::RangeInclusive<i64>) -> Vec<(i64, f32)> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+        let lo_bucket = start_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+        let hi_bucket = end_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+
+        let mut merged: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
+        for part in &self.partitions {
+            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+                continue;
+            }
+            if let Some(buckets) = self.tile_cache.partition_activity_1hz(&part.partition_id) {
+                let lo = buckets.partition_point(|&(b, _)| b < lo_bucket);
+                let hi = buckets.partition_point(|&(b, _)| b <= hi_bucket);
+                for &(b, count) in &buckets[lo..hi] {
+                    let entry = merged.entry(b).or_insert(0);
+                    *entry = entry.saturating_add(count);
+                }
+            }
+        }
+
+        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        };
+        if live_start_ms <= end_ms {
+            for (b, count) in self.live_buffer.activity_1hz_in_range(live_start_ms..=end_ms) {
+                let entry = merged.entry(b).or_insert(0);
+                *entry = entry.saturating_add(count);
+            }
+        }
+
+        let max_count = merged.values().copied().max().unwrap_or(0);
+        if max_count == 0 {
+            return Vec::new();
+        }
+        let denom = max_count as f32;
+        merged
+            .into_iter()
+            .map(|(b, c)| (b, ((c as f32) / denom).clamp(0.05, 1.0)))
+            .collect()
+    }
+
+    /// Resolve the clock correlation provenance (`GPS Synced`, `RTC Estimated`, `Mtime Estimated`,
+    /// or `Live UDP`) at `target_utc_ms` (falling back to the active viewport if `target_utc_ms`
+    /// sits between partitions).
+    pub fn clock_provenance_at(&self, target_utc_ms: i64) -> Option<ClockProvenance> {
+        // 1. Exact containment inside a canonical SD partition
+        for part in &self.partitions {
+            if part.is_local && part.start_utc_ms <= target_utc_ms && target_utc_ms <= part.end_utc_ms
+            {
+                return Some(ClockProvenance::CanonicalPartition(
+                    part.clock_mapping.clone(),
+                ));
+            }
+        }
+
+        // 2. If in live mode or covered by live buffer beyond canonical partitions
+        let max_canonical = self.max_canonical_end_ms(target_utc_ms);
+        if let Some((live_min, live_max)) = self.live_buffer.time_bounds_ms()
+            && max_canonical.is_none_or(|max_end| target_utc_ms > max_end)
+            && target_utc_ms >= live_min
+            && target_utc_ms <= live_max
+        {
+            return Some(ClockProvenance::LiveProvisional);
+        }
+
+        // 3. Nearest canonical partition overlapping the active timeline viewport
+        let win_start = self.timeline.start_utc_ms();
+        let win_end = self.timeline.end_utc_ms();
+        if let Some(part) = self
+            .partitions
+            .iter()
+            .filter(|p| p.is_local && p.start_utc_ms <= win_end && p.end_utc_ms >= win_start)
+            .min_by_key(|p| {
+                if target_utc_ms < p.start_utc_ms {
+                    p.start_utc_ms - target_utc_ms
+                } else {
+                    target_utc_ms.saturating_sub(p.end_utc_ms)
+                }
+            })
+        {
+            return Some(ClockProvenance::CanonicalPartition(
+                part.clock_mapping.clone(),
+            ));
+        }
+
+        if !self.live_buffer.is_empty() {
+            return Some(ClockProvenance::LiveProvisional);
+        }
+
+        self.partitions
+            .last()
+            .map(|p| ClockProvenance::CanonicalPartition(p.clock_mapping.clone()))
+    }
+
     pub fn query_annotations_in_range(
         &self,
         range: ops::RangeInclusive<i64>,
@@ -671,6 +819,44 @@ impl VirtualTimelineRouter {
         Ok(self
             .registry
             .query_annotations_in_range(*range.start(), *range.end(), false)?)
+    }
+
+    /// Insert or update an annotation in the registry and expand day bounds if needed.
+    pub fn upsert_annotation(&mut self, annotation: &Annotation) -> Result<bool, RouterError> {
+        let changed = self.registry.upsert_annotation(annotation)?;
+        let end_ms = annotation
+            .end_utc_ms
+            .unwrap_or(annotation.start_utc_ms)
+            .max(annotation.start_utc_ms);
+        if self
+            .timeline
+            .active_track_day_id()
+            .is_none_or(|d| d == annotation.track_day_id)
+        {
+            self.timeline
+                .observe_day_span_ms(annotation.start_utc_ms, end_ms);
+        }
+        if self.timeline.active_track_day_id().is_none() {
+            self.timeline
+                .set_active_track_day_id(Some(annotation.track_day_id.clone()));
+        }
+        Ok(changed)
+    }
+
+    /// Soft-delete an annotation in the registry and remove it from active timeline selection.
+    pub fn soft_delete_annotation(
+        &mut self,
+        annotation_id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RouterError> {
+        let deleted = self
+            .registry
+            .soft_delete_annotation(annotation_id, updated_at_ms)?;
+        if self.timeline.is_annotation_selected(annotation_id) {
+            self.timeline
+                .toggle_comparison_annotation(annotation_id.to_owned(), 0, None);
+        }
+        Ok(deleted)
     }
 }
 
@@ -1537,6 +1723,99 @@ mod tests {
             heave_vs_dist.total_distance_m(),
             shock_vs_dist.total_distance_m()
         );
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn router_activity_envelope_clock_provenance_and_annotation_crud() {
+        let db = router_test_database();
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_router_m5_verify_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&tmp_dir).unwrap();
+
+        let p1_start_ms: i64 = 1_794_477_600_000;
+        let files = vec![parse::SourceLogFile {
+            file_name: "log-2026-11-12--10-00-00.log".to_owned(),
+            rtc_timestamp_ms: Some(p1_start_ms),
+            mtime_unix_ms: p1_start_ms,
+            sha256_hex: "aa11".repeat(16),
+        }];
+        let mut epoch1_msgs = Vec::new();
+        for sec in 0..10u32 {
+            epoch1_msgs.push(make_parsed_msg(
+                &db,
+                sec * 1000,
+                0,
+                100,
+                &[("speed_mps", 10.0)],
+            ));
+        }
+        let correlated = correlate::time_correlate_chunks(vec![epoch1_msgs], &files);
+        write_correlated_epochs_to_store(&tmp_dir, &files, correlated, &db).unwrap();
+
+        let mut router = VirtualTimelineRouter::open_store(
+            &tmp_dir,
+            Time::from_unix_millis(p1_start_ms + 20_000),
+            30.0,
+        )
+        .unwrap();
+
+        // Add live frame at p1_start_ms + 20_000
+        router.ingest_frame(make_live_frame(
+            &db,
+            p1_start_ms + 20_000,
+            100,
+            &[("speed_mps", 15.0)],
+        ));
+
+        // 1Hz activity envelope covers both the 10-second partition and the live bucket
+        let env = router.activity_envelope_1hz(p1_start_ms..=(p1_start_ms + 25_000));
+        assert_eq!(env.len(), 11);
+        assert!(env.iter().all(|&(_, intensity)| intensity > 0.0 && intensity <= 1.0));
+
+        // Clock provenance inside partition is RtcEstimated; at live frame is LiveProvisional
+        let prov_part = router.clock_provenance_at(p1_start_ms + 5_000).unwrap();
+        assert_eq!(prov_part.badge_label(), "RTC Estimated");
+        let prov_live = router.clock_provenance_at(p1_start_ms + 20_000).unwrap();
+        assert_eq!(prov_live.badge_label(), "Live UDP");
+
+        // Annotation CRUD and track day selection
+        let day_id = router.partitions()[0].track_day_id.clone();
+        let manual_ann = Annotation {
+            id: "manual_bookmark_1".to_owned(),
+            track_day_id: day_id.clone(),
+            name: "Skidpad Run 1".to_owned(),
+            category: "event".to_owned(),
+            color: "#3b82f6".to_owned(),
+            start_utc_ms: p1_start_ms + 1_000,
+            end_utc_ms: Some(p1_start_ms + 8_000),
+            author: "pitwall".to_owned(),
+            source: "manual".to_owned(),
+            notes: "Wet track".to_owned(),
+            updated_at_ms: p1_start_ms + 25_000,
+            deleted: false,
+        };
+        assert!(router.upsert_annotation(&manual_ann).unwrap());
+        let anns = router
+            .query_annotations_in_range(p1_start_ms..=(p1_start_ms + 10_000))
+            .unwrap();
+        assert!(anns.iter().any(|a| a.id == "manual_bookmark_1"));
+
+        router
+            .timeline_mut()
+            .select_single_annotation("manual_bookmark_1".to_owned(), manual_ann.start_utc_ms, manual_ann.end_utc_ms);
+        assert!(router.timeline().is_annotation_selected("manual_bookmark_1"));
+
+        assert!(
+            router
+                .soft_delete_annotation("manual_bookmark_1", p1_start_ms + 26_000)
+                .unwrap()
+        );
+        assert!(!router.timeline().is_annotation_selected("manual_bookmark_1"));
+
+        let bounds = router.select_track_day(Some(day_id)).unwrap();
+        assert_eq!(bounds, Some((p1_start_ms, p1_start_ms + 9_000)));
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }
