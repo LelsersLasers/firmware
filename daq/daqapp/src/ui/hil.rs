@@ -49,14 +49,16 @@ impl Hil {
     }
 
     pub fn show(&mut self, ui: &mut eframe::egui::Ui) -> egui_tiles::UiResponse {
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| match self.snapshot.status {
-            daqcore::hil::engine::HilStatus::Idle => {
-                self.show_idle(ui);
-            }
-            daqcore::hil::engine::HilStatus::Running => {
-                self.show_running(ui);
-            }
-        });
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| match self.snapshot.status {
+                daqcore::hil::engine::HilStatus::Idle => {
+                    self.show_idle(ui);
+                }
+                daqcore::hil::engine::HilStatus::Running => {
+                    self.show_running(ui);
+                }
+            });
 
         egui_tiles::UiResponse::None
     }
@@ -71,7 +73,7 @@ impl Hil {
         if !self.load_errors.is_empty() {
             ui.label("Errors loading tests:");
             for error in &self.load_errors {
-                ui.label(format!("- {}", error));
+                ui.add(eframe::egui::Label::new(format!("- {}", error)).wrap());
             }
             ui.separator();
         }
@@ -86,7 +88,7 @@ impl Hil {
             let mut selected_preset = None;
             for preset in &self.found_presets {
                 let preset_info = format!("{} - {}", preset.name, preset.tests.join(", "));
-                if ui.button(&preset_info).clicked() {
+                if ui.add(eframe::egui::Button::new(&preset_info).wrap()).clicked() {
                     selected_preset = Some(preset.clone());
                 }
             }
@@ -102,7 +104,7 @@ impl Hil {
             let mut selected_test = None;
             for test in &self.found_tests {
                 let test_info = format!("{} [{}]: {}", test.name, test.basename, test.description);
-                if ui.button(&test_info).clicked() {
+                if ui.add(eframe::egui::Button::new(&test_info).wrap()).clicked() {
                     selected_test = Some(test.clone());
                 }
             }
@@ -120,7 +122,7 @@ impl Hil {
 
         ui.add_space(4.0);
         if self.snapshot.capture_complete {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("Exit").clicked() {
                     stop_requested = true;
                 }
@@ -131,7 +133,7 @@ impl Hil {
                 }
             });
         } else {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("Stop").clicked() {
                     stop_requested = true;
                 }
@@ -334,117 +336,122 @@ impl Hil {
             };
             ((lines as f32) * line_height) + 8.0
         });
-        egui_extras::TableBuilder::new(ui)
-            .id_salt("hil_messages")
-            .cell_layout(eframe::egui::Layout::top_down(eframe::egui::Align::Min))
-            // Message
-            .column(
-                egui_extras::Column::initial(210.0)
-                    .at_least(120.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Time (ms)
-            .column(
-                egui_extras::Column::initial(105.0)
-                    .at_least(75.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Validation
-            .column(
-                egui_extras::Column::initial(155.0)
-                    .at_least(100.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Signals
-            .column(egui_extras::Column::remainder().at_least(150.0).clip(true))
-            .max_scroll_height(400.0)
+        eframe::egui::ScrollArea::horizontal()
+            .id_salt(("hil_hscroll", &test.test_info.basename))
             .auto_shrink([false, true])
-            .header(24.0, |mut header| {
-                for label in ["Message", "Time (ms)", "Validation", "Signals"] {
-                    header.col(|ui| {
-                        ui.strong(label);
-                    });
-                }
-            })
-            .body(|body| {
-                body.heterogeneous_rows(heights, |mut row| {
-                    let (expect_index, message_index) = rows[row.index()];
-                    let ipe = &test.in_progress_expects[expect_index];
-                    let primary = message_index.is_none();
-                    let message = message_index
-                        .map(|i| &ipe.messages[i])
-                        .or_else(|| ipe.selected_message());
-                    let tint = if primary {
-                        // Blue
-                        eframe::egui::Color32::from_rgba_unmultiplied(80, 140, 220, 28)
-                    } else if message.is_some_and(|m| m.is_valid()) {
-                        // Green
-                        eframe::egui::Color32::from_rgba_unmultiplied(60, 180, 120, 24)
-                    } else {
-                        // Red
-                        eframe::egui::Color32::from_rgba_unmultiplied(220, 80, 90, 24)
-                    };
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if primary {
-                            let count = ipe
-                                .messages
-                                .len()
-                                .saturating_sub(usize::from(ipe.selected_message_index.is_some()));
-                            let (id, open) = expanded[expect_index];
-                            let arrow = if open { "v" } else { ">" };
-                            let response = ui.add_enabled(
-                                count > 0,
-                                eframe::egui::Button::new(format!(
-                                    "{arrow} {}",
-                                    ipe.expect.msg_name
-                                ))
-                                .frame(false),
-                            );
-                            if response.clicked() {
-                                ui.ctx().data_mut(|data| data.insert_temp(id, !open));
-                            }
-                            response
-                                .on_hover_text(format!("Show or hide {count} other receptions"));
-                            ui.weak(format!(
-                                "Window: {:.2} - {:.2} ms",
-                                ipe.expect.window[0], ipe.expect.window[1]
-                            ));
-                            ui.weak(format!("{} received", ipe.messages.len()));
+            .show(ui, |ui| {
+                egui_extras::TableBuilder::new(ui)
+                    .id_salt("hil_messages")
+                    .cell_layout(eframe::egui::Layout::top_down(eframe::egui::Align::Min))
+                    // Message
+                    .column(
+                        egui_extras::Column::initial(150.0)
+                            .at_least(90.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Time (ms)
+                    .column(
+                        egui_extras::Column::initial(85.0)
+                            .at_least(60.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Validation
+                    .column(
+                        egui_extras::Column::initial(115.0)
+                            .at_least(80.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Signals
+                    .column(egui_extras::Column::remainder().at_least(120.0).clip(true))
+                    .max_scroll_height(400.0)
+                    .auto_shrink([false, true])
+                    .header(24.0, |mut header| {
+                        for label in ["Message", "Time (ms)", "Validation", "Signals"] {
+                            header.col(|ui| {
+                                ui.strong(label);
+                            });
                         }
-                    });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if let Some(message) = message {
-                            ui.monospace(message.elapsed_ms.to_string());
-                        } else {
-                            ui.weak("-");
-                        }
-                    });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if primary {
-                            ui.colored_label(expect_color(ipe.result), ipe.result.as_str());
-                        }
-                        if let Some(message) = message {
-                            let (color, label) = if message.is_valid() {
-                                (eframe::egui::Color32::GREEN, "Valid")
+                    })
+                    .body(|body| {
+                        body.heterogeneous_rows(heights, |mut row| {
+                            let (expect_index, message_index) = rows[row.index()];
+                            let ipe = &test.in_progress_expects[expect_index];
+                            let primary = message_index.is_none();
+                            let message = message_index
+                                .map(|i| &ipe.messages[i])
+                                .or_else(|| ipe.selected_message());
+                            let tint = if primary {
+                                // Blue
+                                eframe::egui::Color32::from_rgba_unmultiplied(80, 140, 220, 28)
+                            } else if message.is_some_and(|m| m.is_valid()) {
+                                // Green
+                                eframe::egui::Color32::from_rgba_unmultiplied(60, 180, 120, 24)
                             } else {
-                                (eframe::egui::Color32::RED, "Invalid")
+                                // Red
+                                eframe::egui::Color32::from_rgba_unmultiplied(220, 80, 90, 24)
                             };
-                            ui.colored_label(color, label);
-                        } else {
-                            ui.weak("No message received");
-                        }
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if primary {
+                                    let count = ipe.messages.len().saturating_sub(usize::from(
+                                        ipe.selected_message_index.is_some(),
+                                    ));
+                                    let (id, open) = expanded[expect_index];
+                                    let arrow = if open { "v" } else { ">" };
+                                    let response = ui.add_enabled(
+                                        count > 0,
+                                        eframe::egui::Button::new(format!(
+                                            "{arrow} {}",
+                                            ipe.expect.msg_name
+                                        ))
+                                        .frame(false),
+                                    );
+                                    if response.clicked() {
+                                        ui.ctx().data_mut(|data| data.insert_temp(id, !open));
+                                    }
+                                    response.on_hover_text(format!(
+                                        "Show or hide {count} other receptions"
+                                    ));
+                                    ui.weak(format!(
+                                        "Window: {:.2} - {:.2} ms",
+                                        ipe.expect.window[0], ipe.expect.window[1]
+                                    ));
+                                    ui.weak(format!("{} received", ipe.messages.len()));
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if let Some(message) = message {
+                                    ui.monospace(message.elapsed_ms.to_string());
+                                } else {
+                                    ui.weak("-");
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if primary {
+                                    ui.colored_label(expect_color(ipe.result), ipe.result.as_str());
+                                }
+                                if let Some(message) = message {
+                                    let (color, label) = if message.is_valid() {
+                                        (eframe::egui::Color32::GREEN, "Valid")
+                                    } else {
+                                        (eframe::egui::Color32::RED, "Invalid")
+                                    };
+                                    ui.colored_label(color, label);
+                                } else {
+                                    ui.weak("No message received");
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                Self::show_message_signals(ui, ipe, message, primary);
+                            });
+                        });
                     });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        Self::show_message_signals(ui, ipe, message, primary);
-                    });
-                });
             });
     }
 

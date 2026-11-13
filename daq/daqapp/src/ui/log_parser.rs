@@ -78,89 +78,106 @@ impl LogParser {
         sidebar_database: Option<&app::DatabaseSelection>,
         action_queue: &mut Vec<action::AppAction>,
     ) -> egui_tiles::UiResponse {
-        ui.heading(format!("🔧 {}", self.title));
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("📁 Select Logs Dir").clicked()
-                && let Some(path) = rfd::FileDialog::new().pick_folder()
-            {
-                self.logs_dir = Some(path);
-            }
-            ui.label(self.logs_dir.as_ref().map_or_else(
-                || "Logs: None selected".to_owned(),
-                |path| format!("Logs: {}", path.display()),
-            ));
-        });
-        ui.horizontal(|ui| {
-            if ui.button("📁 Select Store Dir").clicked()
-                && let Some(path) = rfd::FileDialog::new().pick_folder()
-            {
-                self.output_dir = Some(path);
-            }
-            ui.label(self.output_dir.as_ref().map_or_else(
-                || "Store: None selected".to_owned(),
-                |path| format!("Store: {}", path.display()),
-            ));
-        });
-        ui.separator();
-        ui.checkbox(&mut self.use_override, "Override sidebar SuperDBC file");
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(
-                    self.use_override,
-                    eframe::egui::Button::new("📁 Select SuperDBC"),
-                )
-                .clicked()
-            {
-                let mut dialog = rfd::FileDialog::new().add_filter("SuperDBC JSON", &["json"]);
-                if let Some(dir) = settings::database_dir() {
-                    dialog = dialog.set_directory(dir);
+        eframe::egui::ScrollArea::vertical()
+            .id_salt((&self.title, "log_parser_scroll"))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.heading(format!("🔧 {}", self.title));
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("📁 Select Logs Dir").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.logs_dir = Some(path);
+                    }
+                    ui.add(
+                        eframe::egui::Label::new(self.logs_dir.as_ref().map_or_else(
+                            || "Logs: None selected".to_owned(),
+                            |path| format!("Logs: {}", path.display()),
+                        ))
+                        .wrap(),
+                    );
+                });
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("📁 Select Store Dir").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.output_dir = Some(path);
+                    }
+                    ui.add(
+                        eframe::egui::Label::new(self.output_dir.as_ref().map_or_else(
+                            || "Store: None selected".to_owned(),
+                            |path| format!("Store: {}", path.display()),
+                        ))
+                        .wrap(),
+                    );
+                });
+                ui.separator();
+                ui.checkbox(&mut self.use_override, "Override sidebar SuperDBC file");
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            self.use_override,
+                            eframe::egui::Button::new("📁 Select SuperDBC"),
+                        )
+                        .clicked()
+                    {
+                        let mut dialog =
+                            rfd::FileDialog::new().add_filter("SuperDBC JSON", &["json"]);
+                        if let Some(dir) = settings::database_dir() {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        if let Some(path) = dialog.pick_file() {
+                            self.database_override = Some(path);
+                        }
+                    }
+                    let path = if self.use_override {
+                        self.database_override.clone()
+                    } else {
+                        sidebar_database
+                            .and_then(|selection| selection.source())
+                            .map(|source| source.path)
+                    };
+                    ui.add(
+                        eframe::egui::Label::new(path.as_ref().map_or_else(
+                            || "None selected".to_owned(),
+                            |path| path.display().to_string(),
+                        ))
+                        .wrap(),
+                    );
+                });
+                if ui
+                    .add_enabled(
+                        self.parse_to_ui_rx.is_none(),
+                        eframe::egui::Button::new("▶ Import Logs"),
+                    )
+                    .clicked()
+                {
+                    self.parse_logs(sidebar_database);
                 }
-                if let Some(path) = dialog.pick_file() {
-                    self.database_override = Some(path);
+                if let Some(rx) = &self.parse_to_ui_rx {
+                    match rx.try_recv() {
+                        Ok(Ok((store_dir, msg))) => {
+                            self.parse_text = msg;
+                            self.parse_to_ui_rx = None;
+                            action_queue.push(action::AppAction::AttachStore(store_dir));
+                        }
+                        Ok(Err(error)) => {
+                            self.parse_text = format!("Error: {error}");
+                            self.parse_to_ui_rx = None;
+                        }
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            self.parse_text =
+                                "Error: Log importer stopped before reporting a result".to_owned();
+                            self.parse_to_ui_rx = None;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {}
+                    }
                 }
-            }
-            let path = if self.use_override {
-                self.database_override.clone()
-            } else {
-                sidebar_database
-                    .and_then(|selection| selection.source())
-                    .map(|source| source.path)
-            };
-            ui.label(path.as_ref().map_or_else(
-                || "None selected".to_owned(),
-                |path| path.display().to_string(),
-            ));
-        });
-        if ui
-            .add_enabled(
-                self.parse_to_ui_rx.is_none(),
-                eframe::egui::Button::new("▶ Import Logs"),
-            )
-            .clicked()
-        {
-            self.parse_logs(sidebar_database);
-        }
-        if let Some(rx) = &self.parse_to_ui_rx {
-            match rx.try_recv() {
-                Ok(Ok((store_dir, msg))) => {
-                    self.parse_text = msg;
-                    self.parse_to_ui_rx = None;
-                    action_queue.push(action::AppAction::AttachStore(store_dir));
+                if !self.parse_text.is_empty() {
+                    ui.add(eframe::egui::Label::new(&self.parse_text).wrap());
                 }
-                Ok(Err(error)) => {
-                    self.parse_text = format!("Error: {error}");
-                    self.parse_to_ui_rx = None;
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.parse_text =
-                        "Error: Log importer stopped before reporting a result".to_owned();
-                    self.parse_to_ui_rx = None;
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        ui.label(&self.parse_text);
+            });
         egui_tiles::UiResponse::None
     }
 }
