@@ -95,11 +95,22 @@ impl GpsPlot {
             }
         }
         let fix = samples.last().copied();
-        if let Some((t, lat, lon)) = fix {
-            ui.label(format!("Last fix: {lat:.6}, {lon:.6} @ {}", t.label()));
-        } else {
-            ui.label("No retained GPS fix in the selected interval.");
-        }
+        ui.horizontal_wrapped(|ui| {
+            if let Some((t, lat, lon)) = fix {
+                ui.add(
+                    eframe::egui::Label::new(format!(
+                        "Last fix: {lat:.6}, {lon:.6} @ {}",
+                        t.label()
+                    ))
+                    .wrap(),
+                );
+            } else {
+                ui.add(
+                    eframe::egui::Label::new("No retained GPS fix in the selected interval.")
+                        .wrap(),
+                );
+            }
+        });
 
         let position = fix
             .map(|(_, lat, lon)| walkers::lon_lat(lon, lat))
@@ -153,7 +164,7 @@ impl walkers::Plugin for CarDot {
     fn run(
         self: Box<Self>,
         ui: &mut eframe::egui::Ui,
-        _response: &eframe::egui::Response,
+        response: &eframe::egui::Response,
         projector: &walkers::Projector,
         _map_memory: &walkers::MapMemory,
     ) {
@@ -161,7 +172,7 @@ impl walkers::Plugin for CarDot {
             return;
         }
 
-        let painter = ui.painter();
+        let painter = ui.painter_at(response.rect);
         let screen_points: Vec<eframe::egui::Pos2> = self
             .trail
             .iter()

@@ -80,8 +80,11 @@ impl GgPlot {
         if points.is_empty() {
             ui.label("No retained acceleration samples in the selected interval.");
         }
+        let plot_width = ui.available_width().max(60.0);
+        let plot_height = ui.available_height().max(60.0);
         egui_plot::Plot::new(format!("gg_plot_{}", self.title))
-            .view_aspect(1.0)
+            .width(plot_width)
+            .height(plot_height)
             .data_aspect(1.0)
             .allow_axis_zoom_drag(false)
             .allow_scroll(false)
