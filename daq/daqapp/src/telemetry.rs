@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 
 pub struct TelemetryView<'a> {
     pub router: &'a daqcore::router::VirtualTimelineRouter,
-    // Retained inspector frames in the current timeline range (start to end)
-    pub all_frames: &'a [daqcore::frame::ParsedFrame],
     // Retained inspector frames in the current timeline range at or before the setpoint
     pub setpoint_frames: &'a [daqcore::frame::ParsedFrame],
     // Latest frame for each message before the setpoint
@@ -19,7 +17,6 @@ impl<'a> TelemetryView<'a> {
     pub fn new(router: &'a daqcore::router::VirtualTimelineRouter) -> Self {
         let live_buffer = router.live_buffer();
         let timeline = router.timeline();
-        let all_frames = live_buffer.frames_in_range(timeline.range());
         let setpoint_frames = live_buffer.frames_in_range(timeline.setpoint_range());
 
         let mut latest_setpoint_frames = BTreeMap::new();
@@ -38,7 +35,6 @@ impl<'a> TelemetryView<'a> {
 
         Self {
             router,
-            all_frames,
             setpoint_frames,
             timeline,
             latest_setpoint_frames,

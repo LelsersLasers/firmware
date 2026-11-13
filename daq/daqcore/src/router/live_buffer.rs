@@ -95,7 +95,10 @@ impl LiveColumnBuffer {
 
     pub fn time_span(&self) -> Option<(Time, Time)> {
         let (min_ms, max_ms) = self.time_bounds_ms()?;
-        Some((Time::from_unix_millis(min_ms), Time::from_unix_millis(max_ms)))
+        Some((
+            Time::from_unix_millis(min_ms),
+            Time::from_unix_millis(max_ms),
+        ))
     }
 
     pub fn latest(&self, key: MessageKey) -> Option<&ParsedFrame> {

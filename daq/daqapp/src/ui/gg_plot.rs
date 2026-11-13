@@ -51,7 +51,9 @@ impl GgPlot {
             })
             .collect();
         if points.is_empty() {
-            let res = view.timeline.resolution_for_width(ui.available_width().max(1.0));
+            let res = view
+                .timeline
+                .resolution_for_width(ui.available_width().max(1.0));
             let ax_series = view.query_signal_to_setpoint("IMU_acceleration.X_axis", res);
             let ay_series = view.query_signal_to_setpoint("IMU_acceleration.Y_axis", res);
             match (&ax_series, &ay_series) {

@@ -228,14 +228,14 @@ impl SignalSeries {
                         timestamps_ms,
                         values,
                     } => {
-                        merged.extend(timestamps_ms.into_iter().zip(values).map(|(utc_ms, val)| {
-                            EnvelopePoint {
+                        merged.extend(timestamps_ms.into_iter().zip(values).map(
+                            |(utc_ms, val)| EnvelopePoint {
                                 utc_ms,
                                 min: val,
                                 max: val,
                                 mean: val,
-                            }
-                        }));
+                            },
+                        ));
                     }
                 }
             }
@@ -344,7 +344,7 @@ pub fn build_envelope_buckets<'a>(
                         utc_ms: active_bucket,
                         min: min_val,
                         max: max_val,
-                        mean: sum_val / f64::from(count),
+                        mean: (sum_val / f64::from(count)).clamp(min_val, max_val),
                     });
                 }
                 current_bucket_ms = Some(bucket_ms);
@@ -370,7 +370,7 @@ pub fn build_envelope_buckets<'a>(
             utc_ms: active_bucket,
             min: min_val,
             max: max_val,
-            mean: sum_val / f64::from(count),
+            mean: (sum_val / f64::from(count)).clamp(min_val, max_val),
         });
     }
 

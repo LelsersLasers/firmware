@@ -2,9 +2,7 @@ use crate::{
     router::types::{EnvelopePoint, Resolution, SignalSeries, StateInterval},
     storage::{self, RegisteredPartition, SignalId},
 };
-use arrow::array::{
-    Array as _, DictionaryArray, Float64Array, Int64Array, StringArray,
-};
+use arrow::array::{Array as _, DictionaryArray, Float64Array, Int64Array, StringArray};
 use arrow::datatypes::Int32Type;
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
 use std::{
@@ -1059,7 +1057,8 @@ mod tests {
     #[test]
     fn tile_cache_preloads_1hz_and_falls_back_non_blocking_before_loading_full_res() {
         let db = test_database();
-        let tmp_dir = std::env::temp_dir().join(format!("daq_tile_cache_test_{}", uuid::Uuid::new_v4()));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_tile_cache_test_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&tmp_dir).unwrap();
 
         let base_utc_ms = 1_760_000_000_000i64;
@@ -1145,7 +1144,10 @@ mod tests {
             )
             .expect("signal exists");
         assert!(cold_full.is_fallback());
-        assert!(matches!(cold_full.series().as_ref(), SignalSeries::Envelope(_)));
+        assert!(matches!(
+            cold_full.series().as_ref(),
+            SignalSeries::Envelope(_)
+        ));
 
         // 4. Wait for background worker to finish and verify RepaintCallback + Ready FullRes
         let completed = cache.wait_for_in_flight(time::Duration::from_secs(2));

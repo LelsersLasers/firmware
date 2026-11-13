@@ -48,7 +48,9 @@ impl GpsPlot {
     ) -> egui_tiles::UiResponse {
         let mut samples: Vec<_> = view.setpoint_frames.iter().filter_map(gps_sample).collect();
         if samples.is_empty() {
-            let res = view.timeline.resolution_for_width(ui.available_width().max(1.0));
+            let res = view
+                .timeline
+                .resolution_for_width(ui.available_width().max(1.0));
             let lat_series = view.query_signal_to_setpoint("gps_coordinates.latitude", res);
             let lon_series = view.query_signal_to_setpoint("gps_coordinates.longitude", res);
             match (&lat_series, &lon_series) {

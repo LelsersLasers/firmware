@@ -119,7 +119,10 @@ impl DAQApp {
                 || store_dir.join("partitions").is_dir())
             && let Err(err) = router.attach_store(store_dir)
         {
-            log::warn!("Failed to attach store directory {}: {err}", store_dir.display());
+            log::warn!(
+                "Failed to attach store directory {}: {err}",
+                store_dir.display()
+            );
         }
         let preferred_selection = settings.bus_selection;
 
@@ -349,7 +352,9 @@ impl DAQApp {
                         if self.connection_status != ConnectionStatus::Connected
                             && let Some((day_min, day_max)) = self.router.timeline().day_bounds_ms()
                         {
-                            self.router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                            self.router
+                                .timeline_mut()
+                                .snap_to_range_ms(day_min, day_max);
                         }
                     }
                     Err(err) => {

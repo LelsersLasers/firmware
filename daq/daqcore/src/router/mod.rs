@@ -65,8 +65,7 @@ impl VirtualTimelineRouter {
         window_secs: f64,
     ) -> Result<Self, RouterError> {
         let store_dir = store_dir.as_ref().to_path_buf();
-        let timeline =
-            MasterTimeline::live(now, window_secs).map_err(|e| io::Error::other(e))?;
+        let timeline = MasterTimeline::live(now, window_secs).map_err(io::Error::other)?;
         let registry = Registry::open_store(&store_dir)?;
         let mut router = Self {
             live_buffer: LiveColumnBuffer::default(),
@@ -81,7 +80,10 @@ impl VirtualTimelineRouter {
     }
 
     /// Attach or switch to a new on-disk store directory and preload its local partitions.
-    pub fn attach_store(&mut self, store_dir: impl AsRef<path::Path>) -> Result<usize, RouterError> {
+    pub fn attach_store(
+        &mut self,
+        store_dir: impl AsRef<path::Path>,
+    ) -> Result<usize, RouterError> {
         let store_dir = store_dir.as_ref().to_path_buf();
         let registry = Registry::open_store(&store_dir)?;
         self.registry = registry;
@@ -121,7 +123,8 @@ impl VirtualTimelineRouter {
         if self.timeline.active_track_day_id().is_none()
             && let Some(last_day) = days.last()
         {
-            self.timeline.set_active_track_day_id(Some(last_day.id.clone()));
+            self.timeline
+                .set_active_track_day_id(Some(last_day.id.clone()));
         }
 
         self.partitions = all_partitions;
@@ -140,10 +143,7 @@ impl VirtualTimelineRouter {
             partition_dir.as_ref(),
             Some(&manifest.signals),
         )?;
-        if let Some( day_parts ) = self
-            .registry
-            .get_partition(&manifest.partition_id)?
-        {
+        if let Some(day_parts) = self.registry.get_partition(&manifest.partition_id)? {
             self.partitions
                 .retain(|p| p.partition_id != day_parts.partition_id);
             self.partitions.push(day_parts);
@@ -612,12 +612,7 @@ mod tests {
         }
     }
 
-    fn make_live_frame(
-        db: &Database,
-        utc_ms: i64,
-        id: u32,
-        values: &[(&str, f64)],
-    ) -> ParsedFrame {
+    fn make_live_frame(db: &Database, utc_ms: i64, id: u32, values: &[(&str, f64)]) -> ParsedFrame {
         let payload = db.encode(0, id, values).unwrap();
         let decoded = db.decode(0, id, &payload).ok();
         ParsedFrame {
@@ -638,10 +633,8 @@ mod tests {
     #[test]
     fn router_queries_across_two_sd_partitions_and_live_buffer_at_all_resolutions() {
         let db = router_test_database();
-        let tmp_dir = std::env::temp_dir().join(format!(
-            "daq_router_m3_verify_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_router_m3_verify_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&tmp_dir).unwrap();
 
         // Anchor 10:00:00 UTC on 2026-11-12
@@ -723,26 +716,32 @@ mod tests {
             },
         ];
 
-        let summary =
-            write_correlated_epochs_to_store(&tmp_dir, &log_files, epochs, &db).unwrap();
+        let summary = write_correlated_epochs_to_store(&tmp_dir, &log_files, epochs, &db).unwrap();
         assert_eq!(summary.partitions_written, 2);
 
         let t_11_05_ms = t_10_00_ms + 65 * min_ms;
         let t_11_06_ms = t_10_00_ms + 66 * min_ms;
 
-        let mut router = VirtualTimelineRouter::open_store(
-            &tmp_dir,
-            Time::from_unix_millis(t_11_05_ms),
-            30.0,
-        )
-        .expect("open store");
+        let mut router =
+            VirtualTimelineRouter::open_store(&tmp_dir, Time::from_unix_millis(t_11_05_ms), 30.0)
+                .expect("open store");
         assert_eq!(router.partitions().len(), 2);
 
         // Also push a provisional live frame inside Partition 2's window (10:50) with a bogus speed (99.0 m/s)
         // to verify Canonical SD > Live Buffer precedence, plus real live frames at 11:05 (40.0 m/s, state = 2 FAULT).
         let t_10_50_ms = t_10_00_ms + 50 * min_ms;
-        router.ingest_frame(make_live_frame(&db, t_10_50_ms, 100, &[("speed_mps", 99.0)]));
-        router.ingest_frame(make_live_frame(&db, t_11_05_ms, 100, &[("speed_mps", 40.0)]));
+        router.ingest_frame(make_live_frame(
+            &db,
+            t_10_50_ms,
+            100,
+            &[("speed_mps", 99.0)],
+        ));
+        router.ingest_frame(make_live_frame(
+            &db,
+            t_11_05_ms,
+            100,
+            &[("speed_mps", 40.0)],
+        ));
         router.ingest_frame(make_live_frame(&db, t_11_05_ms, 200, &[("car_state", 2.0)]));
 
         let full_span = t_10_00_ms..=t_11_06_ms;
@@ -832,6 +831,182 @@ mod tests {
         assert_eq!(spans[0].source, DataSourceKind::CanonicalSd);
         assert_eq!(spans[1].source, DataSourceKind::CanonicalSd);
         assert_eq!(spans[2].source, DataSourceKind::LiveProvisional);
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// Real PER26 Dataset Validation:
+    /// Imports real SD card `.log` files from `PER26/2026-09-06/1_no_cooling/raw` and
+    /// `PER26/2026-09-06/2_regen/raw` using `superdbc/superdbc.json`, opens `VirtualTimelineRouter`,
+    /// and verifies multi-partition queries across the multi-hour day span at `Overview1Hz`,
+    /// `Overview10Hz`, and `FullRes`, plus hot partition registration via `reload_partitions`.
+    #[test]
+    fn router_validates_against_per26_real_datasets() {
+        let manifest_dir = path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let dbc_path = repo_root.join("superdbc/superdbc_1e6fa38.json");
+        let run1_raw = repo_root.join("PER26/2026-09-06/1_no_cooling/raw");
+        let run2_raw = repo_root.join("PER26/2026-09-06/2_regen/raw");
+        let run3_raw = repo_root.join("PER26/2026-09-06/3_happy_laps_endurance_regen/raw");
+
+        assert!(
+            dbc_path.exists() && run1_raw.exists() && run2_raw.exists(),
+            "Expected PER26 datasets and superdbc_1e6fa38.json in repo root"
+        );
+
+        let db = Database::load(&dbc_path).expect("load real superdbc.json");
+
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_router_per26_verify_{}", uuid::Uuid::new_v4()));
+        let staging_run1 = tmp_dir.join("run1_logs");
+        let staging_run2 = tmp_dir.join("run2_logs");
+        let staging_run3 = tmp_dir.join("run3_logs");
+        let store_dir = tmp_dir.join("store");
+        fs::create_dir_all(&staging_run1).unwrap();
+        fs::create_dir_all(&staging_run2).unwrap();
+        fs::create_dir_all(&staging_run3).unwrap();
+
+        // Stage real log slices from Run 1 (18:36 UTC) and Run 2 (20:21 UTC)
+        for name in [
+            "log-2026-09-06--18-36-02.log",
+            "log-2026-09-06--18-37-02.log",
+        ] {
+            let src = run1_raw.join(name);
+            let dst = staging_run1.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+        for name in [
+            "log-2026-09-06--20-21-44.log",
+            "log-2026-09-06--20-22-44.log",
+        ] {
+            let src = run2_raw.join(name);
+            let dst = staging_run2.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+
+        let summary1 =
+            crate::log_parse::import_logs_to_store(&staging_run1, &store_dir, &db).unwrap();
+        let summary2 =
+            crate::log_parse::import_logs_to_store(&staging_run2, &store_dir, &db).unwrap();
+        assert!(summary1.partitions_written >= 1);
+        assert!(summary2.partitions_written >= 1);
+
+        let router = VirtualTimelineRouter::open_store(&store_dir, Time::now(), 30.0)
+            .expect("open PER26 store");
+        assert_eq!(
+            router.partitions().len(),
+            summary1.partitions_written + summary2.partitions_written
+        );
+
+        let (day_min_ms, day_max_ms) = router
+            .timeline()
+            .day_bounds_ms()
+            .expect("global day bounds populated");
+        assert!(
+            day_max_ms - day_min_ms > 3_600_000,
+            "Multi-run track day should span > 1 hour across Run 1 (18:36) and Run 2 (20:21)"
+        );
+
+        // Pick a signal present in both partitions and verify its exact sample count across the day
+        let sig_entry_1 = summary1.manifests[0]
+            .signals
+            .iter()
+            .find(|s| {
+                s.sample_count > 100
+                    && summary2.manifests[0]
+                        .signals
+                        .iter()
+                        .any(|s2| s2.signal_id == s.signal_id && s2.sample_count > 100)
+            })
+            .expect("common high-rate signal across PER26 Run 1 and Run 2");
+        let signal_id = sig_entry_1.signal_id.clone();
+
+        let expected_total_samples: u64 = summary1
+            .manifests
+            .iter()
+            .chain(summary2.manifests.iter())
+            .flat_map(|m| m.signals.iter())
+            .filter(|s| s.signal_id == signal_id)
+            .map(|s| s.sample_count)
+            .sum();
+
+        let day_range = day_min_ms..=day_max_ms;
+
+        // 1. Overview1Hz is preloaded in RAM and returns immediately
+        let overview_1hz =
+            router.query_signal(&signal_id, day_range.clone(), Resolution::Overview1Hz);
+        match &overview_1hz {
+            SignalSeries::Envelope(buckets) => {
+                assert!(
+                    !buckets.is_empty(),
+                    "Overview1Hz should return preloaded buckets across PER26 day"
+                );
+                assert!(
+                    buckets.iter().all(|b| b.min <= b.mean && b.mean <= b.max),
+                    "All Overview1Hz envelope buckets must satisfy min <= mean <= max"
+                );
+                assert!(
+                    buckets.windows(2).all(|w| w[0].utc_ms < w[1].utc_ms),
+                    "Overview1Hz bucket timestamps must be strictly increasing"
+                );
+            }
+            other => panic!("Expected Overview1Hz Envelope, got {other:?}"),
+        }
+
+        // 2. Cold FullRes query falls back non-blockingly to preloaded Overview1Hz on frame 1,
+        // and once background reader finishes, returns Exact samples matching manifest sample_count.
+        let cold_full = router.query_signal(&signal_id, day_range.clone(), Resolution::FullRes);
+        assert!(
+            matches!(cold_full, SignalSeries::Envelope(_)),
+            "Cold FullRes query should fall back to preloaded overview without blocking UI"
+        );
+
+        router.wait_for_in_flight(time::Duration::from_secs(5));
+        let warm_full = router.query_signal(&signal_id, day_range.clone(), Resolution::FullRes);
+        match warm_full {
+            SignalSeries::Exact {
+                timestamps_ms,
+                values,
+            } => {
+                assert_eq!(timestamps_ms.len() as u64, expected_total_samples);
+                assert_eq!(values.len() as u64, expected_total_samples);
+                assert!(timestamps_ms.windows(2).all(|w| w[0] <= w[1]));
+            }
+            other => panic!("Expected warm FullRes Exact series, got {other:?}"),
+        }
+
+        // 3. Hot partition registration via register_and_preload_manifest with Run 3 (03:00 UTC)
+        let run3_file = run3_raw.join("log-2026-09-07--03-00-09.log");
+        if run3_file.exists() {
+            let dst = staging_run3.join("log-2026-09-07--03-00-09.log");
+            if fs::hard_link(&run3_file, &dst).is_err() {
+                fs::copy(&run3_file, &dst).unwrap();
+            }
+            let summary3 =
+                crate::log_parse::import_logs_to_store(&staging_run3, &store_dir, &db).unwrap();
+            assert!(summary3.partitions_written >= 1);
+
+            let mut router = router;
+            for manifest in &summary3.manifests {
+                let partition_dir = store_dir.join("partitions").join(&manifest.partition_id);
+                router
+                    .register_and_preload_manifest(manifest, &partition_dir)
+                    .expect("hot register and preload manifest");
+            }
+            assert_eq!(
+                router.partitions().len(),
+                summary1.partitions_written
+                    + summary2.partitions_written
+                    + summary3.partitions_written
+            );
+        }
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }
