@@ -847,14 +847,19 @@ mod tests {
             .parent()
             .and_then(|p| p.parent())
             .expect("repo root");
-        let dbc_path = repo_root.join("superdbc/superdbc_1e6fa38.json");
+        let per26_dbc = repo_root.join("superdbc/superdbc_per26.json");
+        let dbc_path = if per26_dbc.exists() {
+            per26_dbc
+        } else {
+            repo_root.join("superdbc/superdbc_1e6fa38.json")
+        };
         let run1_raw = repo_root.join("PER26/2026-09-06/1_no_cooling/raw");
         let run2_raw = repo_root.join("PER26/2026-09-06/2_regen/raw");
         let run3_raw = repo_root.join("PER26/2026-09-06/3_happy_laps_endurance_regen/raw");
 
         assert!(
             dbc_path.exists() && run1_raw.exists() && run2_raw.exists(),
-            "Expected PER26 datasets and superdbc_1e6fa38.json in repo root"
+            "Expected PER26 datasets and superdbc JSON in repo root"
         );
 
         let db = Database::load(&dbc_path).expect("load real superdbc.json");
