@@ -276,8 +276,14 @@ impl LiveColumnBuffer {
         if range.is_empty() {
             return Vec::new();
         }
-        let lo_bucket = range.start().div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
-        let hi_bucket = range.end().div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+        let lo_bucket = range
+            .start()
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
+        let hi_bucket = range
+            .end()
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
         self.activity_1hz
             .range(lo_bucket..=hi_bucket)
             .map(|(&b, &c)| (b, c))

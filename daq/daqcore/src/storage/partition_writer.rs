@@ -198,6 +198,27 @@ pub fn write_correlated_epochs_to_store(
     correlated_epochs: Vec<correlate::CorrelationChunkResult>,
     database: &superdbc::database::Database,
 ) -> Result<ImportSummary, ImportError> {
+    write_correlated_epochs_to_store_with_progress(
+        store_dir,
+        log_files,
+        correlated_epochs,
+        database,
+        |_, _, _| {},
+    )
+}
+
+/// Same as [`write_correlated_epochs_to_store`], invoking `on_partition` with
+/// `(partition_index, total_partitions, partition_id)` before writing each sub-partition.
+pub fn write_correlated_epochs_to_store_with_progress<F>(
+    store_dir: &path::Path,
+    log_files: &[parse::SourceLogFile],
+    correlated_epochs: Vec<correlate::CorrelationChunkResult>,
+    database: &superdbc::database::Database,
+    mut on_partition: F,
+) -> Result<ImportSummary, ImportError>
+where
+    F: FnMut(usize, usize, &str),
+{
     let partitions_root = store_dir.join("partitions");
     fs::create_dir_all(&partitions_root)?;
     let registry = storage::Registry::open_store(store_dir)?;
@@ -209,6 +230,13 @@ pub fn write_correlated_epochs_to_store(
         partitions_skipped_existing: 0,
         manifests: Vec::new(),
     };
+
+    // Pre-slice all epochs into <= 15-minute sub-partitions so total_partitions is known upfront
+    let mut planned_partitions: Vec<(
+        usize,
+        Vec<(i64, parse::ParsedMessage)>,
+        correlate::ClockMapping,
+    )> = Vec::new();
 
     for epoch in correlated_epochs {
         if epoch.parsed_msgs.is_empty() {
@@ -245,22 +273,49 @@ pub fn write_correlated_epochs_to_store(
         }
 
         for (sub_idx, slice) in sub_partitions.into_iter().enumerate() {
-            let (manifest, was_written) = write_single_partition(
-                &partitions_root,
-                sub_idx,
-                &slice,
-                &epoch.clock_mapping,
-                log_files,
-                database,
-            )?;
-            registry.register_manifest(&manifest, true)?;
-            if was_written {
-                summary.partitions_written += 1;
-            } else {
-                summary.partitions_skipped_existing += 1;
-            }
-            summary.manifests.push(manifest);
+            planned_partitions.push((sub_idx, slice, epoch.clock_mapping.clone()));
         }
+    }
+
+    let total_partitions = planned_partitions.len();
+    let superdbc_hash = database.content_hash().to_owned();
+
+    for (partition_idx, (sub_idx, slice, clock_mapping)) in
+        planned_partitions.into_iter().enumerate()
+    {
+        let start_utc_ms = slice.first().map(|(t, _)| *t).unwrap_or(0);
+        let end_utc_ms = slice.last().map(|(t, _)| *t).unwrap_or(start_utc_ms);
+        let contributing_file_indices: BTreeSet<usize> =
+            slice.iter().map(|(_, m)| m.source_file_idx).collect();
+        let raw_log_hashes: Vec<parse::SourceLogFile> = contributing_file_indices
+            .into_iter()
+            .filter_map(|idx| log_files.get(idx).cloned())
+            .collect();
+        let partition_id = compute_partition_id(
+            start_utc_ms,
+            end_utc_ms,
+            sub_idx,
+            &slice,
+            &raw_log_hashes,
+            &superdbc_hash,
+        );
+        on_partition(partition_idx, total_partitions, &partition_id);
+
+        let (manifest, was_written) = write_single_partition(
+            &partitions_root,
+            sub_idx,
+            &slice,
+            &clock_mapping,
+            log_files,
+            database,
+        )?;
+        registry.register_manifest(&manifest, true)?;
+        if was_written {
+            summary.partitions_written += 1;
+        } else {
+            summary.partitions_skipped_existing += 1;
+        }
+        summary.manifests.push(manifest);
     }
 
     Ok(summary)

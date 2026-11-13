@@ -716,8 +716,12 @@ impl VirtualTimelineRouter {
         }
         let start_ms = *range.start();
         let end_ms = *range.end();
-        let lo_bucket = start_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
-        let hi_bucket = end_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+        let lo_bucket = start_ms
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
+        let hi_bucket = end_ms
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
 
         let mut merged: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
         for part in &self.partitions {
