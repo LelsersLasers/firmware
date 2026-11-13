@@ -1,5 +1,4 @@
 //! Single-owner CAN libraries. The worker moves events; callers own telemetry history.
-pub mod cache;
 pub mod can;
 pub mod can_thread;
 pub mod connection;
@@ -9,7 +8,6 @@ pub mod frame;
 pub mod hil;
 pub mod log_parse;
 pub mod router;
-pub mod session;
 pub mod storage;
 pub mod superdbc;
 pub mod time;
