@@ -198,7 +198,8 @@ impl BatteryTemps {
                             let available_width = ui.available_width();
                             let cell_count = ui::battery::common::THERMISTORS_PER_MODULE as f32;
                             let total_spacing = THERM_BAR_SPACING * (cell_count - 1.0);
-                            let bar_width = ((available_width - total_spacing) / cell_count).max(6.0);
+                            let bar_width =
+                                ((available_width - total_spacing) / cell_count).max(6.0);
 
                             eframe::egui::ScrollArea::horizontal()
                                 .id_salt((&self.title, "therm_mod_scroll", module_index))

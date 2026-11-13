@@ -70,7 +70,9 @@ impl Scope {
         eframe::egui::ScrollArea::vertical()
             .id_salt(("scope_picker", self.instance_num))
             .auto_shrink([false, false])
-            .show(ui, |ui| self.show_picker_inner(ui, database, formula_engine))
+            .show(ui, |ui| {
+                self.show_picker_inner(ui, database, formula_engine)
+            })
             .inner
     }
 
@@ -95,7 +97,10 @@ impl Scope {
                         format!(" ({})", def.unit)
                     };
                     let btn_label = format!("{} — {}{}", def.id, def.label, unit_suffix);
-                    if ui.add(eframe::egui::Button::new(btn_label).wrap()).clicked() {
+                    if ui
+                        .add(eframe::egui::Button::new(btn_label).wrap())
+                        .clicked()
+                    {
                         picked_derived =
                             Some((def.id.clone(), def.label.clone(), def.unit.clone()));
                     }
@@ -151,7 +156,10 @@ impl Scope {
 
                 let mut picked_signal = None;
                 for sig in message.signals() {
-                    if ui.add(eframe::egui::Button::new(sig.name()).wrap()).clicked() {
+                    if ui
+                        .add(eframe::egui::Button::new(sig.name()).wrap())
+                        .clicked()
+                    {
                         picked_signal = Some(sig.name().to_owned());
                         break;
                     }

@@ -246,7 +246,8 @@ impl BatteryVoltage {
                             let available_width = ui.available_width();
                             let cell_count = ui::battery::common::CELLS_PER_MODULE as f32;
                             let total_spacing = CELL_BAR_SPACING * (cell_count - 1.0);
-                            let bar_width = ((available_width - total_spacing) / cell_count).max(5.0);
+                            let bar_width =
+                                ((available_width - total_spacing) / cell_count).max(5.0);
 
                             eframe::egui::ScrollArea::horizontal()
                                 .id_salt((&self.title, "cell_mod_scroll", module_index))

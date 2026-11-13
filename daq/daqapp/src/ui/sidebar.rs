@@ -245,11 +245,7 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
                 ui.label("Development");
                 let loopback_source = daqcore::connection::ConnectionSource::Loopback;
                 if ui
-                    .selectable_value(
-                        &mut app.selected_source,
-                        Some(loopback_source),
-                        "Loopback",
-                    )
+                    .selectable_value(&mut app.selected_source, Some(loopback_source), "Loopback")
                     .changed()
                 {
                     app.connect_can();

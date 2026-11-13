@@ -88,7 +88,10 @@ impl Hil {
             let mut selected_preset = None;
             for preset in &self.found_presets {
                 let preset_info = format!("{} - {}", preset.name, preset.tests.join(", "));
-                if ui.add(eframe::egui::Button::new(&preset_info).wrap()).clicked() {
+                if ui
+                    .add(eframe::egui::Button::new(&preset_info).wrap())
+                    .clicked()
+                {
                     selected_preset = Some(preset.clone());
                 }
             }
@@ -104,7 +107,10 @@ impl Hil {
             let mut selected_test = None;
             for test in &self.found_tests {
                 let test_info = format!("{} [{}]: {}", test.name, test.basename, test.description);
-                if ui.add(eframe::egui::Button::new(&test_info).wrap()).clicked() {
+                if ui
+                    .add(eframe::egui::Button::new(&test_info).wrap())
+                    .clicked()
+                {
                     selected_test = Some(test.clone());
                 }
             }

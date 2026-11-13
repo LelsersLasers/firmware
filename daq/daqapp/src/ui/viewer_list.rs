@@ -130,9 +130,8 @@ impl ViewerList {
                                 database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
                             if let Some(decoded) = &frame.decoded {
                                 let key = decoded.key();
-                                let def = database.and_then(|selection| {
-                                    selection.database.message_by_key(key)
-                                });
+                                let def = database
+                                    .and_then(|selection| selection.database.message_by_key(key));
                                 for (name, sig) in decoded.iter() {
                                     let signal_definition =
                                         def.and_then(|message| message.signal(name));

@@ -226,8 +226,11 @@ impl Bootloader {
                         .file_name()
                         .map(|name| name.to_string_lossy())
                         .unwrap_or_else(|| path.display().to_string().into());
-                    ui.add(eframe::egui::Label::new(eframe::egui::RichText::new(filename).monospace()).wrap())
-                        .on_hover_text(path.display().to_string());
+                    ui.add(
+                        eframe::egui::Label::new(eframe::egui::RichText::new(filename).monospace())
+                            .wrap(),
+                    )
+                    .on_hover_text(path.display().to_string());
                     let total_bytes: usize =
                         package.images.iter().map(|image| image.bytes.len()).sum();
                     ui.label(

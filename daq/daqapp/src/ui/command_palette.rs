@@ -121,9 +121,8 @@ impl CommandPalette {
                                         eframe::egui::Stroke::NONE
                                     };
 
-                                    let button = eframe::egui::Button::new(*label)
-                                        .fill(fill)
-                                        .stroke(stroke);
+                                    let button =
+                                        eframe::egui::Button::new(*label).fill(fill).stroke(stroke);
 
                                     let response = ui.add(button);
                                     if response.clicked() {
