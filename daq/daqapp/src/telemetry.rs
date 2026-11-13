@@ -73,16 +73,48 @@ impl<'a> TelemetryView<'a> {
     }
 }
 
-/// Rendering projection that preserves extrema, endpoints and ordering in each pixel bucket.
-pub fn decimate(points: &[[f64; 2]], pixels: usize) -> Vec<[f64; 2]> {
-    let bucket = points.len().div_ceil(pixels.max(1)).max(1);
-    if bucket <= 4 {
-        return points.to_vec();
+/// Convert `(utc_ms, value)` samples into relative `[seconds_from_start, value]` plot coordinates,
+/// inserting `[gap_mid_s, f64::NAN]` whenever two consecutive finite samples are separated by more
+/// than `max_gap_ms` so `egui_plot` breaks the line across unlogged intervals.
+pub fn points_with_gap_breaks<I>(samples: I, start_ms: i64, max_gap_ms: i64) -> Vec<[f64; 2]>
+where
+    I: IntoIterator<Item = (i64, f64)>,
+{
+    let mut out = Vec::new();
+    let mut prev_finite_t_ms: Option<i64> = None;
+
+    for (t_ms, val) in samples {
+        let t_s = ((t_ms - start_ms) as f64) / 1000.0;
+        if val.is_finite() {
+            if let Some(prev_ms) = prev_finite_t_ms
+                && t_ms - prev_ms > max_gap_ms
+            {
+                let gap_t_s = (((prev_ms + t_ms) / 2 - start_ms) as f64) / 1000.0;
+                out.push([gap_t_s, f64::NAN]);
+            }
+            prev_finite_t_ms = Some(t_ms);
+            out.push([t_s, val]);
+        } else {
+            if out.last().is_none_or(|last| last[1].is_finite()) {
+                out.push([t_s, f64::NAN]);
+            }
+            prev_finite_t_ms = None;
+        }
     }
 
-    let mut out = Vec::new();
+    out
+}
 
-    for chunk in points.chunks(bucket) {
+fn decimate_finite_segment(segment: &[[f64; 2]], bucket: usize, out: &mut Vec<[f64; 2]>) {
+    if segment.is_empty() {
+        return;
+    }
+    if bucket <= 4 || segment.len() <= 4 {
+        out.extend_from_slice(segment);
+        return;
+    }
+
+    for chunk in segment.chunks(bucket) {
         let mut indexes = vec![0, chunk.len() - 1];
         let minimum = chunk
             .iter()
@@ -105,6 +137,26 @@ pub fn decimate(points: &[[f64; 2]], pixels: usize) -> Vec<[f64; 2]> {
         indexes.dedup();
         out.extend(indexes.into_iter().map(|i| chunk[i]));
     }
+}
+
+/// Rendering projection that preserves extrema, endpoints, `NaN` gap markers, and ordering in each pixel bucket.
+pub fn decimate(points: &[[f64; 2]], pixels: usize) -> Vec<[f64; 2]> {
+    let bucket = points.len().div_ceil(pixels.max(1)).max(1);
+    if bucket <= 4 {
+        return points.to_vec();
+    }
+
+    let mut out = Vec::new();
+    let mut seg_start = 0;
+
+    for (idx, pt) in points.iter().enumerate() {
+        if !pt[1].is_finite() {
+            decimate_finite_segment(&points[seg_start..idx], bucket, &mut out);
+            out.push(*pt);
+            seg_start = idx + 1;
+        }
+    }
+    decimate_finite_segment(&points[seg_start..], bucket, &mut out);
 
     out
 }

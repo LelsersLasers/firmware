@@ -14,6 +14,11 @@ enum ScopeState {
         msg_name: String,
         signal_name: String,
     },
+    ConfiguredDerived {
+        signal_id: String,
+        label: String,
+        unit: String,
+    },
 }
 
 impl Default for ScopeState {
@@ -59,8 +64,48 @@ impl Scope {
     fn show_picker(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: &app::DatabaseSelection,
+        database: Option<&app::DatabaseSelection>,
+        formula_engine: &daqcore::analysis::FormulaEngine,
     ) -> bool {
+        let mut picked_derived: Option<(String, String, String)> = None;
+        if matches!(self.state, ScopeState::PickingMessage { .. }) {
+            eframe::egui::CollapsingHeader::new(
+                eframe::egui::RichText::new("Derived Signals (Formulas)").strong(),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
+                for compiled in formula_engine.definitions() {
+                    let def = &compiled.def;
+                    let unit_suffix = if def.unit.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", def.unit)
+                    };
+                    let btn_label = format!("{} — {}{}", def.id, def.label, unit_suffix);
+                    if ui.button(btn_label).clicked() {
+                        picked_derived =
+                            Some((def.id.clone(), def.label.clone(), def.unit.clone()));
+                    }
+                }
+            });
+            ui.separator();
+        }
+
+        if let Some((signal_id, label, unit)) = picked_derived {
+            self.title = format!("Scope: {signal_id}");
+            self.state = ScopeState::ConfiguredDerived {
+                signal_id,
+                label,
+                unit,
+            };
+            return true;
+        }
+
+        let Some(database) = database else {
+            ui::message_picker::no_database_placeholder(ui);
+            return false;
+        };
+
         let state = mem::take(&mut self.state);
 
         let (new_state, just_configured) = match state {
@@ -117,7 +162,9 @@ impl Scope {
                     (ScopeState::PickingSignal { selected_msg }, false)
                 }
             }
-            configured @ ScopeState::Configured { .. } => (configured, false),
+            configured @ (ScopeState::Configured { .. } | ScopeState::ConfiguredDerived { .. }) => {
+                (configured, false)
+            }
         };
 
         self.state = new_state;
@@ -130,8 +177,10 @@ impl Scope {
     }
 
     pub fn reset_database(&mut self) {
-        self.state = ScopeState::default();
-        self.title = format!("Scope #{}", self.instance_num);
+        if !matches!(self.state, ScopeState::ConfiguredDerived { .. }) {
+            self.state = ScopeState::default();
+            self.title = format!("Scope #{}", self.instance_num);
+        }
     }
 
     pub fn show(
@@ -140,66 +189,90 @@ impl Scope {
         database: Option<&app::DatabaseSelection>,
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
-        if !matches!(self.state, ScopeState::Configured { .. }) {
-            if let Some(database) = database {
-                self.show_picker(ui, database);
-            } else {
-                ui::message_picker::no_database_placeholder(ui);
-            }
-
+        if !matches!(
+            self.state,
+            ScopeState::Configured { .. } | ScopeState::ConfiguredDerived { .. }
+        ) {
+            self.show_picker(ui, database, view.router.formula_engine());
             return egui_tiles::UiResponse::None;
         }
 
-        let ScopeState::Configured {
-            key,
-            msg_name,
-            signal_name,
-        } = &self.state
-        else {
-            return egui_tiles::UiResponse::None;
+        let (signal_id, signal, heading_text, y_label) = match &self.state {
+            ScopeState::Configured {
+                key,
+                msg_name,
+                signal_name,
+            } => {
+                let target_key = *key;
+                let identity = target_key.identity;
+                let bus_name = database.map_or("Unknown", |db| db.bus_name(target_key.bus_id));
+                let sig_id = daqcore::storage::format_signal_id(msg_name, signal_name);
+                let heading = format!(
+                    "{}: [{bus_name}] {msg_name} (0x{identity:03X}) - {signal_name}",
+                    self.title
+                );
+                (sig_id, signal_name.clone(), heading, signal_name.clone())
+            }
+            ScopeState::ConfiguredDerived {
+                signal_id,
+                label,
+                unit,
+            } => {
+                let y_axis = if unit.is_empty() {
+                    signal_id.clone()
+                } else {
+                    format!("{signal_id} ({unit})")
+                };
+                let heading = format!("{}: [Derived] {label} ({signal_id})", self.title);
+                (signal_id.clone(), signal_id.clone(), heading, y_axis)
+            }
+            _ => return egui_tiles::UiResponse::None,
         };
 
-        let signal = signal_name.clone();
-        let target_key = *key;
-        let identity = target_key.identity;
-        let bus_name = database.map_or("Unknown", |db| db.bus_name(target_key.bus_id));
         let start = view.timeline.start();
         let start_ms = start.unix_millis();
         let duration = view.timeline.end().secs(start).max(0.001);
         let playhead = view.timeline.setpoint().secs(start);
 
-        let signal_id = daqcore::storage::format_signal_id(msg_name, &signal);
         let width_px = ui.available_width().max(1.0);
         let resolution = view.timeline.resolution_for_width(width_px);
         let series = view.query_signal(&signal_id, resolution);
+
+        let base_staleness_ms = view.router.formula_engine().max_staleness_ms();
+        let max_gap_ms = resolution
+            .bucket_width_ms()
+            .map_or(base_staleness_ms, |bw| base_staleness_ms.max(bw * 3));
 
         let (points, envelope_min_max) = match &series {
             daqcore::router::SignalSeries::Exact {
                 timestamps_ms,
                 values,
             } => {
-                let pts: Vec<[f64; 2]> = timestamps_ms
-                    .iter()
-                    .zip(values.iter())
-                    .map(|(&t_ms, &val)| [((t_ms - start_ms) as f64) / 1000.0, val])
-                    .collect();
+                let pts = telemetry::points_with_gap_breaks(
+                    timestamps_ms.iter().copied().zip(values.iter().copied()),
+                    start_ms,
+                    max_gap_ms,
+                );
                 (pts, None)
             }
             daqcore::router::SignalSeries::Envelope(buckets) => {
-                let mean_pts: Vec<[f64; 2]> = buckets
-                    .iter()
-                    .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.mean])
-                    .collect();
+                let mean_pts = telemetry::points_with_gap_breaks(
+                    buckets.iter().map(|b| (b.utc_ms, b.mean)),
+                    start_ms,
+                    max_gap_ms,
+                );
                 let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
                 let min_max = has_spread.then(|| {
-                    let min_pts: Vec<[f64; 2]> = buckets
-                        .iter()
-                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.min])
-                        .collect();
-                    let max_pts: Vec<[f64; 2]> = buckets
-                        .iter()
-                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.max])
-                        .collect();
+                    let min_pts = telemetry::points_with_gap_breaks(
+                        buckets.iter().map(|b| (b.utc_ms, b.min)),
+                        start_ms,
+                        max_gap_ms,
+                    );
+                    let max_pts = telemetry::points_with_gap_breaks(
+                        buckets.iter().map(|b| (b.utc_ms, b.max)),
+                        start_ms,
+                        max_gap_ms,
+                    );
                     (min_pts, max_pts)
                 });
                 (mean_pts, min_max)
@@ -208,10 +281,7 @@ impl Scope {
 
         let mut change = false;
         ui.horizontal(|ui| {
-            ui.heading(format!(
-                "{}: [{bus_name}] {msg_name} (0x{identity:03X}) - {signal}",
-                self.title
-            ));
+            ui.heading(&heading_text);
             change = ui.button("Change signal").clicked();
             if ui.button("Export CSV").clicked()
                 && let Some(path) = rfd::FileDialog::new()
@@ -256,7 +326,7 @@ impl Scope {
                 start.offset(offset_ms).label()
             })
             .x_axis_label("Time")
-            .y_axis_label(&signal)
+            .y_axis_label(&y_label)
             .show(ui, |plot| {
                 plot.set_plot_bounds_x(0.0..=duration);
                 if let Some((min_pts, max_pts)) = envelope_min_max {

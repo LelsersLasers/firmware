@@ -17,6 +17,10 @@ pub use types::{
 };
 
 use crate::{
+    analysis::{
+        AnalysisError, DistanceSeries, Expr, FormulaEngine, TargetGrid, canonicalize_signal_ref,
+        map_series_to_distance,
+    },
     frame::ParsedFrame,
     storage::{Annotation, PartitionManifest, RegisteredPartition, Registry, TrackDay},
     time::Time,
@@ -40,6 +44,7 @@ pub struct VirtualTimelineRouter {
     store_dir: Option<path::PathBuf>,
     partitions: Vec<RegisteredPartition>,
     timeline: MasterTimeline,
+    formula_engine: FormulaEngine,
 }
 
 impl VirtualTimelineRouter {
@@ -54,6 +59,7 @@ impl VirtualTimelineRouter {
             store_dir: None,
             partitions: Vec::new(),
             timeline,
+            formula_engine: FormulaEngine::with_builtin_config(),
         })
     }
 
@@ -74,6 +80,7 @@ impl VirtualTimelineRouter {
             store_dir: Some(store_dir),
             partitions: Vec::new(),
             timeline,
+            formula_engine: FormulaEngine::with_builtin_config(),
         };
         router.refresh_store()?;
         Ok(router)
@@ -202,6 +209,102 @@ impl VirtualTimelineRouter {
         &mut self.timeline
     }
 
+    pub fn formula_engine(&self) -> &FormulaEngine {
+        &self.formula_engine
+    }
+
+    pub fn formula_engine_mut(&mut self) -> &mut FormulaEngine {
+        &mut self.formula_engine
+    }
+
+    /// Evaluate an arbitrary [`Expr`] across `range` (`[start_utc_ms..=end_utc_ms]`) at `resolution`
+    /// without blocking the calling thread.
+    pub fn evaluate_expression(
+        &self,
+        expr: &Expr,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, AnalysisError> {
+        self.tile_cache.poll_completed();
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+        self.formula_engine
+            .evaluate_expr_with(expr, &TargetGrid::Union, resolution, |raw_id| {
+                self.query_raw_signal(raw_id, range.clone(), resolution)
+            })
+    }
+
+    /// Synchronously evaluate an arbitrary [`Expr`] across `range` at exact `resolution`
+    /// (blocking if any referenced raw partition column is not yet cached in `TileCache`).
+    pub fn evaluate_expression_blocking(
+        &self,
+        expr: &Expr,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, RouterError> {
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+        let (_, raw_ids) = self
+            .formula_engine
+            .execution_plan_for_expr(expr)
+            .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))?;
+
+        let mut prefetched = std::collections::BTreeMap::new();
+        for raw_id in raw_ids {
+            let series = self.query_raw_signal_blocking(&raw_id, range.clone(), resolution)?;
+            prefetched.insert(raw_id, series);
+        }
+
+        self.formula_engine
+            .evaluate_expr_with(expr, &TargetGrid::Union, resolution, |raw_id| {
+                prefetched
+                    .get(raw_id)
+                    .cloned()
+                    .unwrap_or_else(|| SignalSeries::empty_for(resolution))
+            })
+            .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))
+    }
+
+    /// Query `signal_id` (raw or derived) re-indexed against cumulative track distance integrated
+    /// from `speed_signal_id` over `range`.
+    pub fn query_signal_vs_distance(
+        &self,
+        signal_id: &str,
+        speed_signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> DistanceSeries {
+        let sig_series = self.query_signal(signal_id, range.clone(), resolution);
+        let spd_series = self.query_signal(speed_signal_id, range.clone(), resolution);
+        map_series_to_distance(
+            &sig_series,
+            &spd_series,
+            range,
+            self.formula_engine.max_staleness_ms(),
+        )
+    }
+
+    /// Synchronously query `signal_id` (raw or derived) re-indexed against cumulative track
+    /// distance integrated from `speed_signal_id` over `range` at exact `resolution`.
+    pub fn query_signal_vs_distance_blocking(
+        &self,
+        signal_id: &str,
+        speed_signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<DistanceSeries, RouterError> {
+        let sig_series = self.query_signal_blocking(signal_id, range.clone(), resolution)?;
+        let spd_series = self.query_signal_blocking(speed_signal_id, range.clone(), resolution)?;
+        Ok(map_series_to_distance(
+            &sig_series,
+            &spd_series,
+            range,
+            self.formula_engine.max_staleness_ms(),
+        ))
+    }
+
     /// Poll completed background tile reads into the LRU cache.
     pub fn poll_background_tiles(&self) -> usize {
         self.tile_cache.poll_completed()
@@ -270,8 +373,61 @@ impl VirtualTimelineRouter {
             .max()
     }
 
-    /// Query `signal_id` across `range` (`[start_utc_ms..=end_utc_ms]`) at `resolution` without
-    /// blocking the calling thread.
+    /// Query a raw CAN `signal_id` directly from `TileCache` and `LiveColumnBuffer` without
+    /// checking `FormulaEngine`.
+    pub fn query_raw_signal(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> SignalSeries {
+        self.tile_cache.poll_completed();
+        if range.is_empty() {
+            return SignalSeries::empty_for(resolution);
+        }
+
+        let canonical_id = canonicalize_signal_ref(signal_id);
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+
+        let overlapping_ids: Vec<String> = self
+            .partitions
+            .iter()
+            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
+            .map(|p| p.partition_id.clone())
+            .collect();
+
+        let mut chunks = Vec::new();
+        for part_id in &overlapping_ids {
+            if let Some(lookup) = self
+                .tile_cache
+                .query_signal(part_id, &canonical_id, resolution)
+            {
+                let sliced = lookup.series().slice_range(range.clone());
+                if !sliced.is_empty() {
+                    chunks.push(sliced);
+                }
+            }
+        }
+
+        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        };
+        if live_start_ms <= end_ms
+            && let Some(live_series) =
+                self.live_buffer
+                    .query_signal(&canonical_id, live_start_ms..=end_ms, resolution)
+            && !live_series.is_empty()
+        {
+            chunks.push(live_series);
+        }
+
+        SignalSeries::stitch(chunks, resolution)
+    }
+
+    /// Query `signal_id` (raw CAN signal or derived formula channel) across `range`
+    /// (`[start_utc_ms..=end_utc_ms]`) at `resolution` without blocking the calling thread.
     ///
     /// Canonical SD partitions take precedence over `live_buffer`. If `range.end()` extends past
     /// the latest canonical SD partition into the live buffer's range, live samples for
@@ -287,45 +443,19 @@ impl VirtualTimelineRouter {
             return SignalSeries::empty_for(resolution);
         }
 
-        let start_ms = *range.start();
-        let end_ms = *range.end();
-
-        let overlapping_ids: Vec<String> = self
-            .partitions
-            .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
-            .map(|p| p.partition_id.clone())
-            .collect();
-
-        let mut chunks = Vec::new();
-        for part_id in &overlapping_ids {
-            if let Some(lookup) = self.tile_cache.query_signal(part_id, signal_id, resolution) {
-                let sliced = lookup.series().slice_range(range.clone());
-                if !sliced.is_empty() {
-                    chunks.push(sliced);
-                }
-            }
+        if let Some(compiled) = self.formula_engine.get(signal_id) {
+            let ast = compiled.ast.clone();
+            return self
+                .evaluate_expression(&ast, range, resolution)
+                .unwrap_or_else(|_| SignalSeries::empty_for(resolution));
         }
 
-        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
-            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
-            None => start_ms,
-        };
-        if live_start_ms <= end_ms
-            && let Some(live_series) =
-                self.live_buffer
-                    .query_signal(signal_id, live_start_ms..=end_ms, resolution)
-            && !live_series.is_empty()
-        {
-            chunks.push(live_series);
-        }
-
-        SignalSeries::stitch(chunks, resolution)
+        self.query_raw_signal(signal_id, range, resolution)
     }
 
-    /// Synchronously query `signal_id` across `range` at exact `resolution` (blocking if any
-    /// overlapping partition column is not yet cached in `TileCache`).
-    pub fn query_signal_blocking(
+    /// Synchronously query a raw CAN `signal_id` across `range` at exact `resolution`
+    /// (blocking if any overlapping partition column is not yet cached in `TileCache`).
+    pub fn query_raw_signal_blocking(
         &self,
         signal_id: &str,
         range: ops::RangeInclusive<i64>,
@@ -335,6 +465,7 @@ impl VirtualTimelineRouter {
             return Ok(SignalSeries::empty_for(resolution));
         }
 
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let start_ms = *range.start();
         let end_ms = *range.end();
 
@@ -347,9 +478,9 @@ impl VirtualTimelineRouter {
 
         let mut chunks = Vec::new();
         for part_id in &overlapping_ids {
-            if let Some(series) = self
-                .tile_cache
-                .query_signal_blocking(part_id, signal_id, resolution)?
+            if let Some(series) =
+                self.tile_cache
+                    .query_signal_blocking(part_id, &canonical_id, resolution)?
             {
                 let sliced = series.slice_range(range.clone());
                 if !sliced.is_empty() {
@@ -365,13 +496,33 @@ impl VirtualTimelineRouter {
         if live_start_ms <= end_ms
             && let Some(live_series) =
                 self.live_buffer
-                    .query_signal(signal_id, live_start_ms..=end_ms, resolution)
+                    .query_signal(&canonical_id, live_start_ms..=end_ms, resolution)
             && !live_series.is_empty()
         {
             chunks.push(live_series);
         }
 
         Ok(SignalSeries::stitch(chunks, resolution))
+    }
+
+    /// Synchronously query `signal_id` (raw CAN signal or derived formula channel) across `range`
+    /// at exact `resolution` (blocking if any overlapping partition column is not yet cached in `TileCache`).
+    pub fn query_signal_blocking(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<SignalSeries, RouterError> {
+        if range.is_empty() {
+            return Ok(SignalSeries::empty_for(resolution));
+        }
+
+        if let Some(compiled) = self.formula_engine.get(signal_id) {
+            let ast = compiled.ast.clone();
+            return self.evaluate_expression_blocking(&ast, range, resolution);
+        }
+
+        self.query_raw_signal_blocking(signal_id, range, resolution)
     }
 
     /// Query discrete state intervals for `signal_id` across `range`, stitching canonical SD
@@ -384,6 +535,7 @@ impl VirtualTimelineRouter {
         if range.is_empty() {
             return Vec::new();
         }
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let start_ms = *range.start();
         let end_ms = *range.end();
 
@@ -392,7 +544,10 @@ impl VirtualTimelineRouter {
             if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
                 continue;
             }
-            if let Some(intervals) = self.tile_cache.query_states(&part.partition_id, signal_id) {
+            if let Some(intervals) = self
+                .tile_cache
+                .query_states(&part.partition_id, &canonical_id)
+            {
                 for interval in intervals.iter() {
                     if let Some(clamped) = interval.clamped_to(&range) {
                         out.push(clamped);
@@ -408,20 +563,28 @@ impl VirtualTimelineRouter {
         if live_start_ms <= end_ms {
             out.extend(
                 self.live_buffer
-                    .query_states(signal_id, live_start_ms..=end_ms),
+                    .query_states(&canonical_id, live_start_ms..=end_ms),
             );
         }
 
         out
     }
 
-    /// Find the latest sample `(utc_ms, value)` for `signal_id` at or before `target_utc_ms`
-    /// without blocking.
+    /// Find the latest sample `(utc_ms, value)` for `signal_id` (raw or derived) at or before
+    /// `target_utc_ms` without blocking.
     pub fn latest_signal_value_at(
         &self,
         signal_id: &str,
         target_utc_ms: i64,
     ) -> Option<(i64, f64)> {
+        if self.formula_engine.contains(signal_id) {
+            let lookback_ms = (self.formula_engine.max_staleness_ms() * 8).max(2_000);
+            let window = target_utc_ms.saturating_sub(lookback_ms)..=target_utc_ms;
+            let series = self.query_signal(signal_id, window, Resolution::FullRes);
+            return series.latest_at_or_before(target_utc_ms);
+        }
+
+        let canonical_id = canonicalize_signal_ref(signal_id);
         let max_canonical = self.max_canonical_end_ms(target_utc_ms);
 
         // If target_utc_ms is beyond all canonical partitions (or no partitions exist),
@@ -429,7 +592,7 @@ impl VirtualTimelineRouter {
         if max_canonical.is_none_or(|max_end| target_utc_ms > max_end)
             && let Some((live_t, live_v)) = self
                 .live_buffer
-                .latest_signal_value_at(signal_id, target_utc_ms)
+                .latest_signal_value_at(&canonical_id, target_utc_ms)
             && max_canonical.is_none_or(|max_end| live_t > max_end)
         {
             return Some((live_t, live_v));
@@ -442,7 +605,7 @@ impl VirtualTimelineRouter {
             }
             if let Some(found) = self.tile_cache.latest_resident_at_or_before(
                 &part.partition_id,
-                signal_id,
+                &canonical_id,
                 target_utc_ms,
             ) {
                 return Some(found);
@@ -450,7 +613,7 @@ impl VirtualTimelineRouter {
         }
 
         self.live_buffer
-            .latest_signal_value_at(signal_id, target_utc_ms)
+            .latest_signal_value_at(&canonical_id, target_utc_ms)
     }
 
     /// Return the data coverage spans (`CanonicalSd` and `LiveProvisional`) overlapping `range`.
@@ -1012,6 +1175,364 @@ mod tests {
                     + summary3.partitions_written
             );
         }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// Milestone 4 Real PER26 Dataset Validation:
+    /// Imports real SD card `.log` slices from `PER26/2026-09-06/1_no_cooling/raw` and
+    /// `PER26/2026-09-06/2_regen/raw`, cross-validates `FormulaEngine` derived channels
+    /// (`battery.voltage_v`, `battery.power_w`, `battery.energy_wh`, `vd.front_heave_mm`,
+    /// `vd.fl_damper_vel_mms`, `vd.total_accel_g`, `thermals.max_igbt_temp_c`) against
+    /// `PER26/2026-09-06/1_no_cooling/parsed/no_cooling_000_2026-09-06T18-34-51.252Z.csv`,
+    /// and verifies gap-safe track-distance integration (`query_signal_vs_distance`) across stints.
+    #[test]
+    fn formula_engine_and_distance_integrator_validate_against_per26_datasets() {
+        let manifest_dir = path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let per26_dbc = repo_root.join("superdbc/superdbc_per26.json");
+        let dbc_path = if per26_dbc.exists() {
+            per26_dbc
+        } else {
+            repo_root.join("superdbc/superdbc_1e6fa38.json")
+        };
+        let run1_raw = repo_root.join("PER26/2026-09-06/1_no_cooling/raw");
+        let run1_csv = repo_root.join(
+            "PER26/2026-09-06/1_no_cooling/parsed/no_cooling_000_2026-09-06T18-34-51.252Z.csv",
+        );
+        let run2_raw = repo_root.join("PER26/2026-09-06/2_regen/raw");
+
+        assert!(
+            dbc_path.exists() && run1_raw.exists() && run1_csv.exists() && run2_raw.exists(),
+            "Expected PER26 raw and parsed datasets in repo root"
+        );
+
+        let db = Database::load(&dbc_path).expect("load PER26 superdbc JSON");
+
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_m4_per26_verify_{}", uuid::Uuid::new_v4()));
+        let staging_run1 = tmp_dir.join("run1_logs");
+        let staging_run2 = tmp_dir.join("run2_logs");
+        let store_dir = tmp_dir.join("store");
+        fs::create_dir_all(&staging_run1).unwrap();
+        fs::create_dir_all(&staging_run2).unwrap();
+
+        for name in [
+            "log-2026-09-06--18-36-02.log",
+            "log-2026-09-06--18-37-02.log",
+        ] {
+            let src = run1_raw.join(name);
+            let dst = staging_run1.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+        for name in [
+            "log-2026-09-06--20-21-44.log",
+            "log-2026-09-06--20-22-44.log",
+        ] {
+            let src = run2_raw.join(name);
+            let dst = staging_run2.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+
+        crate::log_parse::import_logs_to_store(&staging_run1, &store_dir, &db).unwrap();
+        crate::log_parse::import_logs_to_store(&staging_run2, &store_dir, &db).unwrap();
+
+        let mut router = VirtualTimelineRouter::open_store(&store_dir, Time::now(), 30.0)
+            .expect("open PER26 store with default FormulaEngine");
+
+        // 1. Verify all 21 default derived signals from daq/config/derived_signals.json are loaded
+        let descriptors = router.formula_engine().definitions();
+        assert_eq!(descriptors.len(), 21);
+        for id in [
+            "battery.voltage_v",
+            "battery.power_w",
+            "battery.power_kw",
+            "battery.energy_wh",
+            "vd.front_heave_mm",
+            "vd.front_roll_displacement_mm",
+            "vd.fl_damper_vel_mms",
+            "vd.total_accel_g",
+            "vd.understeer_gradient",
+            "thermals.max_igbt_temp_c",
+        ] {
+            assert!(
+                router.formula_engine().contains(id),
+                "Expected default derived signal `{id}` to be registered"
+            );
+        }
+
+        let (day_min_ms, day_max_ms) = router.timeline().day_bounds_ms().unwrap();
+        let day_range = day_min_ms..=day_max_ms;
+
+        // 2. Cross-validate battery.voltage_v and battery.power_w against PER26 Run 1 parsed CSV
+        // Extract the first 5 pack_stats rows from where log-2026-09-06--18-36-02.log begins (daq_ts >= 60.201).
+        let csv_expected_samples = {
+            use std::io::{BufRead, BufReader};
+            let file = fs::File::open(&run1_csv).expect("open PER26 Run 1 CSV");
+            let mut lines = BufReader::new(file).lines();
+            let _buses = lines.next().unwrap().unwrap();
+            let _nodes = lines.next().unwrap().unwrap();
+            let msgs: Vec<String> = lines
+                .next()
+                .unwrap()
+                .unwrap()
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            let _msg_desc = lines.next().unwrap().unwrap();
+            let sigs: Vec<String> = lines
+                .next()
+                .unwrap()
+                .unwrap()
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            let _sig_desc = lines.next().unwrap().unwrap();
+            let _units = lines.next().unwrap().unwrap();
+
+            let mut vbatt_col = None;
+            let mut curr_col = None;
+            for i in 3..msgs.len().min(sigs.len()) {
+                let key = format!("{}.{}", msgs[i], sigs[i]);
+                if key == "pack_stats.vbatt_adc" {
+                    vbatt_col = Some(i);
+                } else if key == "pack_stats.pack_current" {
+                    curr_col = Some(i);
+                }
+            }
+            let vbatt_col = vbatt_col.expect("pack_stats.vbatt_adc column in CSV");
+            let curr_col = curr_col.expect("pack_stats.pack_current column in CSV");
+
+            let mut samples = Vec::new();
+            for line in lines {
+                let line = line.unwrap();
+                let cols: Vec<&str> = line.split(',').collect();
+                if cols.len() <= vbatt_col.max(curr_col) {
+                    continue;
+                }
+                let Ok(daq_ts) = cols[1].parse::<f64>() else {
+                    continue;
+                };
+                if daq_ts < 60.201 {
+                    continue;
+                }
+                if !cols[vbatt_col].is_empty() && !cols[curr_col].is_empty() {
+                    let vbatt: f64 = cols[vbatt_col].parse().unwrap();
+                    let curr: f64 = cols[curr_col].parse().unwrap();
+                    samples.push((vbatt, curr));
+                    if samples.len() >= 5 {
+                        break;
+                    }
+                }
+            }
+            samples
+        };
+        assert_eq!(csv_expected_samples.len(), 5);
+
+        // Query FullRes for battery.voltage_v and battery.power_w across Run 1
+        let voltage_series = router
+            .query_signal_blocking("battery.voltage_v", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.voltage_v FullRes");
+        let power_series = router
+            .query_signal_blocking("battery.power_w", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.power_w FullRes");
+
+        match (&voltage_series, &power_series) {
+            (
+                SignalSeries::Exact {
+                    timestamps_ms: v_ts,
+                    values: v_vals,
+                },
+                SignalSeries::Exact {
+                    timestamps_ms: p_ts,
+                    values: p_vals,
+                },
+            ) => {
+                assert_eq!(v_ts.len(), p_ts.len());
+                assert!(v_vals.len() > 10_000);
+                // Verify first 5 samples of Run 1 match the CSV and plot_factory equations exactly
+                for (i, &(csv_vbatt, csv_curr)) in csv_expected_samples.iter().enumerate() {
+                    let expected_v = csv_vbatt * 0.14659808276;
+                    let expected_p = expected_v * csv_curr;
+                    assert!(
+                        (v_vals[i] - expected_v).abs() < 1e-6,
+                        "Sample {i} voltage mismatch: router={} vs CSV plot_factory={}",
+                        v_vals[i],
+                        expected_v
+                    );
+                    assert!(
+                        (p_vals[i] - expected_p).abs() < 1e-6,
+                        "Sample {i} power mismatch: router={} vs CSV plot_factory={}",
+                        p_vals[i],
+                        expected_p
+                    );
+                }
+            }
+            other => panic!("Expected FullRes Exact for voltage and power, got {other:?}"),
+        }
+
+        // 3. Verify Overview1Hz and Overview10Hz for derived channels across the day
+        for sig in [
+            "battery.voltage_v",
+            "battery.power_w",
+            "vd.front_heave_mm",
+            "vd.total_accel_g",
+            "thermals.max_igbt_temp_c",
+        ] {
+            let ov1 = router.query_signal(sig, day_range.clone(), Resolution::Overview1Hz);
+            match ov1 {
+                SignalSeries::Envelope(buckets) => {
+                    assert!(
+                        !buckets.is_empty(),
+                        "Overview1Hz for `{sig}` should be non-empty"
+                    );
+                    assert!(
+                        buckets
+                            .iter()
+                            .all(|b| b.min.is_finite() && b.mean.is_finite() && b.max.is_finite()),
+                        "Overview1Hz buckets for `{sig}` must not contain NaN"
+                    );
+                }
+                other => panic!("Expected Overview1Hz Envelope for `{sig}`, got {other:?}"),
+            }
+        }
+
+        // 4. Verify calculus/window derived signals (energy integral + damper velocity derivative)
+        let energy_series = router
+            .query_signal_blocking("battery.energy_wh", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.energy_wh FullRes");
+        if let SignalSeries::Exact {
+            timestamps_ms,
+            values,
+        } = energy_series
+        {
+            assert!(!values.is_empty());
+            // Find the ~1h45m gap between Run 1 (18:38 UTC) and Run 2 (20:21 UTC)
+            let gap_idx = timestamps_ms
+                .windows(2)
+                .position(|w| w[1] - w[0] > 3_600_000)
+                .expect("multi-hour gap between PER26 Run 1 and Run 2");
+            // Energy must not integrate across the 1h45m gap (resets to 0.0 Wh at start of new stint)!
+            let energy_before_gap = values[gap_idx];
+            let energy_after_gap = values[gap_idx + 1];
+            assert!(
+                energy_before_gap > 10.0 && energy_before_gap < 500.0,
+                "Expected realistic Run 1 cumulative energy (10..500 Wh), got {energy_before_gap}"
+            );
+            assert!(
+                energy_after_gap.abs() < 1e-9,
+                "battery.energy_wh must reset to 0.0 Wh across multi-hour gap instead of integrating across gap: before={}, after={}",
+                energy_before_gap,
+                energy_after_gap
+            );
+        } else {
+            panic!("Expected Exact series for battery.energy_wh");
+        }
+
+        let damper_vel = router
+            .query_signal_blocking(
+                "vd.fl_damper_vel_mms",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query vd.fl_damper_vel_mms FullRes");
+        if let SignalSeries::Exact { values, .. } = damper_vel {
+            let finite_count = values.iter().filter(|v| v.is_finite()).count();
+            assert!(
+                finite_count > 5_000,
+                "Expected > 5,000 finite damper velocity samples across PER26 stints"
+            );
+        } else {
+            panic!("Expected Exact series for vd.fl_damper_vel_mms");
+        }
+
+        // 5. Register a custom runtime derived signal via upsert_formula and verify against GPS speed
+        router
+            .formula_engine_mut()
+            .upsert_formula(crate::analysis::DerivedSignalDef {
+                id: "vd.gps_speed_hypot_mps".to_string(),
+                expression: "hypot(gps_velocity.gps_vel_e, gps_velocity.gps_vel_n)".to_string(),
+                unit: "m/s".to_string(),
+                label: "GPS Ground Speed (E/N Hypot)".to_string(),
+            })
+            .expect("upsert custom GPS speed formula");
+
+        let custom_gps = router
+            .query_signal_blocking(
+                "vd.gps_speed_hypot_mps",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query custom vd.gps_speed_hypot_mps FullRes");
+        if let SignalSeries::Exact { values, .. } = custom_gps {
+            let max_speed = values
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                max_speed > 10.0 && max_speed < 40.0,
+                "Expected realistic FSAE peak GPS speed (10..40 m/s), got {max_speed}"
+            );
+        } else {
+            panic!("Expected Exact series for custom vd.gps_speed_hypot_mps");
+        }
+
+        // 6. Validate track-distance axis integration across PER26 Run 1 and Run 2
+        let shock_vs_dist = router
+            .query_signal_vs_distance_blocking(
+                "front_shockpots.left",
+                "gps_speed_heading.gps_speed",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query front_shockpots.left vs track distance");
+        assert!(shock_vs_dist.timestamps_ms.len() > 10_000);
+        assert!(
+            shock_vs_dist.distances_m.windows(2).all(|w| w[1] >= w[0]),
+            "Track distance axis must be monotonically non-decreasing"
+        );
+        assert!(
+            shock_vs_dist.total_distance_m() > 200.0,
+            "Expected > 200 m of cumulative track distance across PER26 stints, got {} m",
+            shock_vs_dist.total_distance_m()
+        );
+
+        // Verify zero phantom distance accumulated across the ~1h45m gap between Run 1 and Run 2
+        let dist_gap_idx = shock_vs_dist
+            .timestamps_ms
+            .windows(2)
+            .position(|w| w[1] - w[0] > 3_600_000)
+            .expect("multi-hour gap in distance series");
+        assert!(
+            (shock_vs_dist.distances_m[dist_gap_idx + 1] - shock_vs_dist.distances_m[dist_gap_idx])
+                .abs()
+                < 1e-9,
+            "Distance integrator must pause across multi-hour gap between stints"
+        );
+
+        // Also verify plotting a derived signal (vd.front_heave_mm) against a derived speed signal
+        let heave_vs_dist = router
+            .query_signal_vs_distance_blocking(
+                "vd.front_heave_mm",
+                "vd.gps_speed_hypot_mps",
+                day_range,
+                Resolution::FullRes,
+            )
+            .expect("query derived heave vs derived GPS speed distance");
+        assert!(
+            (heave_vs_dist.total_distance_m() - shock_vs_dist.total_distance_m()).abs() < 15.0,
+            "Distance integrated from hypot(vel_e, vel_n) ({:.1} m) should closely match gps_speed ({:.1} m)",
+            heave_vs_dist.total_distance_m(),
+            shock_vs_dist.total_distance_m()
+        );
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

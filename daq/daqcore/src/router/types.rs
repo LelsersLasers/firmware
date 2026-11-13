@@ -167,22 +167,31 @@ impl SignalSeries {
         }
     }
 
-    /// Find the latest sample `(utc_ms, value)` at or before `target_utc_ms`.
+    /// Find the latest finite sample `(utc_ms, value)` at or before `target_utc_ms`.
     pub fn latest_at_or_before(&self, target_utc_ms: i64) -> Option<(i64, f64)> {
         match self {
             Self::Exact {
                 timestamps_ms,
                 values,
             } => {
-                let idx = timestamps_ms.partition_point(|&t| t <= target_utc_ms);
-                let idx = idx.checked_sub(1)?;
-                Some((*timestamps_ms.get(idx)?, *values.get(idx)?))
+                let end_idx = timestamps_ms.partition_point(|&t| t <= target_utc_ms);
+                for idx in (0..end_idx).rev() {
+                    let val = *values.get(idx)?;
+                    if val.is_finite() {
+                        return Some((*timestamps_ms.get(idx)?, val));
+                    }
+                }
+                None
             }
             Self::Envelope(points) => {
-                let idx = points.partition_point(|p| p.utc_ms <= target_utc_ms);
-                let idx = idx.checked_sub(1)?;
-                let pt = points.get(idx)?;
-                Some((pt.utc_ms, pt.mean))
+                let end_idx = points.partition_point(|p| p.utc_ms <= target_utc_ms);
+                for idx in (0..end_idx).rev() {
+                    let pt = points.get(idx)?;
+                    if pt.mean.is_finite() {
+                        return Some((pt.utc_ms, pt.mean));
+                    }
+                }
+                None
             }
         }
     }
