@@ -1,6 +1,10 @@
+pub mod live_buffer;
 pub mod tile_cache;
 pub mod types;
 
+pub use live_buffer::{
+    DEFAULT_MAX_INSPECTOR_FRAMES, DEFAULT_MAX_SAMPLES_PER_SIGNAL, LiveColumnBuffer,
+};
 pub use tile_cache::{
     DEFAULT_TILE_CACHE_BYTES, RepaintCallback, RouterError, TileCache, TileKey, TileLookup,
     read_all_signals_overview, read_all_signals_states, read_single_signal_full_res,
