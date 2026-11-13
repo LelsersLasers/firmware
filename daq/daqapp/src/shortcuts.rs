@@ -34,6 +34,14 @@ impl ShortcutHandler {
             actions.push(action::AppAction::DecreaseScale);
         }
 
+        // M = drop event bookmark / open annotation modal (when not typing in a text field)
+        if !ctx.wants_keyboard_input()
+            && !input.modifiers.any()
+            && input.key_pressed(eframe::egui::Key::M)
+        {
+            actions.push(action::AppAction::OpenAnnotationModal);
+        }
+
         actions
     }
 }
