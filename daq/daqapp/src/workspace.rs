@@ -50,17 +50,24 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
         _tile_id: egui_tiles::TileId,
         widget: &mut widgets::Widget,
     ) -> egui_tiles::UiResponse {
-        widget.show(
-            ui,
-            widgets::WidgetContext {
-                view: self.view,
-                bus_load: self.bus_load,
-                action_queue: self.action_queue,
-                database: self.database,
-                ui_to_can_tx: self.ui_to_can_tx.clone(),
-                formatter: self.formatter,
-            },
-        )
+        ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+        eframe::egui::Frame::NONE
+            .inner_margin(eframe::egui::Margin::same(6))
+            .show(ui, |ui| {
+                ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+                widget.show(
+                    ui,
+                    widgets::WidgetContext {
+                        view: self.view,
+                        bus_load: self.bus_load,
+                        action_queue: self.action_queue,
+                        database: self.database,
+                        ui_to_can_tx: self.ui_to_can_tx.clone(),
+                        formatter: self.formatter,
+                    },
+                )
+            })
+            .inner
     }
 
     fn tab_title_for_pane(&mut self, widget: &widgets::Widget) -> eframe::egui::WidgetText {
