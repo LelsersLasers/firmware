@@ -158,8 +158,12 @@ fn compute_partition_id(
     hasher.update((sub_partition_idx as u64).to_le_bytes());
     hasher.update((slice.len() as u64).to_le_bytes());
     hasher.update(superdbc_hash.as_bytes());
+    // Only include whole-file SHA-256 hashes for immutable RTC-named files;
+    // `log-0.log` is appended to across subsequent MCU boots on the same SD card.
     for file in raw_logs {
-        hasher.update(file.sha256_hex.as_bytes());
+        if file.rtc_timestamp_ms.is_some() {
+            hasher.update(file.sha256_hex.as_bytes());
+        }
     }
     if let Some((_, first_msg)) = slice.first() {
         hasher.update(first_msg.timestamp.to_le_bytes());
@@ -1239,6 +1243,43 @@ mod tests {
                 manifest.end_utc_ms - manifest.start_utc_ms
             );
         }
+
+        // Simulate pulling the same SD card later in the day after another boot appended to log-0.log
+        // and wrote a new RTC-named file: the earlier partitions must be skipped (idempotent)!
+        let mut log0_frames = vec![
+            parse::RawFrame::new(10, 48, 0, padded).unwrap(),
+            parse::RawFrame::new(20, 48, 0, padded).unwrap(),
+        ];
+        fs::write(
+            logs_dir.join("log-0.log"),
+            bytemuck::cast_slice(&log0_frames),
+        )
+        .unwrap();
+        let summary_with_log0_a =
+            crate::log_parse::import_logs_to_store(&logs_dir, &store_dir, &db).unwrap();
+
+        // Append a second boot segment into log-0.log + a new RTC file
+        log0_frames.push(parse::RawFrame::new(5, 48, 0, padded).unwrap());
+        fs::write(
+            logs_dir.join("log-0.log"),
+            bytemuck::cast_slice(&log0_frames),
+        )
+        .unwrap();
+        let file4_frames = vec![parse::RawFrame::new(500, 48, 0, padded).unwrap()];
+        fs::write(
+            logs_dir.join("log-2026-11-12--16-00-00.log"),
+            bytemuck::cast_slice(&file4_frames),
+        )
+        .unwrap();
+
+        let summary_with_log0_b =
+            crate::log_parse::import_logs_to_store(&logs_dir, &store_dir, &db).unwrap();
+        assert_eq!(
+            summary_with_log0_b.partitions_skipped_existing,
+            summary_with_log0_a.manifests.len(),
+            "All earlier partitions must be skipped even after log-0.log grows with new boots"
+        );
+        assert_eq!(summary_with_log0_b.partitions_written, 1);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
