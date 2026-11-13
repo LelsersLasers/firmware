@@ -143,7 +143,10 @@ impl GapFoldedProjection {
             raw_intervals.push((cursor, day_end_ms, true));
         }
 
-        let gap_count = raw_intervals.iter().filter(|&&(_, _, is_gap)| is_gap).count();
+        let gap_count = raw_intervals
+            .iter()
+            .filter(|&&(_, _, is_gap)| is_gap)
+            .count();
         let active_count = raw_intervals
             .iter()
             .filter(|&&(_, _, is_gap)| !is_gap)
@@ -253,8 +256,7 @@ impl GapFoldedProjection {
             if utc_ms >= seg.start_utc_ms && utc_ms <= seg.end_utc_ms {
                 let dur = (seg.end_utc_ms - seg.start_utc_ms).max(1) as f64;
                 let t = (utc_ms - seg.start_utc_ms) as f64 / dur;
-                let frac =
-                    f64::from(seg.frac_start) + t * f64::from(seg.frac_end - seg.frac_start);
+                let frac = f64::from(seg.frac_start) + t * f64::from(seg.frac_end - seg.frac_start);
                 return (frac as f32).clamp(0.0, 1.0);
             }
         }
@@ -627,7 +629,8 @@ impl MasterTimeline {
             .map(|(lo, hi)| (hi - lo).max(MIN_WINDOW_MS))
             .unwrap_or(86_400_000);
 
-        let new_span = ((cur_span as f64 * zoom_factor).round() as i64).clamp(MIN_WINDOW_MS, max_span);
+        let new_span =
+            ((cur_span as f64 * zoom_factor).round() as i64).clamp(MIN_WINDOW_MS, max_span);
         let clamped_anchor = anchor_utc_ms.clamp(cur_start, cur_end);
         let anchor_ratio = (clamped_anchor - cur_start) as f64 / (cur_span as f64);
 
@@ -640,9 +643,8 @@ impl MasterTimeline {
 
         self.start = time::Time::from_unix_millis(new_start);
         self.end = time::Time::from_unix_millis(new_end);
-        self.setpoint = time::Time::from_unix_millis(
-            self.setpoint.unix_millis().clamp(new_start, new_end),
-        );
+        self.setpoint =
+            time::Time::from_unix_millis(self.setpoint.unix_millis().clamp(new_start, new_end));
         self.start_track = Track::Frozen;
         self.end_track = Track::Frozen;
         self.setpoint_track = Track::Frozen;

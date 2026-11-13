@@ -1238,6 +1238,7 @@ dependencies = [
  "egui_plot",
  "egui_tiles",
  "env_logger",
+ "globset",
  "hashbrown 0.16.1",
  "log",
  "rfd",
@@ -1245,7 +1246,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serialport",
+ "tempfile",
  "toml",
+ "uuid",
  "walkers",
 ]
 

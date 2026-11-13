@@ -2,7 +2,9 @@ use crate::{
     router::types::{EnvelopePoint, Resolution, SignalSeries, StateInterval},
     storage::{self, RegisteredPartition, SignalId},
 };
-use arrow::array::{Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array};
+use arrow::array::{
+    Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array,
+};
 use arrow::datatypes::Int32Type;
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
 use std::{
@@ -702,10 +704,12 @@ pub fn read_all_signals_overview(
     read_all_signals_overview_with_activity(path).map(|(signals, _)| signals)
 }
 
+pub type OverviewWithActivity = (HashMap<SignalId, Arc<SignalSeries>>, Vec<(i64, u32)>);
+
 /// Read all signals plus aggregated per-bucket sample counts from an overview Parquet file.
 pub fn read_all_signals_overview_with_activity(
     path: &path::Path,
-) -> Result<(HashMap<SignalId, Arc<SignalSeries>>, Vec<(i64, u32)>), RouterError> {
+) -> Result<OverviewWithActivity, RouterError> {
     let file = fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let mask = ProjectionMask::roots(builder.parquet_schema(), [0, 1, 2, 3, 4, 5]);
@@ -750,10 +754,7 @@ pub fn read_all_signals_overview_with_activity(
             .as_any()
             .downcast_ref::<Float64Array>()
             .ok_or(RouterError::InvalidColumn("mean_val must be Float64"))?;
-        let count_col = batch
-            .column(5)
-            .as_any()
-            .downcast_ref::<UInt32Array>();
+        let count_col = batch.column(5).as_any().downcast_ref::<UInt32Array>();
 
         let keys = sig_col.keys().values();
         let buckets = bucket_col.values();

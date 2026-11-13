@@ -47,6 +47,7 @@ impl GpsPlot {
         self.overlay_signal = Some((signal_id, unit));
     }
 
+    #[cfg(test)]
     pub fn overlay_signal(&self) -> Option<&(String, String)> {
         self.overlay_signal.as_ref()
     }
@@ -68,7 +69,7 @@ impl GpsPlot {
                 eframe::egui::StrokeKind::Inside,
             );
             if ui.input(|i| i.pointer.any_released()) {
-                self.overlay_signal = Some((payload.signal_id(), payload.unit().to_owned()));
+                self.set_overlay_signal(payload.signal_id(), payload.unit().to_owned());
                 let _ = eframe::egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
                     ui.ctx(),
                 );

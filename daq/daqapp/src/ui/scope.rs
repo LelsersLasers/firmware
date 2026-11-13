@@ -369,7 +369,10 @@ impl Scope {
             if comparison_annotations.len() >= 2 {
                 ui.colored_label(
                     eframe::egui::Color32::from_rgb(255, 190, 60),
-                    format!("[Comparison: {} stints/events]", comparison_annotations.len()),
+                    format!(
+                        "[Comparison: {} stints/events]",
+                        comparison_annotations.len()
+                    ),
                 );
             }
             change = ui.button("Change signal").clicked();
@@ -426,7 +429,11 @@ impl Scope {
                 let (pts, _) = series_to_points(&ann_data, ann_start_ms, max_gap_ms);
                 let decimated = telemetry::decimate(&pts, pixels);
                 let color = palette[idx % palette.len()];
-                overlay_series.push((format!("{} ({:.1}s)", ann.name, ann_dur_s), decimated, color));
+                overlay_series.push((
+                    format!("{} ({:.1}s)", ann.name, ann_dur_s),
+                    decimated,
+                    color,
+                ));
             }
 
             egui_plot::Plot::new(("scope_plot_cmp", self.instance_num))
@@ -506,11 +513,13 @@ impl Scope {
     }
 }
 
+type SeriesPlotPoints = (Vec<[f64; 2]>, Option<(Vec<[f64; 2]>, Vec<[f64; 2]>)>);
+
 fn series_to_points(
     series: &daqcore::router::SignalSeries,
     start_ms: i64,
     max_gap_ms: i64,
-) -> (Vec<[f64; 2]>, Option<(Vec<[f64; 2]>, Vec<[f64; 2]>)>) {
+) -> SeriesPlotPoints {
     match series {
         daqcore::router::SignalSeries::Exact {
             timestamps_ms,

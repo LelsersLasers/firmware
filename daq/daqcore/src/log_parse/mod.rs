@@ -66,9 +66,9 @@ impl ImportProgress {
                 file_index + 1,
                 (*total_files).max(1)
             ),
-            Self::CorrelatingEpochs { epoch_count } => format!(
-                "Correlating wall-clock epochs ({epoch_count} boot epochs detected)…"
-            ),
+            Self::CorrelatingEpochs { epoch_count } => {
+                format!("Correlating wall-clock epochs ({epoch_count} boot epochs detected)…")
+            }
             Self::WritingPartition {
                 partition_index,
                 total_partitions,

@@ -30,6 +30,7 @@ impl DraggedSignal {
         }
     }
 
+    #[cfg(test)]
     pub fn display_label(&self) -> String {
         match self {
             Self::Raw {
@@ -143,8 +144,7 @@ impl FormulaDraft {
         if id.contains(char::is_whitespace) {
             return Err("Formula ID must not contain spaces".to_owned());
         }
-        let ast =
-            daqcore::analysis::Expr::parse(&self.expression).map_err(|e| e.to_string())?;
+        let ast = daqcore::analysis::Expr::parse(&self.expression).map_err(|e| e.to_string())?;
         let refs = ast.referenced_signals();
         let mut preview_engine = engine.clone();
         preview_engine
@@ -171,14 +171,13 @@ pub fn matches_search_query(query: &str, haystacks: &[&str]) -> bool {
         return true;
     }
 
-    if q.contains('*') || q.contains('?') || q.contains('[') {
-        if let Ok(glob) = globset::GlobBuilder::new(&format!("*{q}*"))
+    if (q.contains('*') || q.contains('?') || q.contains('['))
+        && let Ok(glob) = globset::GlobBuilder::new(&format!("*{q}*"))
             .case_insensitive(true)
             .build()
-        {
-            let matcher = glob.compile_matcher();
-            return haystacks.iter().any(|h| matcher.is_match(h));
-        }
+    {
+        let matcher = glob.compile_matcher();
+        return haystacks.iter().any(|h| matcher.is_match(h));
     }
 
     let tokens: Vec<String> = q
@@ -284,16 +283,17 @@ pub fn show_signal_browser(
     for part in router.partitions() {
         for sig_entry in &part.manifest.signals {
             if let Some((msg_name, sig_name)) = sig_entry.signal_id.split_once('.') {
-                let group = groups_by_msg
-                    .entry(msg_name.to_owned())
-                    .or_insert_with(|| MessageGroup {
-                        key: None,
-                        bus_name: "Store".to_owned(),
-                        transmitter: "Parquet".to_owned(),
-                        msg_name: msg_name.to_owned(),
-                        description: String::new(),
-                        signals: Vec::new(),
-                    });
+                let group =
+                    groups_by_msg
+                        .entry(msg_name.to_owned())
+                        .or_insert_with(|| MessageGroup {
+                            key: None,
+                            bus_name: "Store".to_owned(),
+                            transmitter: "Parquet".to_owned(),
+                            msg_name: msg_name.to_owned(),
+                            description: String::new(),
+                            signals: Vec::new(),
+                        });
                 if !group.signals.iter().any(|s| s.signal_name == sig_name) {
                     group.signals.push(SignalLeaf {
                         key: group.key,
@@ -378,9 +378,11 @@ pub fn show_signal_browser(
     }
 
     ui.label(
-        eframe::egui::RichText::new("💡 Drag any signal/formula onto a Scope or GPS Plot, or click 📈")
-            .small()
-            .weak(),
+        eframe::egui::RichText::new(
+            "💡 Drag any signal/formula onto a Scope or GPS Plot, or click 📈",
+        )
+        .small()
+        .weak(),
     );
 
     // -------------------------------------------------------------------------
@@ -489,10 +491,7 @@ pub fn show_signal_browser(
     let filtered_groups: Vec<(MessageGroup, Vec<SignalLeaf>)> = groups_by_msg
         .into_values()
         .filter(|g| {
-            state
-                .bus_filter
-                .as_deref()
-                .is_none_or(|b| g.bus_name == b)
+            state.bus_filter.as_deref().is_none_or(|b| g.bus_name == b)
                 && state
                     .node_filter
                     .as_deref()
@@ -837,8 +836,10 @@ mod tests {
         let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
         let mut router =
             daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
-        let mut state = SignalBrowserState::default();
-        state.formula_draft = Some(FormulaDraft::default());
+        let mut state = SignalBrowserState {
+            formula_draft: Some(FormulaDraft::default()),
+            ..Default::default()
+        };
         let mut action_queue = Vec::new();
         let mut diag = None;
 
@@ -865,13 +866,7 @@ mod tests {
                     &mut diag,
                 );
             });
-            show_formula_editor_modal(
-                ctx,
-                &mut state,
-                &mut router,
-                &mut action_queue,
-                &mut diag,
-            );
+            show_formula_editor_modal(ctx, &mut state, &mut router, &mut action_queue, &mut diag);
         });
 
         let dragged = DraggedSignal::Derived {

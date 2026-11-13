@@ -232,11 +232,12 @@ where
     };
 
     // Pre-slice all epochs into <= 15-minute sub-partitions so total_partitions is known upfront
-    let mut planned_partitions: Vec<(
+    type PlannedPartition = (
         usize,
         Vec<(i64, parse::ParsedMessage)>,
         correlate::ClockMapping,
-    )> = Vec::new();
+    );
+    let mut planned_partitions: Vec<PlannedPartition> = Vec::new();
 
     for epoch in correlated_epochs {
         if epoch.parsed_msgs.is_empty() {

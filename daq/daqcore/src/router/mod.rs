@@ -677,7 +677,8 @@ impl VirtualTimelineRouter {
             Some(day_id) => {
                 for part in &self.partitions {
                     if part.track_day_id == day_id {
-                        min_ms = Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
+                        min_ms =
+                            Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
                         max_ms = Some(max_ms.map_or(part.end_utc_ms, |m| m.max(part.end_utc_ms)));
                     }
                 }
@@ -743,7 +744,10 @@ impl VirtualTimelineRouter {
             None => start_ms,
         };
         if live_start_ms <= end_ms {
-            for (b, count) in self.live_buffer.activity_1hz_in_range(live_start_ms..=end_ms) {
+            for (b, count) in self
+                .live_buffer
+                .activity_1hz_in_range(live_start_ms..=end_ms)
+            {
                 let entry = merged.entry(b).or_insert(0);
                 *entry = entry.saturating_add(count);
             }
@@ -766,7 +770,9 @@ impl VirtualTimelineRouter {
     pub fn clock_provenance_at(&self, target_utc_ms: i64) -> Option<ClockProvenance> {
         // 1. Exact containment inside a canonical SD partition
         for part in &self.partitions {
-            if part.is_local && part.start_utc_ms <= target_utc_ms && target_utc_ms <= part.end_utc_ms
+            if part.is_local
+                && part.start_utc_ms <= target_utc_ms
+                && target_utc_ms <= part.end_utc_ms
             {
                 return Some(ClockProvenance::CanonicalPartition(
                     part.clock_mapping.clone(),
@@ -1776,7 +1782,10 @@ mod tests {
         // 1Hz activity envelope covers both the 10-second partition and the live bucket
         let env = router.activity_envelope_1hz(p1_start_ms..=(p1_start_ms + 25_000));
         assert_eq!(env.len(), 11);
-        assert!(env.iter().all(|&(_, intensity)| intensity > 0.0 && intensity <= 1.0));
+        assert!(
+            env.iter()
+                .all(|&(_, intensity)| intensity > 0.0 && intensity <= 1.0)
+        );
 
         // Clock provenance inside partition is RtcEstimated; at live frame is LiveProvisional
         let prov_part = router.clock_provenance_at(p1_start_ms + 5_000).unwrap();
@@ -1806,17 +1815,27 @@ mod tests {
             .unwrap();
         assert!(anns.iter().any(|a| a.id == "manual_bookmark_1"));
 
-        router
-            .timeline_mut()
-            .select_single_annotation("manual_bookmark_1".to_owned(), manual_ann.start_utc_ms, manual_ann.end_utc_ms);
-        assert!(router.timeline().is_annotation_selected("manual_bookmark_1"));
+        router.timeline_mut().select_single_annotation(
+            "manual_bookmark_1".to_owned(),
+            manual_ann.start_utc_ms,
+            manual_ann.end_utc_ms,
+        );
+        assert!(
+            router
+                .timeline()
+                .is_annotation_selected("manual_bookmark_1")
+        );
 
         assert!(
             router
                 .soft_delete_annotation("manual_bookmark_1", p1_start_ms + 26_000)
                 .unwrap()
         );
-        assert!(!router.timeline().is_annotation_selected("manual_bookmark_1"));
+        assert!(
+            !router
+                .timeline()
+                .is_annotation_selected("manual_bookmark_1")
+        );
 
         let bounds = router.select_track_day(Some(day_id)).unwrap();
         assert_eq!(bounds, Some((p1_start_ms, p1_start_ms + 9_000)));

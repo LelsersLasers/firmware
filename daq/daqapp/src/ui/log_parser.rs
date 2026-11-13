@@ -143,14 +143,17 @@ impl LogParser {
         self.parse_to_ui_rx.is_some()
     }
 
+    #[cfg(test)]
     pub fn progress_fraction(&self) -> f32 {
         self.progress_fraction
     }
 
+    #[cfg(test)]
     pub fn status_text(&self) -> &str {
         &self.parse_text
     }
 
+    #[cfg(test)]
     pub fn last_summary(&self) -> Option<&daqcore::storage::ImportSummary> {
         self.last_summary.as_ref()
     }

@@ -231,20 +231,15 @@ pub fn show_timeline_contents(
     diagnostic: &mut Option<String>,
 ) -> bool {
     let theme = ui::theme::get_theme(ui.ctx());
-    let accent_color = parse_hex_color(
-        &theme.accent,
-        eframe::egui::Color32::from_rgb(56, 189, 248),
-    );
+    let accent_color =
+        parse_hex_color(&theme.accent, eframe::egui::Color32::from_rgb(56, 189, 248));
     let previous_span = router.timeline().window_secs();
 
     // -------------------------------------------------------------------------
     // Row 1: Transport, Track Day Selector, Gap Folding, Clock Provenance Badge
     // -------------------------------------------------------------------------
     let track_days = router.list_track_days().unwrap_or_default();
-    let active_day_id = router
-        .timeline()
-        .active_track_day_id()
-        .map(str::to_owned);
+    let active_day_id = router.timeline().active_track_day_id().map(str::to_owned);
     let mut requested_day_change: Option<Option<String>> = None;
     let mut clear_live_clicked = false;
     let mut open_new_bookmark = false;
@@ -619,10 +614,7 @@ fn show_day_overview_lane(
         .max(day_min_ms + 1_000);
 
     // Collect active spans (canonical partitions + live buffer) for gap folding
-    let active_day_filter = router
-        .timeline()
-        .active_track_day_id()
-        .map(str::to_owned);
+    let active_day_filter = router.timeline().active_track_day_id().map(str::to_owned);
     let canonical_spans: Vec<(i64, i64, String)> = router
         .partitions()
         .iter()
@@ -635,10 +627,8 @@ fn show_day_overview_lane(
         .collect();
     let live_bounds = router.live_buffer().time_bounds_ms();
 
-    let mut active_spans_for_folding: Vec<(i64, i64)> = canonical_spans
-        .iter()
-        .map(|&(s, e, _)| (s, e))
-        .collect();
+    let mut active_spans_for_folding: Vec<(i64, i64)> =
+        canonical_spans.iter().map(|&(s, e, _)| (s, e)).collect();
     if let Some((ls, le)) = live_bounds {
         active_spans_for_folding.push((ls, le));
     }
@@ -676,9 +666,8 @@ fn show_day_overview_lane(
     // 1. Background (Idle Gap dark gray)
     painter.rect_filled(rect, 4.0, eframe::egui::Color32::from_gray(24));
 
-    let time_to_x = |utc_ms: i64| -> f32 {
-        rect.left() + projection.time_to_fraction(utc_ms) * rect.width()
-    };
+    let time_to_x =
+        |utc_ms: i64| -> f32 { rect.left() + projection.time_to_fraction(utc_ms) * rect.width() };
     let x_to_time = |px: f32| -> i64 {
         let frac = ((px - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
         projection.fraction_to_time(frac)
@@ -813,9 +802,8 @@ fn show_day_overview_lane(
         let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
         let x0 = time_to_x(ann.start_utc_ms);
         let x1 = time_to_x(ann_end_ms);
-        let is_point = ann.end_utc_ms.is_none()
-            || ann_end_ms <= ann.start_utc_ms
-            || (x1 - x0).abs() < 8.0;
+        let is_point =
+            ann.end_utc_ms.is_none() || ann_end_ms <= ann.start_utc_ms || (x1 - x0).abs() < 8.0;
         let pill_w = if is_point {
             (ann.name.len() as f32 * 6.0 + 18.0).clamp(36.0, 110.0)
         } else {
@@ -862,12 +850,7 @@ fn show_day_overview_lane(
         };
 
         painter.rect_filled(pill_rect, 4.0, fill_color);
-        painter.rect_stroke(
-            pill_rect,
-            4.0,
-            stroke,
-            eframe::egui::StrokeKind::Inside,
-        );
+        painter.rect_stroke(pill_rect, 4.0, stroke, eframe::egui::StrokeKind::Inside);
 
         let text_clip = pill_rect
             .shrink2(eframe::egui::vec2(3.0, 0.0))
@@ -925,7 +908,10 @@ fn show_day_overview_lane(
                 pending_single_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                 ui.close();
             }
-            if ui.button("⚖ Toggle Comparison Mode (Shift+Click)").clicked() {
+            if ui
+                .button("⚖ Toggle Comparison Mode (Shift+Click)")
+                .clicked()
+            {
                 pending_shift_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                 ui.close();
             }
@@ -1001,7 +987,9 @@ fn show_day_overview_lane(
     {
         let target_ms = x_to_time(pointer.x);
         let span_ms = (router.timeline().end_utc_ms() - router.timeline().start_utc_ms()).max(100);
-        router.timeline_mut().pan_to_start_ms(target_ms - span_ms / 2);
+        router
+            .timeline_mut()
+            .pan_to_start_ms(target_ms - span_ms / 2);
     }
 
     if lane_response.hovered() {
@@ -1413,12 +1401,16 @@ mod tests {
             .timeline_mut()
             .set_day_bounds_ms(Some((1_000_000, 9_000_000)));
         router.timeline_mut().snap_to_range_ms(1_000_000, 1_300_000);
-        router
-            .timeline_mut()
-            .select_single_annotation("stint_1".to_owned(), 1_000_000, Some(1_300_000));
-        router
-            .timeline_mut()
-            .toggle_comparison_annotation("stint_2".to_owned(), 8_500_000, Some(8_900_000));
+        router.timeline_mut().select_single_annotation(
+            "stint_1".to_owned(),
+            1_000_000,
+            Some(1_300_000),
+        );
+        router.timeline_mut().toggle_comparison_annotation(
+            "stint_2".to_owned(),
+            8_500_000,
+            Some(8_900_000),
+        );
         assert!(router.timeline().is_comparison_mode());
 
         let mut timeline_ui = TimelineUiState::default();
@@ -1452,17 +1444,242 @@ mod tests {
                         &mut diagnostic,
                     );
                 });
-                show_annotation_editor_modal(
-                    ctx,
-                    &mut router,
-                    &mut timeline_ui,
-                    &mut diagnostic,
-                );
+                show_annotation_editor_modal(ctx, &mut router, &mut timeline_ui, &mut diagnostic);
             });
             assert!(
                 diagnostic.is_none(),
                 "unexpected timeline diagnostic: {diagnostic:?}"
             );
         }
+    }
+
+    #[test]
+    fn per26_multi_stint_day_timeline_gap_folding_comparison_and_signal_browser_e2e() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir.join("../..");
+        let dbc_path = repo_root.join("superdbc/superdbc_per26.json");
+        let log1 = repo_root.join("PER26/2026-09-06/1_no_cooling/raw/log-2026-09-06--18-36-02.log");
+        let log2 = repo_root.join("PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
+        if !log1.exists() || !log2.exists() || !dbc_path.exists() {
+            return;
+        }
+
+        let database = daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26");
+        let tmp_store = tempfile::tempdir().expect("temp store");
+        let tmp_raw1 = tempfile::tempdir().expect("temp raw 1");
+        let tmp_raw2 = tempfile::tempdir().expect("temp raw 2");
+        std::fs::copy(&log1, tmp_raw1.path().join("log-2026-09-06--18-36-02.log")).unwrap();
+        std::fs::copy(&log2, tmp_raw2.path().join("log-2026-09-06--20-21-44.log")).unwrap();
+
+        let mut saw_finished = false;
+        let summary_1 = daqcore::log_parse::import_logs_to_store_with_progress(
+            tmp_raw1.path(),
+            tmp_store.path(),
+            &database,
+            |p| {
+                if matches!(p, daqcore::log_parse::ImportProgress::Complete(_)) {
+                    saw_finished = true;
+                }
+            },
+        )
+        .expect("import stint 1");
+        let summary_2 = daqcore::log_parse::import_logs_to_store_with_progress(
+            tmp_raw2.path(),
+            tmp_store.path(),
+            &database,
+            |_| {},
+        )
+        .expect("import stint 2");
+        assert!(saw_finished);
+        assert!(!summary_1.manifests.is_empty() && !summary_2.manifests.is_empty());
+
+        let m1_start = summary_1.manifests[0].start_utc_ms;
+        let m2_start = summary_2.manifests[0].start_utc_ms;
+        let m2_end = summary_2.manifests[0].end_utc_ms;
+
+        let mut router = daqcore::router::VirtualTimelineRouter::open_store(
+            tmp_store.path(),
+            daqcore::time::Time::from_unix_millis(m1_start),
+            30.0,
+        )
+        .expect("open_store router");
+
+        assert_eq!(router.partitions().len(), 2);
+        let track_days = router.list_track_days().expect("track_days");
+        assert!(track_days.iter().any(|td| td.id == "2026-09-06"));
+        router
+            .select_track_day(Some("2026-09-06".to_owned()))
+            .expect("select 2026-09-06");
+
+        let (day_start, day_end) = router
+            .timeline()
+            .day_bounds_ms()
+            .expect("day bounds populated");
+        assert!(day_end - day_start > 5_000_000, "span across ~1h45m gap");
+
+        // Verify 1Hz activity envelope and canonical partition clock provenance
+        let activity = router.activity_envelope_1hz(day_start..=day_end);
+        assert!(
+            !activity.is_empty(),
+            "expected non-empty 1Hz activity envelope across PER26 stints"
+        );
+        let clock_prov = router
+            .clock_provenance_at(m1_start + 1_000)
+            .expect("clock provenance present");
+        assert!(
+            matches!(
+                clock_prov,
+                daqcore::router::ClockProvenance::CanonicalPartition(_)
+            ),
+            "expected CanonicalPartition provenance on PER26 logs, got {clock_prov:?}"
+        );
+
+        // Verify dead-time gap folding across the ~1h45m gap between 1_no_cooling and 2_regen
+        let active_spans: Vec<(i64, i64)> = router
+            .partitions()
+            .iter()
+            .map(|p| (p.start_utc_ms, p.end_utc_ms))
+            .collect();
+        let proj_folded =
+            daqcore::timeline::GapFoldedProjection::new(day_start, day_end, &active_spans, true);
+        assert!(
+            proj_folded.segments().iter().any(|s| s.is_folded_gap()),
+            "expected >=1 folded idle gap between 1_no_cooling and 2_regen"
+        );
+        for seg in proj_folded.segments() {
+            let mid = (seg.start_utc_ms + seg.end_utc_ms) / 2;
+            let f = proj_folded.time_to_fraction(mid);
+            let roundtrip = proj_folded.fraction_to_time(f);
+            assert!((roundtrip - mid).abs() <= 5_000);
+        }
+
+        // Verify auto-detected annotations and manual annotation CRUD
+        let initial_anns = router
+            .query_annotations_in_range(day_start..=day_end)
+            .expect("query annotations");
+        assert!(
+            !initial_anns.is_empty(),
+            "expected auto-detected stints/faults from PER26 import"
+        );
+
+        let manual_ann = daqcore::storage::Annotation {
+            id: "manual_bookmark_test".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            name: "Driver Swap Check".to_owned(),
+            category: "note".to_owned(),
+            color: "#F59E0B".to_owned(),
+            start_utc_ms: m1_start + 5_000,
+            end_utc_ms: Some(m1_start + 25_000),
+            author: "user".to_owned(),
+            source: "manual".to_owned(),
+            notes: "Checked accumulator temps".to_owned(),
+            updated_at_ms: m1_start + 25_000,
+            deleted: false,
+        };
+        router
+            .upsert_annotation(&manual_ann)
+            .expect("upsert manual annotation");
+
+        let second_ann = daqcore::storage::Annotation {
+            id: "manual_stint_2".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            name: "Regen Stint Window".to_owned(),
+            category: "driving_stint".to_owned(),
+            color: "#22C55E".to_owned(),
+            start_utc_ms: m2_start + 2_000,
+            end_utc_ms: Some(m2_start + 22_000),
+            author: "user".to_owned(),
+            source: "manual".to_owned(),
+            notes: "Regen test".to_owned(),
+            updated_at_ms: m2_start + 22_000,
+            deleted: false,
+        };
+        router
+            .upsert_annotation(&second_ann)
+            .expect("upsert second annotation");
+
+        // Enter Comparison Mode across both stints and render Timeline + Scope + Signal Browser
+        router.timeline_mut().select_single_annotation(
+            manual_ann.id.clone(),
+            manual_ann.start_utc_ms,
+            manual_ann.end_utc_ms,
+        );
+        router.timeline_mut().toggle_comparison_annotation(
+            second_ann.id.clone(),
+            second_ann.start_utc_ms,
+            second_ann.end_utc_ms,
+        );
+        assert!(router.timeline().is_comparison_mode());
+
+        let selection = daqcore::can_thread::BusSelection::default_single(&database)
+            .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
+        let db_sel = app::DatabaseSelection {
+            database,
+            selection,
+        };
+
+        let mut timeline_ui = TimelineUiState::default();
+        let mut browser_state = ui::signal_browser::SignalBrowserState {
+            search_query: "*vbatt*".to_owned(),
+            ..Default::default()
+        };
+        let mut scope = ui::scope::Scope::new_channel(
+            1,
+            "pack_stats.vbatt_adc".to_owned(),
+            "Battery Voltage".to_owned(),
+            "V".to_owned(),
+        );
+
+        let ctx = eframe::egui::Context::default();
+        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
+        let raw_input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1440.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        let mut bus_load = Vec::new();
+        let mut diagnostic = None;
+        let mut action_queue = Vec::new();
+
+        let _ = ctx.run(raw_input, |ctx| {
+            eframe::egui::TopBottomPanel::top("e2e_timeline").show(ctx, |ui| {
+                show_timeline_contents(
+                    ui,
+                    &mut router,
+                    &mut timeline_ui,
+                    &mut bus_load,
+                    &mut diagnostic,
+                );
+            });
+            eframe::egui::SidePanel::left("e2e_browser").show(ctx, |ui| {
+                ui::signal_browser::show_signal_browser(
+                    ui,
+                    &mut browser_state,
+                    Some(&db_sel),
+                    &mut router,
+                    &mut action_queue,
+                    &mut diagnostic,
+                );
+            });
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let view = crate::telemetry::TelemetryView::new(&router);
+                let _ = scope.show(ui, Some(&db_sel), &view);
+            });
+        });
+        assert!(
+            diagnostic.is_none(),
+            "unexpected diagnostic: {diagnostic:?}"
+        );
+
+        // Soft-delete manual annotation and verify removal
+        router
+            .soft_delete_annotation(&manual_ann.id, m2_end + 1_000)
+            .expect("soft delete");
+        let after_delete = router
+            .query_annotations_in_range(day_start..=day_end)
+            .expect("query after delete");
+        assert!(!after_delete.iter().any(|a| a.id == manual_ann.id));
     }
 }

@@ -47,13 +47,13 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                 eframe::egui::StrokeKind::Inside,
             );
             if ui.input(|i| i.pointer.any_released())
-                && let Some(payload) =
-                    eframe::egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
-                        ctx,
-                    )
+                && let Some(payload) = eframe::egui::DragAndDrop::take_payload::<
+                    ui::signal_browser::DraggedSignal,
+                >(ctx)
             {
-                app.action_queue
-                    .push(action::AppAction::SpawnWidget(payload.to_widget_constructor()));
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    payload.to_widget_constructor(),
+                ));
             }
         }
     });
