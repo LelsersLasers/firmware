@@ -59,7 +59,7 @@ pub struct DAQApp {
     selection_request: u64,
     pub can_bus_speed: daqcore::connection::CanBusSpeed,
     pub udp_port: u16,
-    pub session: daqcore::session::Session,
+    pub router: daqcore::router::VirtualTimelineRouter,
     pub bus_load_samples: Vec<telemetry::BusLoadSample>,
     pub can_thread: daqcore::can_thread::CanThreadHandle,
     hil_snapshot: daqcore::hil::engine::HilSnapshot,
@@ -83,7 +83,7 @@ impl DAQApp {
             theme: self.theme_selection,
             pixels_per_point: self.pixels_per_point,
             log_folder: self.log_folder.clone(),
-            window_secs: self.session.timeline().window_secs(),
+            window_secs: self.router.timeline().window_secs(),
         };
         settings.save();
     }
@@ -91,7 +91,7 @@ impl DAQApp {
     pub fn new(
         can_to_ui_rx: mpsc::Receiver<daqcore::can_thread::CanThreadEvent>,
         can_thread: daqcore::can_thread::CanThreadHandle,
-        settings: settings::Settings,
+        mut settings: settings::Settings,
         cc: &eframe::CreationContext,
     ) -> Result<Self, Box<dyn error::Error + Send + Sync>> {
         let theme_selection = settings.theme;
@@ -106,7 +106,38 @@ impl DAQApp {
             30.0
         };
 
-        let session = daqcore::session::Session::live(daqcore::time::Time::now(), window_secs)?;
+        let mut router =
+            daqcore::router::VirtualTimelineRouter::live(daqcore::time::Time::now(), window_secs)?;
+        let egui_ctx = cc.egui_ctx.clone();
+        router.set_repaint_callback(Some(std::sync::Arc::new(move || {
+            egui_ctx.request_repaint();
+        })));
+        let candidate_store_dirs = [
+            settings.log_folder.clone(),
+            Some(path::PathBuf::from(settings::DEFAULT_LOG_FOLDER)),
+            Some(path::PathBuf::from("/tmp/per26_store")),
+        ];
+        if let Some(store_dir) = candidate_store_dirs.into_iter().flatten().find(|dir| {
+            dir.join(daqcore::storage::LOCAL_REGISTRY_FILENAME).exists()
+                || dir.join("partitions").is_dir()
+        }) {
+            match router.attach_store(&store_dir) {
+                Ok(_) => {
+                    if let Some((day_min, day_max)) = router.timeline().day_bounds_ms() {
+                        router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                    }
+                    if settings.log_folder.is_none() {
+                        settings.log_folder = Some(store_dir);
+                    }
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Failed to attach store directory {}: {err}",
+                        store_dir.display()
+                    );
+                }
+            }
+        }
         let preferred_selection = settings.bus_selection;
 
         let mut app = Self {
@@ -131,14 +162,24 @@ impl DAQApp {
             selection_request: 0,
             can_bus_speed: settings.selected_speed,
             udp_port: settings.udp_port,
-            session,
+            router,
             bus_load_samples: Vec::new(),
             hil_snapshot: daqcore::hil::engine::HilSnapshot::idle(),
             active_source: None,
             diagnostic: None,
             log_folder: settings.log_folder,
         };
-        if let Some(path) = settings.superdbc_path {
+        let default_dbc_path = settings.superdbc_path.or_else(|| {
+            let db_dir = settings::database_dir()?;
+            for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {
+                let path = db_dir.join(candidate);
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+            None
+        });
+        if let Some(path) = default_dbc_path {
             app.request_database(&path, preferred_selection);
         }
         Ok(app)
@@ -248,7 +289,7 @@ impl DAQApp {
                 return false;
             }
         }
-        self.session.reset(daqcore::time::Time::now());
+        self.router.reset_live(daqcore::time::Time::now());
         self.bus_load_samples.clear();
         self.hil_snapshot = daqcore::hil::engine::HilSnapshot::idle();
         self.diagnostic = None;
@@ -329,6 +370,25 @@ impl DAQApp {
                     }
                 }
             }
+            action::AppAction::AttachStore(store_dir) => {
+                match self.router.attach_store(&store_dir) {
+                    Ok(_) => {
+                        if self.connection_status != ConnectionStatus::Connected
+                            && let Some((day_min, day_max)) = self.router.timeline().day_bounds_ms()
+                        {
+                            self.router
+                                .timeline_mut()
+                                .snap_to_range_ms(day_min, day_max);
+                        }
+                    }
+                    Err(err) => {
+                        self.diagnostic = Some(format!(
+                            "Failed to attach store {}: {err}",
+                            store_dir.display()
+                        ));
+                    }
+                }
+            }
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
             }
@@ -390,11 +450,11 @@ impl eframe::App for DAQApp {
                     }
                 }
                 daqcore::can_thread::CanThreadEvent::Frame(frame) => {
-                    self.session.ingest_frame(frame);
+                    self.router.ingest_frame(frame);
                 }
                 daqcore::can_thread::CanThreadEvent::SourceSelected(Some(source)) => {
                     if self.active_source.as_ref() != Some(&source) {
-                        self.session.reset(daqcore::time::Time::now());
+                        self.router.reset_live(daqcore::time::Time::now());
                         self.bus_load_samples.clear();
                     }
                     self.active_source = Some(source);
@@ -425,7 +485,7 @@ impl eframe::App for DAQApp {
                 _ => {}
             }
         }
-        self.session.evict();
+        self.router.poll_background_tiles();
         if let Some(ppp) = self.pixels_per_point {
             ctx.set_pixels_per_point(ppp);
         }

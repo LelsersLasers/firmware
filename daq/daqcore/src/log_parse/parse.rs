@@ -213,19 +213,39 @@ fn parse_log_file(
         let identity = frame.can_identity();
         let bus_id = frame.bus_id();
 
-        let Some(bus) = database.bus_by_id(bus_id) else {
-            unknown_bus_count += 1;
-            log::debug!("Unknown bus {bus_id} in {}", in_file.display());
-            continue;
-        };
+        let decoded_on_bus = database
+            .bus_by_id(bus_id)
+            .and_then(|bus| {
+                bus.decode(identity, &frame.data)
+                    .ok()
+                    .map(|d| (bus.name().to_owned(), d))
+            })
+            .or_else(|| {
+                // Fallback for historical PER26/early-PER27 `.log` files recorded when
+                // `timestamped_frame_t` packed a 1-bit bus_id at bit 31 (before PR #561)
+                // or a 2-bit bus_id at bits 31..30 (before PR #580).
+                let legacy_1bit_bus = ((frame.identity >> 31) & 0x1) as u8;
+                let legacy_2bit_bus = ((frame.identity >> 30) & 0x3) as u8;
+                [legacy_1bit_bus, legacy_2bit_bus]
+                    .into_iter()
+                    .filter(|&alt_bus| alt_bus != bus_id)
+                    .find_map(|alt_bus| {
+                        let bus = database.bus_by_id(alt_bus)?;
+                        let decoded = bus.decode(identity, &frame.data).ok()?;
+                        Some((bus.name().to_owned(), decoded))
+                    })
+            });
 
-        if let Ok(decoded) = bus.decode(identity, &frame.data) {
+        if let Some((bus_name, decoded)) = decoded_on_bus {
             parsed.push(ParsedMessage {
                 timestamp: frame.ticks_ms,
                 decoded,
-                bus_name: bus.name().to_owned(),
+                bus_name,
                 source_file_idx,
             });
+        } else if database.bus_by_id(bus_id).is_none() {
+            unknown_bus_count += 1;
+            log::debug!("Unknown bus {bus_id} in {}", in_file.display());
         } else {
             undecoded_count += 1;
             log::debug!(

@@ -302,7 +302,8 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         return;
                     }
 
-                    app.log_folder = Some(path);
+                    app.log_folder = Some(path.clone());
+                    app.action_queue.push(action::AppAction::AttachStore(path));
                     app.save_settings();
                 }
 

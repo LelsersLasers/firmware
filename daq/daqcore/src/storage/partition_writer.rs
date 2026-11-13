@@ -551,7 +551,7 @@ fn build_overview_buckets(samples: &[RawSample], bucket_width_ms: i64) -> Vec<Ov
                         bucket_utc_ms: active_bucket,
                         min_val,
                         max_val,
-                        mean_val: sum_val / f64::from(count),
+                        mean_val: (sum_val / f64::from(count)).clamp(min_val, max_val),
                         count,
                     });
                 }
@@ -578,7 +578,7 @@ fn build_overview_buckets(samples: &[RawSample], bucket_width_ms: i64) -> Vec<Ov
             bucket_utc_ms: active_bucket,
             min_val,
             max_val,
-            mean_val: sum_val / f64::from(count),
+            mean_val: (sum_val / f64::from(count)).clamp(min_val, max_val),
             count,
         });
     }

@@ -27,7 +27,31 @@ impl Dynamics {
         ui: &mut eframe::egui::Ui,
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
-        let values = dynamics_values(view.setpoint_frames);
+        let mut values = dynamics_values(view.setpoint_frames);
+        if values.last_update.is_none() {
+            let mut latest_ms: Option<i64> = None;
+            if let Some((t, ax)) = view.latest_signal_value_at_setpoint("IMU_acceleration.X_axis") {
+                values.accel_x = ax as f32;
+                latest_ms = Some(latest_ms.map_or(t, |m| m.max(t)));
+            }
+            if let Some((t, ay)) = view.latest_signal_value_at_setpoint("IMU_acceleration.Y_axis") {
+                values.accel_y = ay as f32;
+                latest_ms = Some(latest_ms.map_or(t, |m| m.max(t)));
+            }
+            if let Some((t, yaw_deg_s)) =
+                view.latest_signal_value_at_setpoint("IMU_angular_rate.Z_axis")
+            {
+                values.yaw_rate_rads = yaw_deg_s.to_radians() as f32;
+                latest_ms = Some(latest_ms.map_or(t, |m| m.max(t)));
+            }
+            if let Some((t, steer_deg)) =
+                view.latest_signal_value_at_setpoint("LWS_Standard.LWS_ANGLE")
+            {
+                values.steer_angle_rad = steer_deg.to_radians() as f32;
+                latest_ms = Some(latest_ms.map_or(t, |m| m.max(t)));
+            }
+            values.last_update = latest_ms.map(daqcore::time::Time::from_unix_millis);
+        }
         let elapsed = values
             .last_update
             .map(|t| view.view_time().secs(t).max(0.0))

@@ -1,16 +1,20 @@
-//! Three independent tracks, owned by the UI/main thread.
+//! Unified Master Timeline state, owned by the UI/main thread.
+//!
+//! Tracks both the active viewport (`[start, end, setpoint]`) and global Track Day
+//! bounds (`[day_min_utc_ms, day_max_utc_ms]`), idle-gap folding state, and active
+//! track day selection.
 
-use crate::time;
+use crate::{router::Resolution, time};
 use std::ops;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Track {
     Marching,
     Frozen,
 }
 
 #[derive(Debug, Clone)]
-pub struct Timeline {
+pub struct MasterTimeline {
     start: time::Time,
     end: time::Time,
     setpoint: time::Time,
@@ -19,7 +23,13 @@ pub struct Timeline {
     setpoint_track: Track,
     window_ms: i64,
     latest: time::Time,
+    day_bounds_ms: Option<(i64, i64)>,
+    active_track_day_id: Option<String>,
+    collapse_idle_gaps: bool,
 }
+
+/// Type alias preserving compatibility with callers referencing `daqcore::timeline::Timeline`.
+pub type Timeline = MasterTimeline;
 
 fn millis(seconds: f64) -> Result<i64, String> {
     if !seconds.is_finite() || seconds < 0.0 {
@@ -32,7 +42,7 @@ fn millis(seconds: f64) -> Result<i64, String> {
     Ok(milliseconds.min(i64::MAX as f64) as i64)
 }
 
-impl Timeline {
+impl MasterTimeline {
     pub fn live(now: time::Time, window_secs: f64) -> Result<Self, String> {
         let window_ms = millis(window_secs)?;
 
@@ -45,6 +55,9 @@ impl Timeline {
             setpoint_track: Track::Marching,
             window_ms,
             latest: now,
+            day_bounds_ms: None,
+            active_track_day_id: None,
+            collapse_idle_gaps: false,
         })
     }
 
@@ -68,6 +81,18 @@ impl Timeline {
         self.setpoint
     }
 
+    pub fn start_utc_ms(&self) -> i64 {
+        self.start.unix_millis()
+    }
+
+    pub fn end_utc_ms(&self) -> i64 {
+        self.end.unix_millis()
+    }
+
+    pub fn setpoint_utc_ms(&self) -> i64 {
+        self.setpoint.unix_millis()
+    }
+
     pub fn start_track(&self) -> Track {
         self.start_track
     }
@@ -78,6 +103,10 @@ impl Timeline {
 
     pub fn setpoint_track(&self) -> Track {
         self.setpoint_track
+    }
+
+    pub fn window_ms(&self) -> i64 {
+        self.window_ms
     }
 
     pub fn window_secs(&self) -> f64 {
@@ -92,12 +121,84 @@ impl Timeline {
         self.start..=self.end
     }
 
+    pub fn range_ms(&self) -> ops::RangeInclusive<i64> {
+        self.start.unix_millis()..=self.end.unix_millis()
+    }
+
     pub fn setpoint_range(&self) -> ops::RangeInclusive<time::Time> {
         self.start..=self.setpoint
     }
 
+    pub fn setpoint_range_ms(&self) -> ops::RangeInclusive<i64> {
+        self.start.unix_millis()..=self.setpoint.unix_millis()
+    }
+
+    pub fn resolution_for_width(&self, plot_width_px: f32) -> Resolution {
+        let span_ms = self
+            .end
+            .unix_millis()
+            .saturating_sub(self.start.unix_millis());
+        Resolution::for_window_ms(span_ms, plot_width_px)
+    }
+
+    pub fn day_bounds_ms(&self) -> Option<(i64, i64)> {
+        self.day_bounds_ms
+    }
+
+    pub fn day_bounds(&self) -> Option<(time::Time, time::Time)> {
+        let (min_ms, max_ms) = self.day_bounds_ms?;
+        Some((
+            time::Time::from_unix_millis(min_ms),
+            time::Time::from_unix_millis(max_ms),
+        ))
+    }
+
+    pub fn set_day_bounds_ms(&mut self, bounds: Option<(i64, i64)>) {
+        self.day_bounds_ms = bounds.map(|(lo, hi)| (lo, hi.max(lo)));
+    }
+
+    pub fn observe_day_span_ms(&mut self, start_utc_ms: i64, end_utc_ms: i64) {
+        let hi = end_utc_ms.max(start_utc_ms);
+        self.day_bounds_ms = Some(match self.day_bounds_ms {
+            Some((prev_lo, prev_hi)) => (prev_lo.min(start_utc_ms), prev_hi.max(hi)),
+            None => (start_utc_ms, hi),
+        });
+    }
+
+    pub fn active_track_day_id(&self) -> Option<&str> {
+        self.active_track_day_id.as_deref()
+    }
+
+    pub fn set_active_track_day_id(&mut self, track_day_id: Option<String>) {
+        self.active_track_day_id = track_day_id;
+    }
+
+    pub fn collapse_idle_gaps(&self) -> bool {
+        self.collapse_idle_gaps
+    }
+
+    pub fn set_collapse_idle_gaps(&mut self, collapse: bool) {
+        self.collapse_idle_gaps = collapse;
+    }
+
+    /// Snap the active viewport `[start, end]` and `setpoint` to a specific historical interval
+    /// (e.g. an imported partition or an Event Annotation pill) and freeze live marching.
+    pub fn snap_to_range_ms(&mut self, start_utc_ms: i64, end_utc_ms: i64) {
+        let lo = start_utc_ms;
+        let hi = end_utc_ms.max(lo);
+        self.start = time::Time::from_unix_millis(lo);
+        self.end = time::Time::from_unix_millis(hi);
+        self.setpoint = self.end;
+        self.start_track = Track::Frozen;
+        self.end_track = Track::Frozen;
+        self.setpoint_track = Track::Frozen;
+        self.window_ms = hi.saturating_sub(lo);
+        self.observe_day_span_ms(lo, hi);
+    }
+
     pub fn observe(&mut self, latest: time::Time) -> bool {
         self.latest = self.latest.max(latest);
+        self.observe_day_span_ms(latest.unix_millis(), latest.unix_millis());
         self.recompute()
     }
 

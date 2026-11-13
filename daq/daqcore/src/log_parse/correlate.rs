@@ -113,7 +113,7 @@ pub fn time_correlate_chunk(
             {
                 let full_year = if y < 100 { 2000 + y as i32 } else { y as i32 };
                 if !(2020..=2100).contains(&full_year) {
-                    log::warn!(
+                    log::debug!(
                         "GPS message at {} ms has uninitialized or out-of-range year {}, skipping",
                         msg.timestamp,
                         full_year
