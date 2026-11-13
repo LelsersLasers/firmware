@@ -77,143 +77,153 @@ impl BatteryTemps {
             theme.success_color()
         };
 
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.heading(&self.title);
-            ui.add_space(4.0);
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.heading(&self.title);
+                ui.add_space(4.0);
 
-            ui::battery::common::stale_banner(ui, &theme, stale, elapsed);
+                ui::battery::common::stale_banner(ui, &theme, stale, elapsed);
 
-            ui.add_space(8.0);
-            ui.label(
-                eframe::egui::RichText::new("PACK SUMMARY")
-                    .size(10.0)
-                    .color(theme.text_color().linear_multiply(0.5)),
-            );
-            ui.add_space(4.0);
-
-            ui.columns(4, |cols| {
-                ui::battery::common::stat_card(
-                    &mut cols[0],
-                    &theme,
-                    "TEMP MIN",
-                    Some(temp_min),
-                    "°C",
-                    stale,
-                    None,
+                ui.add_space(8.0);
+                ui.label(
+                    eframe::egui::RichText::new("PACK SUMMARY")
+                        .size(10.0)
+                        .color(theme.text_color().linear_multiply(0.5)),
                 );
-                ui::battery::common::stat_card(
-                    &mut cols[1],
-                    &theme,
-                    "TEMP AVG",
-                    Some(temp_avg),
-                    "°C",
-                    stale,
-                    None,
-                );
-                ui::battery::common::stat_card(
-                    &mut cols[2],
-                    &theme,
-                    "TEMP MAX",
-                    Some(temp_max),
-                    "°C",
-                    stale,
-                    None,
-                );
-                ui::battery::common::stat_card(
-                    &mut cols[3],
-                    &theme,
-                    "TEMP RANGE",
-                    Some(temp_range),
-                    "°C",
-                    stale,
-                    Some(range_color),
-                );
-            });
+                ui.add_space(4.0);
 
-            ui.add_space(12.0);
+                ui::battery::common::stat_cards_grid(
+                    ui,
+                    &theme,
+                    stale,
+                    &[
+                        ui::battery::common::StatCardSpec {
+                            label: "TEMP MIN",
+                            value: Some(temp_min),
+                            unit: "°C",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "TEMP AVG",
+                            value: Some(temp_avg),
+                            unit: "°C",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "TEMP MAX",
+                            value: Some(temp_max),
+                            unit: "°C",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "TEMP RANGE",
+                            value: Some(temp_range),
+                            unit: "°C",
+                            override_color: Some(range_color),
+                        },
+                    ],
+                );
 
-            for (module_index, module) in modules.iter().enumerate() {
-                let module_sum: f64 = module
-                    .iter()
-                    .map(|cell| cell.temperature)
-                    .filter(|v| v.is_finite())
-                    .sum();
-                let module_min = module
-                    .iter()
-                    .map(|cell| cell.temperature)
-                    .filter(|v| v.is_finite())
-                    .reduce(f64::min)
-                    .unwrap_or(f64::NAN);
-                let module_max = module
-                    .iter()
-                    .map(|cell| cell.temperature)
-                    .filter(|v| v.is_finite())
-                    .reduce(f64::max)
-                    .unwrap_or(f64::NAN);
-                let module_avg = module_sum
-                    / module
+                ui.add_space(12.0);
+
+                for (module_index, module) in modules.iter().enumerate() {
+                    let module_sum: f64 = module
                         .iter()
-                        .filter(|cell| cell.temperature.is_finite())
-                        .count() as f64;
+                        .map(|cell| cell.temperature)
+                        .filter(|v| v.is_finite())
+                        .sum();
+                    let module_min = module
+                        .iter()
+                        .map(|cell| cell.temperature)
+                        .filter(|v| v.is_finite())
+                        .reduce(f64::min)
+                        .unwrap_or(f64::NAN);
+                    let module_max = module
+                        .iter()
+                        .map(|cell| cell.temperature)
+                        .filter(|v| v.is_finite())
+                        .reduce(f64::max)
+                        .unwrap_or(f64::NAN);
+                    let module_avg = module_sum
+                        / module
+                            .iter()
+                            .filter(|cell| cell.temperature.is_finite())
+                            .count() as f64;
 
-                eframe::egui::Frame::NONE
-                    .fill(theme.panel_color())
-                    .stroke(eframe::egui::Stroke::new(1.0_f32, theme.accent_color()))
-                    .inner_margin(eframe::egui::Margin::same(10))
-                    .corner_radius(eframe::egui::CornerRadius::same(4))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                eframe::egui::RichText::new(format!("MODULE {module_index}"))
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "avg {} °C",
-                                    ui::battery::common::reading(module_avg, 1)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "min {} °C",
-                                    ui::battery::common::reading(module_min, 1)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "max {} °C",
-                                    ui::battery::common::reading(module_max, 1)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
+                    eframe::egui::Frame::NONE
+                        .fill(theme.panel_color())
+                        .stroke(eframe::egui::Stroke::new(1.0_f32, theme.accent_color()))
+                        .inner_margin(eframe::egui::Margin::same(10))
+                        .corner_radius(eframe::egui::CornerRadius::same(4))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    eframe::egui::RichText::new(format!("MODULE {module_index}"))
+                                        .size(11.0)
+                                        .strong(),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "avg {} °C",
+                                        ui::battery::common::reading(module_avg, 1)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "min {} °C",
+                                        ui::battery::common::reading(module_min, 1)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "max {} °C",
+                                        ui::battery::common::reading(module_max, 1)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            const THERM_BAR_SPACING: f32 = 2.0;
+                            let available_width = ui.available_width();
+                            let cell_count = ui::battery::common::THERMISTORS_PER_MODULE as f32;
+                            let total_spacing = THERM_BAR_SPACING * (cell_count - 1.0);
+                            let bar_width = ((available_width - total_spacing) / cell_count).max(6.0);
+
+                            eframe::egui::ScrollArea::horizontal()
+                                .id_salt((&self.title, "therm_mod_scroll", module_index))
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = THERM_BAR_SPACING;
+                                        for (therm_index, cell) in module.iter().enumerate() {
+                                            temp_bar(
+                                                ui,
+                                                &theme,
+                                                cell,
+                                                stale,
+                                                bar_width,
+                                                module_index,
+                                                therm_index,
+                                            );
+                                        }
+                                    });
+                                });
                         });
 
-                        ui.add_space(6.0);
-
-                        let available_width = ui.available_width();
-                        let cell_spacing = ui.spacing().item_spacing.x;
-                        let cell_count = ui::battery::common::THERMISTORS_PER_MODULE as f32;
-                        let bar_width =
-                            ((available_width - cell_spacing * cell_count) / cell_count).max(8.0);
-
-                        ui.horizontal(|ui| {
-                            for cell in module.iter() {
-                                temp_bar(ui, &theme, cell, stale, bar_width);
-                            }
-                        });
-                    });
-
-                ui.add_space(6.0);
-            }
-        });
+                    ui.add_space(6.0);
+                }
+            });
 
         egui_tiles::UiResponse::None
     }
@@ -225,6 +235,8 @@ fn temp_bar(
     cell: &ThermistorTemperature,
     stale: bool,
     bar_w: f32,
+    module_index: usize,
+    therm_index: usize,
 ) {
     let fill_color = if stale {
         theme.text_color().linear_multiply(0.12)
@@ -238,34 +250,44 @@ fn temp_bar(
         0.0
     };
 
-    ui.vertical(|ui| {
-        ui.set_max_width(bar_w + 4.0);
+    let (outer_rect, response) = ui.allocate_exact_size(
+        eframe::egui::Vec2::new(bar_w, 24.0),
+        eframe::egui::Sense::hover(),
+    );
 
-        let (outer_rect, _) = ui.allocate_exact_size(
-            eframe::egui::Vec2::new(bar_w, 24.0),
-            eframe::egui::Sense::hover(),
-        );
+    let hover_text = if !stale && cell.temperature.is_finite() {
+        format!(
+            "Module {module_index}, Thermistor {therm_index}: {:.1} °C",
+            cell.temperature
+        )
+    } else {
+        format!("Module {module_index}, Thermistor {therm_index}: —")
+    };
+    response.on_hover_text(hover_text);
 
-        let painter = ui.painter();
-        painter.rect_filled(outer_rect, 3.0, theme.text_color().linear_multiply(0.06));
-        painter.rect_stroke(
-            outer_rect,
-            3.0,
-            eframe::egui::Stroke::new(0.5_f32, theme.accent_color()),
-            eframe::egui::StrokeKind::Inside,
-        );
+    let painter = ui.painter_at(outer_rect);
+    painter.rect_filled(outer_rect, 3.0, theme.text_color().linear_multiply(0.06));
+    painter.rect_stroke(
+        outer_rect,
+        3.0,
+        eframe::egui::Stroke::new(0.5_f32, theme.accent_color()),
+        eframe::egui::StrokeKind::Inside,
+    );
 
-        let fill_height = outer_rect.height() * fill_frac;
-        let fill_rect = eframe::egui::Rect::from_min_max(
-            eframe::egui::pos2(outer_rect.min.x, outer_rect.max.y - fill_height),
-            outer_rect.max,
-        );
-        painter.rect_filled(fill_rect, 2.0, fill_color);
+    let fill_height = outer_rect.height() * fill_frac;
+    let fill_rect = eframe::egui::Rect::from_min_max(
+        eframe::egui::pos2(outer_rect.min.x, outer_rect.max.y - fill_height),
+        outer_rect.max,
+    );
+    painter.rect_filled(fill_rect, 2.0, fill_color);
 
+    if bar_w >= 18.0 {
         let text = if stale || !cell.temperature.is_finite() {
             "—".to_string()
-        } else {
+        } else if bar_w >= 30.0 {
             format!("{:.1}°C", cell.temperature)
+        } else {
+            format!("{:.0}°", cell.temperature)
         };
 
         let text_color = if stale {
@@ -276,14 +298,15 @@ fn temp_bar(
             eframe::egui::Color32::WHITE
         };
 
+        let font_size = if bar_w >= 30.0 { 10.5 } else { 9.0 };
         painter.text(
             outer_rect.center(),
             eframe::egui::Align2::CENTER_CENTER,
             text,
-            eframe::egui::FontId::proportional(11.0),
+            eframe::egui::FontId::proportional(font_size),
             text_color,
         );
-    });
+    }
 }
 
 fn thermistor_sample(

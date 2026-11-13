@@ -94,176 +94,184 @@ impl BatteryVoltage {
             None
         };
 
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.heading(&self.title);
-            ui.add_space(4.0);
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.heading(&self.title);
+                ui.add_space(4.0);
 
-            ui::battery::common::stale_banner(ui, &theme, stale, elapsed);
+                ui::battery::common::stale_banner(ui, &theme, stale, elapsed);
 
-            ui.add_space(8.0);
-            ui.label(
-                eframe::egui::RichText::new("PACK SUMMARY")
-                    .size(10.0)
-                    .color(theme.text_color().linear_multiply(0.5)),
-            );
-            ui.add_space(4.0);
+                ui.add_space(8.0);
+                ui.label(
+                    eframe::egui::RichText::new("PACK SUMMARY")
+                        .size(10.0)
+                        .color(theme.text_color().linear_multiply(0.5)),
+                );
+                ui.add_space(4.0);
 
-            ui.columns(5, |cols| {
-                ui::battery::common::stat_card(
-                    &mut cols[0],
+                let delta_override = pack_delta.map(|delta| {
+                    if delta > 0.050 {
+                        theme.error_color()
+                    } else if delta > 0.020 {
+                        theme.warning_color()
+                    } else {
+                        theme.success_color()
+                    }
+                });
+                ui::battery::common::stat_cards_grid(
+                    ui,
                     &theme,
-                    "PACK SUM",
-                    pack_sum,
-                    "V",
                     stale,
-                    None,
+                    &[
+                        ui::battery::common::StatCardSpec {
+                            label: "PACK SUM",
+                            value: pack_sum,
+                            unit: "V",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "CURRENT",
+                            value: current,
+                            unit: "A",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "CELL MIN",
+                            value: pack_min,
+                            unit: "V",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "CELL MAX",
+                            value: pack_max,
+                            unit: "V",
+                            override_color: None,
+                        },
+                        ui::battery::common::StatCardSpec {
+                            label: "DELTA",
+                            value: pack_delta,
+                            unit: "V",
+                            override_color: delta_override,
+                        },
+                    ],
                 );
-                ui::battery::common::stat_card(
-                    &mut cols[1],
-                    &theme,
-                    "CURRENT",
-                    current,
-                    "A",
-                    stale,
-                    None,
-                );
-                ui::battery::common::stat_card(
-                    &mut cols[2],
-                    &theme,
-                    "CELL MIN",
-                    pack_min,
-                    "V",
-                    stale,
-                    None,
-                );
-                ui::battery::common::stat_card(
-                    &mut cols[3],
-                    &theme,
-                    "CELL MAX",
-                    pack_max,
-                    "V",
-                    stale,
-                    None,
-                );
-                ui::battery::common::stat_card(
-                    &mut cols[4],
-                    &theme,
-                    "DELTA",
-                    pack_delta,
-                    "V",
-                    stale,
-                    pack_delta.map(|delta| {
-                        if delta > 0.050 {
-                            theme.error_color()
-                        } else if delta > 0.020 {
-                            theme.warning_color()
-                        } else {
-                            theme.success_color()
-                        }
-                    }),
-                );
+
+                ui.add_space(12.0);
+
+                for (module_index, module) in modules.iter().enumerate() {
+                    let module_sum: f64 = module
+                        .iter()
+                        .map(|cell| cell.voltage)
+                        .filter(|v| v.is_finite())
+                        .sum();
+                    let module_min = module
+                        .iter()
+                        .map(|cell| cell.voltage)
+                        .filter(|v| v.is_finite())
+                        .reduce(f64::min)
+                        .unwrap_or(f64::NAN);
+                    let module_max = module
+                        .iter()
+                        .map(|cell| cell.voltage)
+                        .filter(|v| v.is_finite())
+                        .reduce(f64::max)
+                        .unwrap_or(f64::NAN);
+                    let module_delta = if module_min.is_finite() {
+                        module_max - module_min
+                    } else {
+                        f64::NAN
+                    };
+
+                    let delta_color = if module_delta > 0.050 {
+                        theme.error_color()
+                    } else if module_delta > 0.020 {
+                        theme.warning_color()
+                    } else {
+                        theme.text_color().linear_multiply(0.55)
+                    };
+
+                    eframe::egui::Frame::NONE
+                        .fill(theme.panel_color())
+                        .stroke(eframe::egui::Stroke::new(1.0_f32, theme.accent_color()))
+                        .inner_margin(eframe::egui::Margin::same(10))
+                        .corner_radius(eframe::egui::CornerRadius::same(4))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    eframe::egui::RichText::new(format!("MODULE {module_index}"))
+                                        .size(11.0)
+                                        .strong(),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "sum {} V",
+                                        ui::battery::common::reading(module_sum, 2)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "min {} V",
+                                        ui::battery::common::reading(module_min, 2)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "max {} V",
+                                        ui::battery::common::reading(module_max, 2)
+                                    ))
+                                    .size(10.0)
+                                    .color(theme.text_color().linear_multiply(0.55)),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "Δ {} V",
+                                        ui::battery::common::reading(module_delta, 2)
+                                    ))
+                                    .size(10.0)
+                                    .color(delta_color),
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            const CELL_BAR_SPACING: f32 = 2.0;
+                            let available_width = ui.available_width();
+                            let cell_count = ui::battery::common::CELLS_PER_MODULE as f32;
+                            let total_spacing = CELL_BAR_SPACING * (cell_count - 1.0);
+                            let bar_width = ((available_width - total_spacing) / cell_count).max(5.0);
+
+                            eframe::egui::ScrollArea::horizontal()
+                                .id_salt((&self.title, "cell_mod_scroll", module_index))
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = CELL_BAR_SPACING;
+                                        for (cell_index, cell) in module.iter().enumerate() {
+                                            cell_bar(
+                                                ui,
+                                                &theme,
+                                                cell,
+                                                stale,
+                                                bar_width,
+                                                module_index,
+                                                cell_index,
+                                            );
+                                        }
+                                    });
+                                });
+                        });
+
+                    ui.add_space(6.0);
+                }
             });
-
-            ui.add_space(12.0);
-
-            for (module_index, module) in modules.iter().enumerate() {
-                let module_sum: f64 = module
-                    .iter()
-                    .map(|cell| cell.voltage)
-                    .filter(|v| v.is_finite())
-                    .sum();
-                let module_min = module
-                    .iter()
-                    .map(|cell| cell.voltage)
-                    .filter(|v| v.is_finite())
-                    .reduce(f64::min)
-                    .unwrap_or(f64::NAN);
-                let module_max = module
-                    .iter()
-                    .map(|cell| cell.voltage)
-                    .filter(|v| v.is_finite())
-                    .reduce(f64::max)
-                    .unwrap_or(f64::NAN);
-                let module_delta = if module_min.is_finite() {
-                    module_max - module_min
-                } else {
-                    f64::NAN
-                };
-
-                let delta_color = if module_delta > 0.050 {
-                    theme.error_color()
-                } else if module_delta > 0.020 {
-                    theme.warning_color()
-                } else {
-                    theme.text_color().linear_multiply(0.55)
-                };
-
-                eframe::egui::Frame::NONE
-                    .fill(theme.panel_color())
-                    .stroke(eframe::egui::Stroke::new(1.0_f32, theme.accent_color()))
-                    .inner_margin(eframe::egui::Margin::same(10))
-                    .corner_radius(eframe::egui::CornerRadius::same(4))
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                eframe::egui::RichText::new(format!("MODULE {module_index}"))
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "sum {} V",
-                                    ui::battery::common::reading(module_sum, 2)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "min {} V",
-                                    ui::battery::common::reading(module_min, 2)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "max {} V",
-                                    ui::battery::common::reading(module_max, 2)
-                                ))
-                                .size(10.0)
-                                .color(theme.text_color().linear_multiply(0.55)),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "Δ {} V",
-                                    ui::battery::common::reading(module_delta, 2)
-                                ))
-                                .size(10.0)
-                                .color(delta_color),
-                            );
-                        });
-
-                        ui.add_space(6.0);
-
-                        let available_width = ui.available_width();
-                        let cell_spacing = ui.spacing().item_spacing.x;
-                        let cell_count = ui::battery::common::CELLS_PER_MODULE as f32;
-                        let bar_width =
-                            ((available_width - cell_spacing * cell_count) / cell_count).max(8.0);
-
-                        ui.horizontal(|ui| {
-                            for cell in module.iter() {
-                                cell_bar(ui, &theme, cell, stale, bar_width);
-                            }
-                        });
-                    });
-
-                ui.add_space(6.0);
-            }
-        });
 
         egui_tiles::UiResponse::None
     }
@@ -275,6 +283,8 @@ fn cell_bar(
     cell: &CellVoltage,
     stale: bool,
     bar_w: f32,
+    module_index: usize,
+    cell_index: usize,
 ) {
     let fill_color = if stale {
         theme.text_color().linear_multiply(0.12)
@@ -288,30 +298,39 @@ fn cell_bar(
         0.0
     };
 
-    ui.vertical(|ui| {
-        ui.set_max_width(bar_w + 4.0);
+    let (outer_rect, response) = ui.allocate_exact_size(
+        eframe::egui::Vec2::new(bar_w, 20.0),
+        eframe::egui::Sense::hover(),
+    );
 
-        let (outer_rect, _) = ui.allocate_exact_size(
-            eframe::egui::Vec2::new(bar_w, 20.0),
-            eframe::egui::Sense::hover(),
-        );
+    let hover_text = if !stale && cell.voltage.is_finite() {
+        format!(
+            "Module {module_index}, Cell {cell_index}: {:.3} V{}",
+            cell.voltage,
+            if cell.balancing { " (Balancing)" } else { "" }
+        )
+    } else {
+        format!("Module {module_index}, Cell {cell_index}: —")
+    };
+    response.on_hover_text(hover_text);
 
-        let painter = ui.painter();
-        painter.rect_filled(outer_rect, 3.0, theme.text_color().linear_multiply(0.06));
-        painter.rect_stroke(
-            outer_rect,
-            3.0,
-            eframe::egui::Stroke::new(0.5_f32, theme.accent_color()),
-            eframe::egui::StrokeKind::Inside,
-        );
+    let painter = ui.painter_at(outer_rect);
+    painter.rect_filled(outer_rect, 3.0, theme.text_color().linear_multiply(0.06));
+    painter.rect_stroke(
+        outer_rect,
+        3.0,
+        eframe::egui::Stroke::new(0.5_f32, theme.accent_color()),
+        eframe::egui::StrokeKind::Inside,
+    );
 
-        let fill_height = outer_rect.height() * fill_frac;
-        let fill_rect = eframe::egui::Rect::from_min_max(
-            eframe::egui::pos2(outer_rect.min.x, outer_rect.max.y - fill_height),
-            outer_rect.max,
-        );
-        painter.rect_filled(fill_rect, 2.0, fill_color);
+    let fill_height = outer_rect.height() * fill_frac;
+    let fill_rect = eframe::egui::Rect::from_min_max(
+        eframe::egui::pos2(outer_rect.min.x, outer_rect.max.y - fill_height),
+        outer_rect.max,
+    );
+    painter.rect_filled(fill_rect, 2.0, fill_color);
 
+    if bar_w >= 20.0 {
         let text = if stale || !cell.voltage.is_finite() {
             "—".to_string()
         } else {
@@ -326,14 +345,15 @@ fn cell_bar(
             eframe::egui::Color32::WHITE
         };
 
+        let font_size = if bar_w >= 26.0 { 10.0 } else { 8.5 };
         painter.text(
             outer_rect.center(),
             eframe::egui::Align2::CENTER_CENTER,
             text,
-            eframe::egui::FontId::proportional(10.0),
+            eframe::egui::FontId::proportional(font_size),
             text_color,
         );
-    });
+    }
 }
 
 fn cell_sample(frame: &daqcore::frame::ParsedFrame) -> Option<(usize, usize, CellVoltage)> {
