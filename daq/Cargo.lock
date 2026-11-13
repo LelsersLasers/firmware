@@ -1286,10 +1286,8 @@ name = "daqcloud"
 version = "0.1.0"
 dependencies = [
  "axum",
- "diesel",
- "diesel_migrations",
+ "daqcore",
  "env_logger",
- "libsqlite3-sys",
  "log",
  "tokio",
 ]
@@ -1301,8 +1299,11 @@ dependencies = [
  "arrow",
  "bytemuck",
  "chrono",
+ "diesel",
+ "diesel_migrations",
  "globset",
  "indexmap",
+ "libsqlite3-sys",
  "log",
  "parquet",
  "prettyplease",

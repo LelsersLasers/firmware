@@ -60,6 +60,7 @@ pub enum ImportError {
     Parquet(parquet::errors::ParquetError),
     Arrow(arrow::error::ArrowError),
     Json(serde_json::Error),
+    Registry(storage::RegistryError),
 }
 
 impl fmt::Display for ImportError {
@@ -69,6 +70,7 @@ impl fmt::Display for ImportError {
             Self::Parquet(e) => write!(f, "Parquet error: {e}"),
             Self::Arrow(e) => write!(f, "Arrow error: {e}"),
             Self::Json(e) => write!(f, "JSON serialization error: {e}"),
+            Self::Registry(e) => write!(f, "Registry error: {e}"),
         }
     }
 }
@@ -96,6 +98,12 @@ impl From<arrow::error::ArrowError> for ImportError {
 impl From<serde_json::Error> for ImportError {
     fn from(value: serde_json::Error) -> Self {
         Self::Json(value)
+    }
+}
+
+impl From<storage::RegistryError> for ImportError {
+    fn from(value: storage::RegistryError) -> Self {
+        Self::Registry(value)
     }
 }
 
@@ -150,8 +158,12 @@ fn compute_partition_id(
     hasher.update((sub_partition_idx as u64).to_le_bytes());
     hasher.update((slice.len() as u64).to_le_bytes());
     hasher.update(superdbc_hash.as_bytes());
+    // Only include whole-file SHA-256 hashes for immutable RTC-named files;
+    // `log-0.log` is appended to across subsequent MCU boots on the same SD card.
     for file in raw_logs {
-        hasher.update(file.sha256_hex.as_bytes());
+        if file.rtc_timestamp_ms.is_some() {
+            hasher.update(file.sha256_hex.as_bytes());
+        }
     }
     if let Some((_, first_msg)) = slice.first() {
         hasher.update(first_msg.timestamp.to_le_bytes());
@@ -188,6 +200,7 @@ pub fn write_correlated_epochs_to_store(
 ) -> Result<ImportSummary, ImportError> {
     let partitions_root = store_dir.join("partitions");
     fs::create_dir_all(&partitions_root)?;
+    let registry = storage::Registry::open_store(store_dir)?;
 
     let mut summary = ImportSummary {
         log_files_parsed: log_files.len(),
@@ -240,6 +253,7 @@ pub fn write_correlated_epochs_to_store(
                 log_files,
                 database,
             )?;
+            registry.register_manifest(&manifest, true)?;
             if was_written {
                 summary.partitions_written += 1;
             } else {
@@ -1083,6 +1097,40 @@ mod tests {
         assert_eq!(summary2.partitions_written, 0);
         assert_eq!(summary2.partitions_skipped_existing, 1);
 
+        // 5. Verify local_registry.sqlite was automatically populated and matches the manifest
+        let registry_path = store_dir.join(storage::LOCAL_REGISTRY_FILENAME);
+        assert!(registry_path.is_file());
+        let registry = storage::Registry::open_store(&store_dir).expect("open store registry");
+        let days = registry.list_track_days().unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].id, manifest.track_day_id);
+
+        let registered_parts = registry
+            .list_partitions_for_day(&manifest.track_day_id)
+            .unwrap();
+        assert_eq!(registered_parts.len(), 1);
+        assert_eq!(registered_parts[0].partition_id, manifest.partition_id);
+        assert_eq!(registered_parts[0].manifest, *manifest);
+
+        let registered_annotations = registry
+            .list_annotations_for_day(&manifest.track_day_id, false)
+            .unwrap();
+        assert_eq!(registered_annotations.len(), manifest.annotations.len());
+
+        // 6. If local_registry.sqlite is deleted, sync_from_store_dir reconstructs it from manifest.json files
+        drop(registry);
+        fs::remove_file(&registry_path).unwrap();
+        let rebuilt_registry = storage::Registry::open_store(&store_dir).unwrap();
+        let synced_count = rebuilt_registry.sync_from_store_dir(&store_dir).unwrap();
+        assert_eq!(synced_count, 1);
+        assert_eq!(
+            rebuilt_registry
+                .list_partitions_for_day(&manifest.track_day_id)
+                .unwrap()
+                .len(),
+            1
+        );
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
@@ -1195,6 +1243,43 @@ mod tests {
                 manifest.end_utc_ms - manifest.start_utc_ms
             );
         }
+
+        // Simulate pulling the same SD card later in the day after another boot appended to log-0.log
+        // and wrote a new RTC-named file: the earlier partitions must be skipped (idempotent)!
+        let mut log0_frames = vec![
+            parse::RawFrame::new(10, 48, 0, padded).unwrap(),
+            parse::RawFrame::new(20, 48, 0, padded).unwrap(),
+        ];
+        fs::write(
+            logs_dir.join("log-0.log"),
+            bytemuck::cast_slice(&log0_frames),
+        )
+        .unwrap();
+        let summary_with_log0_a =
+            crate::log_parse::import_logs_to_store(&logs_dir, &store_dir, &db).unwrap();
+
+        // Append a second boot segment into log-0.log + a new RTC file
+        log0_frames.push(parse::RawFrame::new(5, 48, 0, padded).unwrap());
+        fs::write(
+            logs_dir.join("log-0.log"),
+            bytemuck::cast_slice(&log0_frames),
+        )
+        .unwrap();
+        let file4_frames = vec![parse::RawFrame::new(500, 48, 0, padded).unwrap()];
+        fs::write(
+            logs_dir.join("log-2026-11-12--16-00-00.log"),
+            bytemuck::cast_slice(&file4_frames),
+        )
+        .unwrap();
+
+        let summary_with_log0_b =
+            crate::log_parse::import_logs_to_store(&logs_dir, &store_dir, &db).unwrap();
+        assert_eq!(
+            summary_with_log0_b.partitions_skipped_existing,
+            summary_with_log0_a.manifests.len(),
+            "All earlier partitions must be skipped even after log-0.log grows with new boots"
+        );
+        assert_eq!(summary_with_log0_b.partitions_written, 1);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

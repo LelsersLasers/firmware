@@ -24,6 +24,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     // Let Cargo rerun generation when its inputs or implementation change.
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=build_support");
+    println!("cargo::rerun-if-changed=migrations");
     println!("cargo::rerun-if-changed={}", schema.display());
     println!("cargo::rerun-if-changed={}", fallback.display());
     // A fresh checkout may have neither the schema nor the superdbc directory

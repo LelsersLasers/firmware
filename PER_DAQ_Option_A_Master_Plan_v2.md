@@ -558,6 +558,6 @@ Instead of trying to boil the ocean at once, you can build Option A v2 in **4 cl
 - Implement **`export_modal.rs`** and `daqcore::export` backed by `daq/config/export_presets.json` (`"VD"`, `"Aero"`, `"Powertrain"`) for 3-click export to Parquet, CSV, or MATLAB—and retire `plot_factory/`.
 
 ### Phase 4: `daqcloud` Asset Sync & Future Multimodal Viewports
-- Update `daqcloud` migrations to store **TrackDays, BootEpochs, Partition Manifests, and Annotations** (dropping the row-per-sample `SignalSamples` table and keeping workspaces/presets out of the database).
+- Nuke legacy `daqcloud` migrations and unify on the shared Diesel `Registry` (`TrackDays`, `Partitions`, `RawAssets`, and `Annotations`), dropping the row-per-sample `SignalSamples` table and keeping workspaces/presets out of the database.
 - Add background partition upload/download and live WebSocket annotation sync.
 - Add `video_player.rs` (`.mp4` + frame index) and `spatial_3d.rs` (`egui_wgpu` 3D pose / LiDAR) when sensor hardware is ready.

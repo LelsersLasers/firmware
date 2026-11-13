@@ -1,48 +1,43 @@
-pub mod schema;
+use std::{error, path};
 
-use std::{error, time};
-
-use diesel::connection::SimpleConnection as _;
-use diesel_migrations::MigrationHarness as _;
+use daqcore::storage::Registry;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
-pub type DbPool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::SqliteConnection>>;
 
-const MIGRATIONS: diesel_migrations::EmbeddedMigrations =
-    diesel_migrations::embed_migrations!("migrations");
-
-const POOL_SIZE: u32 = 4;
-const CONNECTION_TIMEOUT: time::Duration = time::Duration::from_secs(5);
-
-#[derive(Debug)]
-struct SqliteSettings;
-
-impl diesel::r2d2::CustomizeConnection<diesel::SqliteConnection, diesel::r2d2::Error>
-    for SqliteSettings
-{
-    fn on_acquire(&self, conn: &mut diesel::SqliteConnection) -> Result<(), diesel::r2d2::Error> {
-        // These settings apply to each connection, including pool replacements.
-        conn.batch_execute("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;")
-            .map_err(diesel::r2d2::Error::QueryError)
-    }
+/// Open a file-backed SQLite metadata registry and run embedded Diesel migrations.
+pub fn init_registry(database_path: impl AsRef<path::Path>) -> Result<Registry, Error> {
+    Ok(Registry::open(database_path)?)
 }
 
-/// Open a file-backed SQLite database and migrate it before serving requests.
-pub fn init_pool(database_url: &str) -> Result<DbPool, Error> {
-    let manager = diesel::r2d2::ConnectionManager::<diesel::SqliteConnection>::new(database_url);
-    let pool = diesel::r2d2::Pool::builder()
-        .max_size(POOL_SIZE)
-        .connection_timeout(CONNECTION_TIMEOUT)
-        .connection_customizer(Box::new(SqliteSettings))
-        .build(manager)?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use daqcore::storage::TrackDay;
 
-    {
-        let mut conn = pool.get()?;
-        // WAL is persistent for this database file.
-        // Allows readers during writes.
-        conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-        conn.run_pending_migrations(MIGRATIONS)?;
+    #[test]
+    fn test_daqcloud_init_registry_runs_migrations() {
+        let temp_path = std::env::temp_dir().join(format!(
+            "daqcloud_registry_test_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&temp_path);
+
+        let registry = init_registry(&temp_path).expect("daqcloud registry init");
+        registry
+            .upsert_track_day(&TrackDay {
+                id: "2026-11-12".to_owned(),
+                title: "Cloud Test Day".to_owned(),
+                location: "Purdue Grand Prix Track".to_owned(),
+                start_utc_ms: 1_000,
+                end_utc_ms: 2_000,
+            })
+            .unwrap();
+
+        let days = registry.list_track_days().unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].title, "Cloud Test Day");
+
+        drop(registry);
+        let _ = std::fs::remove_file(&temp_path);
     }
-
-    Ok(pool)
 }
