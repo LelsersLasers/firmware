@@ -144,13 +144,46 @@ pub fn time_correlate_chunk(
     }
 
     if !gps_points.is_empty() {
-        let points: Vec<Point> = gps_points
+        let mut points: Vec<Point> = gps_points
             .iter()
             .map(|(log_ts, real_ts)| Point {
                 x: *log_ts as f64,
                 y: real_ts.timestamp_millis() as f64,
             })
             .collect();
+
+        // Filter out u-blox cold-start dates (e.g., 2022-05-01 before satellite lock in log-0.log)
+        // and single-frame bit-flip outliers using RTC filename anchoring (if available) and
+        // median unit-slope intercept consensus.
+        let rtc_anchor_intercept = chunk.iter().find_map(|msg| {
+            let file_meta = files.get(msg.source_file_idx)?;
+            let rtc_unix_ms = file_meta.rtc_timestamp_ms?;
+            Some((rtc_unix_ms as f64) - f64::from(msg.timestamp))
+        });
+        if let Some(rtc_intercept) = rtc_anchor_intercept {
+            let within_day: Vec<Point> = points
+                .iter()
+                .copied()
+                .filter(|p| ((p.y - p.x) - rtc_intercept).abs() <= 86_400_000.0)
+                .collect();
+            if !within_day.is_empty() {
+                points = within_day;
+            }
+        }
+
+        if points.len() >= 3 {
+            let mut intercepts: Vec<f64> = points.iter().map(|p| p.y - p.x).collect();
+            intercepts.sort_by(|a, b| a.total_cmp(b));
+            let median_intercept = intercepts[intercepts.len() / 2];
+            let inliers: Vec<Point> = points
+                .iter()
+                .copied()
+                .filter(|p| ((p.y - p.x) - median_intercept).abs() <= 10_000.0)
+                .collect();
+            if !inliers.is_empty() {
+                points = inliers;
+            }
+        }
 
         if let Some((mut slope, mut intercept)) = linear_regression(&points) {
             if !slope.is_finite() || (slope - REGRESSION_FALLBACK_SLOPE).abs() > 0.1 {
@@ -254,6 +287,7 @@ pub fn time_correlate_chunk(
     }
 }
 
+#[derive(Clone, Copy)]
 struct Point {
     x: f64, // log timestamp ms
     y: f64, // unix timestamp ms

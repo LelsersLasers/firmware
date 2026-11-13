@@ -238,33 +238,41 @@ impl Scope {
         let resolution = view.timeline.resolution_for_width(width_px);
         let series = view.query_signal(&signal_id, resolution);
 
+        let base_staleness_ms = view.router.formula_engine().max_staleness_ms();
+        let max_gap_ms = resolution
+            .bucket_width_ms()
+            .map_or(base_staleness_ms, |bw| base_staleness_ms.max(bw * 3));
+
         let (points, envelope_min_max) = match &series {
             daqcore::router::SignalSeries::Exact {
                 timestamps_ms,
                 values,
             } => {
-                let pts: Vec<[f64; 2]> = timestamps_ms
-                    .iter()
-                    .zip(values.iter())
-                    .map(|(&t_ms, &val)| [((t_ms - start_ms) as f64) / 1000.0, val])
-                    .collect();
+                let pts = telemetry::points_with_gap_breaks(
+                    timestamps_ms.iter().copied().zip(values.iter().copied()),
+                    start_ms,
+                    max_gap_ms,
+                );
                 (pts, None)
             }
             daqcore::router::SignalSeries::Envelope(buckets) => {
-                let mean_pts: Vec<[f64; 2]> = buckets
-                    .iter()
-                    .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.mean])
-                    .collect();
+                let mean_pts = telemetry::points_with_gap_breaks(
+                    buckets.iter().map(|b| (b.utc_ms, b.mean)),
+                    start_ms,
+                    max_gap_ms,
+                );
                 let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
                 let min_max = has_spread.then(|| {
-                    let min_pts: Vec<[f64; 2]> = buckets
-                        .iter()
-                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.min])
-                        .collect();
-                    let max_pts: Vec<[f64; 2]> = buckets
-                        .iter()
-                        .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.max])
-                        .collect();
+                    let min_pts = telemetry::points_with_gap_breaks(
+                        buckets.iter().map(|b| (b.utc_ms, b.min)),
+                        start_ms,
+                        max_gap_ms,
+                    );
+                    let max_pts = telemetry::points_with_gap_breaks(
+                        buckets.iter().map(|b| (b.utc_ms, b.max)),
+                        start_ms,
+                        max_gap_ms,
+                    );
                     (min_pts, max_pts)
                 });
                 (mean_pts, min_max)
