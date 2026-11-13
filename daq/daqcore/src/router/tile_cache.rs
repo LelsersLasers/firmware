@@ -259,14 +259,14 @@ impl TileCache {
                                     &key.signal_id,
                                 ),
                             };
+                            let repaint_guard = worker_repaint.lock().ok();
                             if res_tx.send(WorkerResult { key, result }).is_err() {
                                 break;
                             }
-                            if let Ok(guard) = worker_repaint.lock()
-                                && let Some(cb) = guard.as_ref()
-                            {
+                            if let Some(cb) = repaint_guard.as_ref().and_then(|g| g.as_ref()) {
                                 cb();
                             }
+                            drop(repaint_guard);
                         }
                         WorkerCommand::Shutdown => break,
                     }
@@ -460,6 +460,8 @@ impl TileCache {
             }
             total += Self::poll_completed_locked(&mut dyn_guard);
         }
+        drop(dyn_guard);
+        drop(self.repaint_cb.lock());
         total
     }
 
