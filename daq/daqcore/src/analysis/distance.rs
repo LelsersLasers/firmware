@@ -108,8 +108,7 @@ pub fn map_series_to_distance(
     }
     let (spd_ts, spd_vals) = series_to_timestamp_values(&sliced_spd);
     let speed_staleness = max_staleness_ms.max(DEFAULT_SPEED_INTEGRATION_GAP_MS);
-    let resampled_speed =
-        resample_continuous_linear(&spd_ts, &spd_vals, &sig_ts, speed_staleness);
+    let resampled_speed = resample_continuous_linear(&spd_ts, &spd_vals, &sig_ts, speed_staleness);
     let distances_m = integrate_velocity_samples(&sig_ts, &resampled_speed, speed_staleness);
 
     DistanceSeries {

@@ -286,6 +286,25 @@ impl VirtualTimelineRouter {
         )
     }
 
+    /// Synchronously query `signal_id` (raw or derived) re-indexed against cumulative track
+    /// distance integrated from `speed_signal_id` over `range` at exact `resolution`.
+    pub fn query_signal_vs_distance_blocking(
+        &self,
+        signal_id: &str,
+        speed_signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> Result<DistanceSeries, RouterError> {
+        let sig_series = self.query_signal_blocking(signal_id, range.clone(), resolution)?;
+        let spd_series = self.query_signal_blocking(speed_signal_id, range.clone(), resolution)?;
+        Ok(map_series_to_distance(
+            &sig_series,
+            &spd_series,
+            range,
+            self.formula_engine.max_staleness_ms(),
+        ))
+    }
+
     /// Poll completed background tile reads into the LRU cache.
     pub fn poll_background_tiles(&self) -> usize {
         self.tile_cache.poll_completed()
@@ -1156,6 +1175,364 @@ mod tests {
                     + summary3.partitions_written
             );
         }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    /// Milestone 4 Real PER26 Dataset Validation:
+    /// Imports real SD card `.log` slices from `PER26/2026-09-06/1_no_cooling/raw` and
+    /// `PER26/2026-09-06/2_regen/raw`, cross-validates `FormulaEngine` derived channels
+    /// (`battery.voltage_v`, `battery.power_w`, `battery.energy_wh`, `vd.front_heave_mm`,
+    /// `vd.fl_damper_vel_mms`, `vd.total_accel_g`, `thermals.max_igbt_temp_c`) against
+    /// `PER26/2026-09-06/1_no_cooling/parsed/no_cooling_000_2026-09-06T18-34-51.252Z.csv`,
+    /// and verifies gap-safe track-distance integration (`query_signal_vs_distance`) across stints.
+    #[test]
+    fn formula_engine_and_distance_integrator_validate_against_per26_datasets() {
+        let manifest_dir = path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let per26_dbc = repo_root.join("superdbc/superdbc_per26.json");
+        let dbc_path = if per26_dbc.exists() {
+            per26_dbc
+        } else {
+            repo_root.join("superdbc/superdbc_1e6fa38.json")
+        };
+        let run1_raw = repo_root.join("PER26/2026-09-06/1_no_cooling/raw");
+        let run1_csv = repo_root.join(
+            "PER26/2026-09-06/1_no_cooling/parsed/no_cooling_000_2026-09-06T18-34-51.252Z.csv",
+        );
+        let run2_raw = repo_root.join("PER26/2026-09-06/2_regen/raw");
+
+        assert!(
+            dbc_path.exists() && run1_raw.exists() && run1_csv.exists() && run2_raw.exists(),
+            "Expected PER26 raw and parsed datasets in repo root"
+        );
+
+        let db = Database::load(&dbc_path).expect("load PER26 superdbc JSON");
+
+        let tmp_dir =
+            std::env::temp_dir().join(format!("daq_m4_per26_verify_{}", uuid::Uuid::new_v4()));
+        let staging_run1 = tmp_dir.join("run1_logs");
+        let staging_run2 = tmp_dir.join("run2_logs");
+        let store_dir = tmp_dir.join("store");
+        fs::create_dir_all(&staging_run1).unwrap();
+        fs::create_dir_all(&staging_run2).unwrap();
+
+        for name in [
+            "log-2026-09-06--18-36-02.log",
+            "log-2026-09-06--18-37-02.log",
+        ] {
+            let src = run1_raw.join(name);
+            let dst = staging_run1.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+        for name in [
+            "log-2026-09-06--20-21-44.log",
+            "log-2026-09-06--20-22-44.log",
+        ] {
+            let src = run2_raw.join(name);
+            let dst = staging_run2.join(name);
+            if fs::hard_link(&src, &dst).is_err() {
+                fs::copy(&src, &dst).unwrap();
+            }
+        }
+
+        crate::log_parse::import_logs_to_store(&staging_run1, &store_dir, &db).unwrap();
+        crate::log_parse::import_logs_to_store(&staging_run2, &store_dir, &db).unwrap();
+
+        let mut router = VirtualTimelineRouter::open_store(&store_dir, Time::now(), 30.0)
+            .expect("open PER26 store with default FormulaEngine");
+
+        // 1. Verify all 21 default derived signals from daq/config/derived_signals.json are loaded
+        let descriptors = router.formula_engine().definitions();
+        assert_eq!(descriptors.len(), 21);
+        for id in [
+            "battery.voltage_v",
+            "battery.power_w",
+            "battery.power_kw",
+            "battery.energy_wh",
+            "vd.front_heave_mm",
+            "vd.front_roll_displacement_mm",
+            "vd.fl_damper_vel_mms",
+            "vd.total_accel_g",
+            "vd.understeer_gradient",
+            "thermals.max_igbt_temp_c",
+        ] {
+            assert!(
+                router.formula_engine().contains(id),
+                "Expected default derived signal `{id}` to be registered"
+            );
+        }
+
+        let (day_min_ms, day_max_ms) = router.timeline().day_bounds_ms().unwrap();
+        let day_range = day_min_ms..=day_max_ms;
+
+        // 2. Cross-validate battery.voltage_v and battery.power_w against PER26 Run 1 parsed CSV
+        // Extract the first 5 pack_stats rows from where log-2026-09-06--18-36-02.log begins (daq_ts >= 60.201).
+        let csv_expected_samples = {
+            use std::io::{BufRead, BufReader};
+            let file = fs::File::open(&run1_csv).expect("open PER26 Run 1 CSV");
+            let mut lines = BufReader::new(file).lines();
+            let _buses = lines.next().unwrap().unwrap();
+            let _nodes = lines.next().unwrap().unwrap();
+            let msgs: Vec<String> = lines
+                .next()
+                .unwrap()
+                .unwrap()
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            let _msg_desc = lines.next().unwrap().unwrap();
+            let sigs: Vec<String> = lines
+                .next()
+                .unwrap()
+                .unwrap()
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            let _sig_desc = lines.next().unwrap().unwrap();
+            let _units = lines.next().unwrap().unwrap();
+
+            let mut vbatt_col = None;
+            let mut curr_col = None;
+            for i in 3..msgs.len().min(sigs.len()) {
+                let key = format!("{}.{}", msgs[i], sigs[i]);
+                if key == "pack_stats.vbatt_adc" {
+                    vbatt_col = Some(i);
+                } else if key == "pack_stats.pack_current" {
+                    curr_col = Some(i);
+                }
+            }
+            let vbatt_col = vbatt_col.expect("pack_stats.vbatt_adc column in CSV");
+            let curr_col = curr_col.expect("pack_stats.pack_current column in CSV");
+
+            let mut samples = Vec::new();
+            for line in lines {
+                let line = line.unwrap();
+                let cols: Vec<&str> = line.split(',').collect();
+                if cols.len() <= vbatt_col.max(curr_col) {
+                    continue;
+                }
+                let Ok(daq_ts) = cols[1].parse::<f64>() else {
+                    continue;
+                };
+                if daq_ts < 60.201 {
+                    continue;
+                }
+                if !cols[vbatt_col].is_empty() && !cols[curr_col].is_empty() {
+                    let vbatt: f64 = cols[vbatt_col].parse().unwrap();
+                    let curr: f64 = cols[curr_col].parse().unwrap();
+                    samples.push((vbatt, curr));
+                    if samples.len() >= 5 {
+                        break;
+                    }
+                }
+            }
+            samples
+        };
+        assert_eq!(csv_expected_samples.len(), 5);
+
+        // Query FullRes for battery.voltage_v and battery.power_w across Run 1
+        let voltage_series = router
+            .query_signal_blocking("battery.voltage_v", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.voltage_v FullRes");
+        let power_series = router
+            .query_signal_blocking("battery.power_w", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.power_w FullRes");
+
+        match (&voltage_series, &power_series) {
+            (
+                SignalSeries::Exact {
+                    timestamps_ms: v_ts,
+                    values: v_vals,
+                },
+                SignalSeries::Exact {
+                    timestamps_ms: p_ts,
+                    values: p_vals,
+                },
+            ) => {
+                assert_eq!(v_ts.len(), p_ts.len());
+                assert!(v_vals.len() > 10_000);
+                // Verify first 5 samples of Run 1 match the CSV and plot_factory equations exactly
+                for (i, &(csv_vbatt, csv_curr)) in csv_expected_samples.iter().enumerate() {
+                    let expected_v = csv_vbatt * 0.14659808276;
+                    let expected_p = expected_v * csv_curr;
+                    assert!(
+                        (v_vals[i] - expected_v).abs() < 1e-6,
+                        "Sample {i} voltage mismatch: router={} vs CSV plot_factory={}",
+                        v_vals[i],
+                        expected_v
+                    );
+                    assert!(
+                        (p_vals[i] - expected_p).abs() < 1e-6,
+                        "Sample {i} power mismatch: router={} vs CSV plot_factory={}",
+                        p_vals[i],
+                        expected_p
+                    );
+                }
+            }
+            other => panic!("Expected FullRes Exact for voltage and power, got {other:?}"),
+        }
+
+        // 3. Verify Overview1Hz and Overview10Hz for derived channels across the day
+        for sig in [
+            "battery.voltage_v",
+            "battery.power_w",
+            "vd.front_heave_mm",
+            "vd.total_accel_g",
+            "thermals.max_igbt_temp_c",
+        ] {
+            let ov1 = router.query_signal(sig, day_range.clone(), Resolution::Overview1Hz);
+            match ov1 {
+                SignalSeries::Envelope(buckets) => {
+                    assert!(
+                        !buckets.is_empty(),
+                        "Overview1Hz for `{sig}` should be non-empty"
+                    );
+                    assert!(
+                        buckets
+                            .iter()
+                            .all(|b| b.min.is_finite() && b.mean.is_finite() && b.max.is_finite()),
+                        "Overview1Hz buckets for `{sig}` must not contain NaN"
+                    );
+                }
+                other => panic!("Expected Overview1Hz Envelope for `{sig}`, got {other:?}"),
+            }
+        }
+
+        // 4. Verify calculus/window derived signals (energy integral + damper velocity derivative)
+        let energy_series = router
+            .query_signal_blocking("battery.energy_wh", day_range.clone(), Resolution::FullRes)
+            .expect("query battery.energy_wh FullRes");
+        if let SignalSeries::Exact {
+            timestamps_ms,
+            values,
+        } = energy_series
+        {
+            assert!(!values.is_empty());
+            // Find the ~1h45m gap between Run 1 (18:38 UTC) and Run 2 (20:21 UTC)
+            let gap_idx = timestamps_ms
+                .windows(2)
+                .position(|w| w[1] - w[0] > 3_600_000)
+                .expect("multi-hour gap between PER26 Run 1 and Run 2");
+            // Energy must not integrate across the 1h45m gap (resets to 0.0 Wh at start of new stint)!
+            let energy_before_gap = values[gap_idx];
+            let energy_after_gap = values[gap_idx + 1];
+            assert!(
+                energy_before_gap > 10.0 && energy_before_gap < 500.0,
+                "Expected realistic Run 1 cumulative energy (10..500 Wh), got {energy_before_gap}"
+            );
+            assert!(
+                energy_after_gap.abs() < 1e-9,
+                "battery.energy_wh must reset to 0.0 Wh across multi-hour gap instead of integrating across gap: before={}, after={}",
+                energy_before_gap,
+                energy_after_gap
+            );
+        } else {
+            panic!("Expected Exact series for battery.energy_wh");
+        }
+
+        let damper_vel = router
+            .query_signal_blocking(
+                "vd.fl_damper_vel_mms",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query vd.fl_damper_vel_mms FullRes");
+        if let SignalSeries::Exact { values, .. } = damper_vel {
+            let finite_count = values.iter().filter(|v| v.is_finite()).count();
+            assert!(
+                finite_count > 5_000,
+                "Expected > 5,000 finite damper velocity samples across PER26 stints"
+            );
+        } else {
+            panic!("Expected Exact series for vd.fl_damper_vel_mms");
+        }
+
+        // 5. Register a custom runtime derived signal via upsert_formula and verify against GPS speed
+        router
+            .formula_engine_mut()
+            .upsert_formula(crate::analysis::DerivedSignalDef {
+                id: "vd.gps_speed_hypot_mps".to_string(),
+                expression: "hypot(gps_velocity.gps_vel_e, gps_velocity.gps_vel_n)".to_string(),
+                unit: "m/s".to_string(),
+                label: "GPS Ground Speed (E/N Hypot)".to_string(),
+            })
+            .expect("upsert custom GPS speed formula");
+
+        let custom_gps = router
+            .query_signal_blocking(
+                "vd.gps_speed_hypot_mps",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query custom vd.gps_speed_hypot_mps FullRes");
+        if let SignalSeries::Exact { values, .. } = custom_gps {
+            let max_speed = values
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                max_speed > 10.0 && max_speed < 40.0,
+                "Expected realistic FSAE peak GPS speed (10..40 m/s), got {max_speed}"
+            );
+        } else {
+            panic!("Expected Exact series for custom vd.gps_speed_hypot_mps");
+        }
+
+        // 6. Validate track-distance axis integration across PER26 Run 1 and Run 2
+        let shock_vs_dist = router
+            .query_signal_vs_distance_blocking(
+                "front_shockpots.left",
+                "gps_speed_heading.gps_speed",
+                day_range.clone(),
+                Resolution::FullRes,
+            )
+            .expect("query front_shockpots.left vs track distance");
+        assert!(shock_vs_dist.timestamps_ms.len() > 10_000);
+        assert!(
+            shock_vs_dist.distances_m.windows(2).all(|w| w[1] >= w[0]),
+            "Track distance axis must be monotonically non-decreasing"
+        );
+        assert!(
+            shock_vs_dist.total_distance_m() > 200.0,
+            "Expected > 200 m of cumulative track distance across PER26 stints, got {} m",
+            shock_vs_dist.total_distance_m()
+        );
+
+        // Verify zero phantom distance accumulated across the ~1h45m gap between Run 1 and Run 2
+        let dist_gap_idx = shock_vs_dist
+            .timestamps_ms
+            .windows(2)
+            .position(|w| w[1] - w[0] > 3_600_000)
+            .expect("multi-hour gap in distance series");
+        assert!(
+            (shock_vs_dist.distances_m[dist_gap_idx + 1] - shock_vs_dist.distances_m[dist_gap_idx])
+                .abs()
+                < 1e-9,
+            "Distance integrator must pause across multi-hour gap between stints"
+        );
+
+        // Also verify plotting a derived signal (vd.front_heave_mm) against a derived speed signal
+        let heave_vs_dist = router
+            .query_signal_vs_distance_blocking(
+                "vd.front_heave_mm",
+                "vd.gps_speed_hypot_mps",
+                day_range,
+                Resolution::FullRes,
+            )
+            .expect("query derived heave vs derived GPS speed distance");
+        assert!(
+            (heave_vs_dist.total_distance_m() - shock_vs_dist.total_distance_m()).abs() < 15.0,
+            "Distance integrated from hypot(vel_e, vel_n) ({:.1} m) should closely match gps_speed ({:.1} m)",
+            heave_vs_dist.total_distance_m(),
+            shock_vs_dist.total_distance_m()
+        );
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

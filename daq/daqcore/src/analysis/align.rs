@@ -20,10 +20,7 @@ pub enum TargetGrid {
 
 impl TargetGrid {
     /// Materialize the sorted, deduplicated timestamp vector `Vec<i64>` for the given input series.
-    pub fn build_timestamps<'a>(
-        &self,
-        inputs: impl IntoIterator<Item = &'a [i64]>,
-    ) -> Vec<i64> {
+    pub fn build_timestamps<'a>(&self, inputs: impl IntoIterator<Item = &'a [i64]>) -> Vec<i64> {
         match self {
             Self::Union => {
                 let slices: Vec<&'a [i64]> = inputs.into_iter().filter(|s| !s.is_empty()).collect();

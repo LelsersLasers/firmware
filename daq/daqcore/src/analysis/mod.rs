@@ -25,8 +25,7 @@ use std::{
 };
 
 /// Embedded JSON configuration from `daq/config/derived_signals.json`.
-pub const BUILTIN_DERIVED_SIGNALS_JSON: &str =
-    include_str!("../../../config/derived_signals.json");
+pub const BUILTIN_DERIVED_SIGNALS_JSON: &str = include_str!("../../../config/derived_signals.json");
 
 /// Native vectorized formula and multi-rate alignment engine.
 ///
@@ -292,10 +291,18 @@ impl FormulaEngine {
         // produce a SignalSeries::Envelope preserving min/max bounds.
         if resolution != Resolution::FullRes || all_envelope {
             if all_envelope {
-                let mut min_cols =
-                    align_envelope_bound(&raw_series_map, &timestamps_ms, effective_staleness_ms, false);
-                let mut max_cols =
-                    align_envelope_bound(&raw_series_map, &timestamps_ms, effective_staleness_ms, true);
+                let mut min_cols = align_envelope_bound(
+                    &raw_series_map,
+                    &timestamps_ms,
+                    effective_staleness_ms,
+                    false,
+                );
+                let mut max_cols = align_envelope_bound(
+                    &raw_series_map,
+                    &timestamps_ms,
+                    effective_staleness_ms,
+                    true,
+                );
 
                 for step in &derived_plan {
                     if let Ok(v) =
@@ -348,10 +355,8 @@ impl FormulaEngine {
             }
 
             let bucket_width_ms = resolution.bucket_width_ms().unwrap_or(BUCKET_10HZ_MS);
-            let buckets = build_envelope_buckets(
-                timestamps_ms.into_iter().zip(mean_out),
-                bucket_width_ms,
-            );
+            let buckets =
+                build_envelope_buckets(timestamps_ms.into_iter().zip(mean_out), bucket_width_ms);
             return Ok(SignalSeries::Envelope(buckets));
         }
 

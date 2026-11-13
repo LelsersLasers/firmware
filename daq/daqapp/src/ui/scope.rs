@@ -162,8 +162,9 @@ impl Scope {
                     (ScopeState::PickingSignal { selected_msg }, false)
                 }
             }
-            configured @ (ScopeState::Configured { .. }
-            | ScopeState::ConfiguredDerived { .. }) => (configured, false),
+            configured @ (ScopeState::Configured { .. } | ScopeState::ConfiguredDerived { .. }) => {
+                (configured, false)
+            }
         };
 
         self.state = new_state;
@@ -210,12 +211,7 @@ impl Scope {
                     "{}: [{bus_name}] {msg_name} (0x{identity:03X}) - {signal_name}",
                     self.title
                 );
-                (
-                    sig_id,
-                    signal_name.clone(),
-                    heading,
-                    signal_name.clone(),
-                )
+                (sig_id, signal_name.clone(), heading, signal_name.clone())
             }
             ScopeState::ConfiguredDerived {
                 signal_id,

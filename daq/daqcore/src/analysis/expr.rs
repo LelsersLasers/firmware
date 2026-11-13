@@ -13,10 +13,7 @@ pub const DEFAULT_DERIVATIVE_WINDOW_MS: f64 = 20.0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnalysisError {
     EmptyExpression,
-    Syntax {
-        position: usize,
-        message: String,
-    },
+    Syntax { position: usize, message: String },
     DuplicateChannelId(String),
     EmptyChannelId,
     DependencyCycle(Vec<String>),
@@ -549,8 +546,7 @@ fn eval_derivative(
     let mut out = vec![f64::NAN; n];
     let half_window_ms = (window_ms * 0.5).round() as i64;
 
-    for (seg_start, seg_end) in
-        contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
+    for (seg_start, seg_end) in contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
     {
         let seg_len = seg_end - seg_start;
         if seg_len < 2 {
@@ -648,8 +644,7 @@ fn eval_lowpass(
     }
     let rc = 1.0 / (std::f64::consts::TAU * cutoff_hz);
 
-    for (seg_start, seg_end) in
-        contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
+    for (seg_start, seg_end) in contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
     {
         let mut state = values[seg_start];
         out[seg_start] = state;
@@ -678,8 +673,7 @@ fn eval_rolling_mean(
     let mut out = vec![f64::NAN; n];
     let win_ms = window_ms.round() as i64;
 
-    for (seg_start, seg_end) in
-        contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
+    for (seg_start, seg_end) in contiguous_finite_segments(timestamps_ms, values, max_staleness_ms)
     {
         let mut left = seg_start;
         let mut sum = 0.0;
@@ -898,7 +892,10 @@ fn tokenize(source: &str) -> Result<Vec<Token>, AnalysisError> {
                 if pos == exp_start {
                     return Err(AnalysisError::Syntax {
                         position: start,
-                        message: format!("invalid scientific notation in '{}'", &source[start..pos]),
+                        message: format!(
+                            "invalid scientific notation in '{}'",
+                            &source[start..pos]
+                        ),
                     });
                 }
             }
@@ -930,10 +927,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, AnalysisError> {
                 if pos == seg_start {
                     return Err(AnalysisError::Syntax {
                         position: start,
-                        message: format!(
-                            "trailing '.' in identifier '{}'",
-                            &source[start..pos]
-                        ),
+                        message: format!("trailing '.' in identifier '{}'", &source[start..pos]),
                     });
                 }
             }
@@ -1022,9 +1016,7 @@ impl<'a> Parser<'a> {
     }
 
     fn end_pos(&self) -> usize {
-        self.tokens
-            .last()
-            .map_or(0, |t| t.position + t.text.len())
+        self.tokens.last().map_or(0, |t| t.position + t.text.len())
     }
 
     fn parse_or(&mut self) -> Result<Expr, AnalysisError> {
@@ -1199,7 +1191,10 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::Ident(ident) => {
-                if self.peek().is_some_and(|next| next.kind == TokenKind::LParen) {
+                if self
+                    .peek()
+                    .is_some_and(|next| next.kind == TokenKind::LParen)
+                {
                     self.parse_function_call(ident, tok.position)
                 } else {
                     Ok(Expr::Signal(canonicalize_signal_ref(ident)))
@@ -1384,7 +1379,9 @@ fn extract_const_number(
         Expr::Unary {
             op: UnaryOp::Neg,
             operand,
-        } => Ok(-extract_const_number(operand, fn_name, param_name, position)?),
+        } => Ok(-extract_const_number(
+            operand, fn_name, param_name, position,
+        )?),
         _ => Err(AnalysisError::Syntax {
             position,
             message: format!("{fn_name}() parameter '{param_name}' must be a numeric literal"),
@@ -1398,10 +1395,9 @@ mod tests {
 
     #[test]
     fn parses_arithmetic_precedence_and_canonicalizes_legacy_refs() {
-        let expr = Expr::parse(
-            "VCAN.A_BOX.pack_stats.vbatt_adc * 0.14659808276 + -2 ^ 3 * (4 - 1)",
-        )
-        .expect("parse valid expression");
+        let expr =
+            Expr::parse("VCAN.A_BOX.pack_stats.vbatt_adc * 0.14659808276 + -2 ^ 3 * (4 - 1)")
+                .expect("parse valid expression");
 
         assert_eq!(
             expr.referenced_signals(),
@@ -1420,10 +1416,8 @@ mod tests {
 
     #[test]
     fn evaluates_scalar_and_comparison_functions() {
-        let expr = Expr::parse(
-            "ifelse(speed_mps > 2.0, clamp(angle_deg / 4.5, -10.0, 10.0), 0.0)",
-        )
-        .unwrap();
+        let expr = Expr::parse("ifelse(speed_mps > 2.0, clamp(angle_deg / 4.5, -10.0, 10.0), 0.0)")
+            .unwrap();
 
         let ts = vec![0, 100, 200];
         let mut cols = BTreeMap::new();
