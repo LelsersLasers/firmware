@@ -1,4 +1,4 @@
-use crate::{app, settings};
+use crate::{action, app, settings};
 use std::{path, sync::mpsc, thread};
 
 pub struct LogParser {
@@ -7,7 +7,7 @@ pub struct LogParser {
     pub output_dir: Option<path::PathBuf>,
     database_override: Option<path::PathBuf>,
     use_override: bool,
-    parse_to_ui_rx: Option<mpsc::Receiver<Result<String, String>>>,
+    parse_to_ui_rx: Option<mpsc::Receiver<Result<(path::PathBuf, String), String>>>,
     parse_text: String,
 }
 
@@ -57,7 +57,7 @@ impl LogParser {
                 .map(|summary| {
                     let annotations: usize =
                         summary.manifests.iter().map(|m| m.annotations.len()).sum();
-                    format!(
+                    let msg = format!(
                         "Import complete: {} files, {} epochs, {} partitions written ({} skipped), {} annotations at {}",
                         summary.log_files_parsed,
                         summary.boot_epochs_detected,
@@ -65,7 +65,8 @@ impl LogParser {
                         summary.partitions_skipped_existing,
                         annotations,
                         output_dir.display()
-                    )
+                    );
+                    (output_dir, msg)
                 });
             let _ = tx.send(result);
         });
@@ -75,6 +76,7 @@ impl LogParser {
         &mut self,
         ui: &mut eframe::egui::Ui,
         sidebar_database: Option<&app::DatabaseSelection>,
+        action_queue: &mut Vec<action::AppAction>,
     ) -> egui_tiles::UiResponse {
         ui.heading(format!("🔧 {}", self.title));
         ui.separator();
@@ -141,8 +143,13 @@ impl LogParser {
         }
         if let Some(rx) = &self.parse_to_ui_rx {
             match rx.try_recv() {
-                Ok(result) => {
-                    self.parse_text = result.unwrap_or_else(|error| format!("Error: {error}"));
+                Ok(Ok((store_dir, msg))) => {
+                    self.parse_text = msg;
+                    self.parse_to_ui_rx = None;
+                    action_queue.push(action::AppAction::AttachStore(store_dir));
+                }
+                Ok(Err(error)) => {
+                    self.parse_text = format!("Error: {error}");
                     self.parse_to_ui_rx = None;
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {

@@ -2,9 +2,11 @@ use crate::app;
 
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::TopBottomPanel::top("shared_timeline").show(ctx, |ui| {
-        let captured = app.session.cache().time_span();
-        let previous_span = app.session.timeline().window_secs();
-        let timeline = app.session.timeline_mut();
+        let captured = app.router.captured_time_span();
+        let partition_count = app.router.partitions().len();
+        let live_frame_count = app.router.live_buffer().len();
+        let previous_span = app.router.timeline().window_secs();
+        let timeline = app.router.timeline_mut();
 
         ui.horizontal_wrapped(|ui| {
             if ui.button("Go live").clicked() {
@@ -68,18 +70,20 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
 
         let span_changed = previous_span != timeline.window_secs();
 
-        if let Some((_, end)) = captured {
+        if let Some((start, end)) = captured {
             ui.label(format!(
-                "Captured through {} · {} frames retained",
+                "Span {} .. {} · {} SD partitions · {} live frames retained",
+                start.label(),
                 end.label(),
-                app.session.cache().len(),
+                partition_count,
+                live_frame_count,
             ));
         } else {
-            ui.label("No captured frames.");
+            ui.label("No captured frames or partitions.");
         }
 
         if ui.button("Clear history").clicked() {
-            app.session.reset(daqcore::time::Time::now());
+            app.router.reset_live(daqcore::time::Time::now());
             app.bus_load_samples.clear();
         }
 

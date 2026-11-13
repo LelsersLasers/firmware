@@ -164,17 +164,43 @@ impl Scope {
         let identity = target_key.identity;
         let bus_name = database.map_or("Unknown", |db| db.bus_name(target_key.bus_id));
         let start = view.timeline.start();
+        let start_ms = start.unix_millis();
         let duration = view.timeline.end().secs(start).max(0.001);
         let playhead = view.timeline.setpoint().secs(start);
 
-        let points: Vec<[f64; 2]> = scope_frames(view.all_frames, target_key)
-            .filter_map(|frame| {
-                let decoded = frame.decoded.as_ref()?;
-                let value = decoded.signal(&signal)?.physical();
+        let signal_id = daqcore::storage::format_signal_id(msg_name, &signal);
+        let width_px = ui.available_width().max(1.0);
+        let resolution = view.timeline.resolution_for_width(width_px);
+        let series = view.query_signal(&signal_id, resolution);
 
-                Some([frame.timestamp.secs(start), value])
-            })
-            .collect();
+        let (points, envelope_band) = match &series {
+            daqcore::router::SignalSeries::Exact {
+                timestamps_ms,
+                values,
+            } => {
+                let pts: Vec<[f64; 2]> = timestamps_ms
+                    .iter()
+                    .zip(values.iter())
+                    .map(|(&t_ms, &val)| [((t_ms - start_ms) as f64) / 1000.0, val])
+                    .collect();
+                (pts, None)
+            }
+            daqcore::router::SignalSeries::Envelope(buckets) => {
+                let mean_pts: Vec<[f64; 2]> = buckets
+                    .iter()
+                    .map(|b| [((b.utc_ms - start_ms) as f64) / 1000.0, b.mean])
+                    .collect();
+                let mut band = Vec::with_capacity(buckets.len() * 2);
+                for b in buckets {
+                    band.push([((b.utc_ms - start_ms) as f64) / 1000.0, b.max]);
+                }
+                for b in buckets.iter().rev() {
+                    band.push([((b.utc_ms - start_ms) as f64) / 1000.0, b.min]);
+                }
+                (mean_pts, (!band.is_empty()).then_some(band))
+            }
+        };
+
         let mut change = false;
         ui.horizontal(|ui| {
             ui.heading(format!(
@@ -208,7 +234,7 @@ impl Scope {
             ui.label("No retained samples in the selected interval.");
         }
 
-        let pixels = ui.available_width().max(1.0) as usize;
+        let pixels = width_px as usize;
         let points = telemetry::decimate(&points, pixels);
 
         egui_plot::Plot::new(&self.title)
@@ -224,6 +250,17 @@ impl Scope {
             .y_axis_label(&signal)
             .show(ui, |plot| {
                 plot.set_plot_bounds_x(0.0..=duration);
+                if let Some(band) = envelope_band {
+                    plot.polygon(
+                        egui_plot::Polygon::new(
+                            format!("{signal} [min..max]"),
+                            egui_plot::PlotPoints::from(band),
+                        )
+                        .fill_color(
+                            eframe::egui::Color32::from_rgba_unmultiplied(100, 180, 255, 45),
+                        ),
+                    );
+                }
                 plot.line(egui_plot::Line::new(
                     &signal,
                     egui_plot::PlotPoints::from(points),
@@ -235,11 +272,4 @@ impl Scope {
             });
         egui_tiles::UiResponse::None
     }
-}
-
-fn scope_frames(
-    frames: &[daqcore::frame::ParsedFrame],
-    key: daqcore::superdbc::message::MessageKey,
-) -> impl Iterator<Item = &daqcore::frame::ParsedFrame> {
-    frames.iter().filter(move |frame| frame.key() == key)
 }

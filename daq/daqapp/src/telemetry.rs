@@ -1,31 +1,31 @@
-//! Borrowed per-render projections of the single shared history.
+//! Borrowed per-render projections backed by [`daqcore::router::VirtualTimelineRouter`].
 
 use std::collections::BTreeMap;
 
 pub struct TelemetryView<'a> {
-    // All frames in the current timeline range (start to end)
+    pub router: &'a daqcore::router::VirtualTimelineRouter,
+    // Retained inspector frames in the current timeline range (start to end)
     pub all_frames: &'a [daqcore::frame::ParsedFrame],
-    // Frames in the current timeline range that are at or before the setpoint (start to setpoint)
+    // Retained inspector frames in the current timeline range at or before the setpoint
     pub setpoint_frames: &'a [daqcore::frame::ParsedFrame],
     // Latest frame for each message before the setpoint
-    // (Latest message in the time range start to setpoint)
     pub latest_setpoint_frames:
         BTreeMap<daqcore::superdbc::message::MessageKey, &'a daqcore::frame::ParsedFrame>,
-    pub timeline: &'a daqcore::timeline::Timeline,
+    pub timeline: &'a daqcore::timeline::MasterTimeline,
     view_time: daqcore::time::Time,
 }
 
 impl<'a> TelemetryView<'a> {
-    pub fn new(session: &'a daqcore::session::Session) -> Self {
-        let cache = session.cache();
-        let timeline = session.timeline();
-        let all_frames = cache.frames_in_range(timeline.range());
-        let setpoint_frames = cache.frames_in_range(timeline.setpoint_range());
+    pub fn new(router: &'a daqcore::router::VirtualTimelineRouter) -> Self {
+        let live_buffer = router.live_buffer();
+        let timeline = router.timeline();
+        let all_frames = live_buffer.frames_in_range(timeline.range());
+        let setpoint_frames = live_buffer.frames_in_range(timeline.setpoint_range());
 
         let mut latest_setpoint_frames = BTreeMap::new();
         for frame in setpoint_frames.iter().rev() {
             latest_setpoint_frames.entry(frame.key()).or_insert(frame);
-            if latest_setpoint_frames.len() == cache.latest_map().len() {
+            if latest_setpoint_frames.len() == live_buffer.latest_map().len() {
                 break;
             }
         }
@@ -37,6 +37,7 @@ impl<'a> TelemetryView<'a> {
         };
 
         Self {
+            router,
             all_frames,
             setpoint_frames,
             timeline,
@@ -47,6 +48,32 @@ impl<'a> TelemetryView<'a> {
 
     pub fn view_time(&self) -> daqcore::time::Time {
         self.view_time
+    }
+
+    /// Query a signal across the active `[start..=end]` viewport at `resolution`.
+    pub fn query_signal(
+        &self,
+        signal_id: &str,
+        resolution: daqcore::router::Resolution,
+    ) -> daqcore::router::SignalSeries {
+        self.router
+            .query_signal(signal_id, self.timeline.range_ms(), resolution)
+    }
+
+    /// Query a signal across `[start..=setpoint]` at `resolution`.
+    pub fn query_signal_to_setpoint(
+        &self,
+        signal_id: &str,
+        resolution: daqcore::router::Resolution,
+    ) -> daqcore::router::SignalSeries {
+        self.router
+            .query_signal(signal_id, self.timeline.setpoint_range_ms(), resolution)
+    }
+
+    /// Return the latest `(utc_ms, value)` for `signal_id` at or before `setpoint`.
+    pub fn latest_signal_value_at_setpoint(&self, signal_id: &str) -> Option<(i64, f64)> {
+        self.router
+            .latest_signal_value_at(signal_id, self.timeline.setpoint_utc_ms())
     }
 }
 

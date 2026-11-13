@@ -46,7 +46,52 @@ impl GpsPlot {
         ui: &mut eframe::egui::Ui,
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
-        let samples: Vec<_> = view.setpoint_frames.iter().filter_map(gps_sample).collect();
+        let mut samples: Vec<_> = view.setpoint_frames.iter().filter_map(gps_sample).collect();
+        if samples.is_empty() {
+            let res = view.timeline.resolution_for_width(ui.available_width().max(1.0));
+            let lat_series = view.query_signal_to_setpoint("gps_coordinates.latitude", res);
+            let lon_series = view.query_signal_to_setpoint("gps_coordinates.longitude", res);
+            match (&lat_series, &lon_series) {
+                (
+                    daqcore::router::SignalSeries::Exact {
+                        timestamps_ms: ts,
+                        values: lats,
+                    },
+                    daqcore::router::SignalSeries::Exact { values: lons, .. },
+                ) => {
+                    for ((&t_ms, &lat), &lon) in ts.iter().zip(lats.iter()).zip(lons.iter()) {
+                        if lat.is_finite()
+                            && lon.is_finite()
+                            && lat.abs() <= 90.0
+                            && lon.abs() <= 180.0
+                        {
+                            samples.push((daqcore::time::Time::from_unix_millis(t_ms), lat, lon));
+                        }
+                    }
+                }
+                (
+                    daqcore::router::SignalSeries::Envelope(blat),
+                    daqcore::router::SignalSeries::Envelope(blon),
+                ) => {
+                    for (lat_pt, lon_pt) in blat.iter().zip(blon.iter()) {
+                        let lat = lat_pt.mean;
+                        let lon = lon_pt.mean;
+                        if lat.is_finite()
+                            && lon.is_finite()
+                            && lat.abs() <= 90.0
+                            && lon.abs() <= 180.0
+                        {
+                            samples.push((
+                                daqcore::time::Time::from_unix_millis(lat_pt.utc_ms),
+                                lat,
+                                lon,
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         let fix = samples.last().copied();
         if let Some((t, lat, lon)) = fix {
             ui.label(format!("Last fix: {lat:.6}, {lon:.6} @ {}", t.label()));

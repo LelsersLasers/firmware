@@ -36,7 +36,7 @@ impl GgPlot {
         ui: &mut eframe::egui::Ui,
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
-        let points: Vec<_> = view
+        let mut points: Vec<_> = view
             .setpoint_frames
             .iter()
             .filter_map(|f| {
@@ -50,6 +50,30 @@ impl GgPlot {
                 ))
             })
             .collect();
+        if points.is_empty() {
+            let res = view.timeline.resolution_for_width(ui.available_width().max(1.0));
+            let ax_series = view.query_signal_to_setpoint("IMU_acceleration.X_axis", res);
+            let ay_series = view.query_signal_to_setpoint("IMU_acceleration.Y_axis", res);
+            match (&ax_series, &ay_series) {
+                (
+                    daqcore::router::SignalSeries::Exact { values: ax, .. },
+                    daqcore::router::SignalSeries::Exact { values: ay, .. },
+                ) => {
+                    for (&x, &y) in ax.iter().zip(ay.iter()) {
+                        points.push(vehicle_accel_to_plot_xy(x as f32, y as f32));
+                    }
+                }
+                (
+                    daqcore::router::SignalSeries::Envelope(bx),
+                    daqcore::router::SignalSeries::Envelope(by),
+                ) => {
+                    for (x, y) in bx.iter().zip(by.iter()) {
+                        points.push(vehicle_accel_to_plot_xy(x.mean as f32, y.mean as f32));
+                    }
+                }
+                _ => {}
+            }
+        }
         let theme = ui::theme::get_theme(ui.ctx());
         if points.is_empty() {
             ui.label("No retained acceleration samples in the selected interval.");

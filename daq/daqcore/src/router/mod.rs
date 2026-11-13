@@ -203,12 +203,12 @@ impl VirtualTimelineRouter {
     }
 
     /// Poll completed background tile reads into the LRU cache.
-    pub fn poll_background_tiles(&mut self) -> usize {
+    pub fn poll_background_tiles(&self) -> usize {
         self.tile_cache.poll_completed()
     }
 
     /// Block until all currently in-flight background tile reads finish (or `timeout` elapses).
-    pub fn wait_for_in_flight(&mut self, timeout: time::Duration) -> usize {
+    pub fn wait_for_in_flight(&self, timeout: time::Duration) -> usize {
         self.tile_cache.wait_for_in_flight(timeout)
     }
 
@@ -277,7 +277,7 @@ impl VirtualTimelineRouter {
     /// the latest canonical SD partition into the live buffer's range, live samples for
     /// `t > max_partition_end_utc_ms` are appended seamlessly.
     pub fn query_signal(
-        &mut self,
+        &self,
         signal_id: &str,
         range: ops::RangeInclusive<i64>,
         resolution: Resolution,
@@ -326,7 +326,7 @@ impl VirtualTimelineRouter {
     /// Synchronously query `signal_id` across `range` at exact `resolution` (blocking if any
     /// overlapping partition column is not yet cached in `TileCache`).
     pub fn query_signal_blocking(
-        &mut self,
+        &self,
         signal_id: &str,
         range: ops::RangeInclusive<i64>,
         resolution: Resolution,

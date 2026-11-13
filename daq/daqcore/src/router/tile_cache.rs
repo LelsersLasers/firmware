@@ -205,6 +205,12 @@ struct WorkerResult {
     result: Result<Arc<SignalSeries>, RouterError>,
 }
 
+struct TileCacheDynamic {
+    lru: LruTileMap,
+    in_flight: HashSet<TileKey>,
+    res_rx: mpsc::Receiver<WorkerResult>,
+}
+
 /// Multi-resolution RAM tile cache for canonical Parquet partitions.
 ///
 /// - `overview_1hz.parquet` and `states.parquet` are preloaded into resident memory for all
@@ -216,10 +222,8 @@ pub struct TileCache {
     resident_states: HashMap<String, HashMap<SignalId, Arc<Vec<StateInterval>>>>,
     partition_dirs: HashMap<String, path::PathBuf>,
     partition_signals: HashMap<String, HashSet<SignalId>>,
-    lru: LruTileMap,
-    in_flight: HashSet<TileKey>,
+    dynamic: Mutex<TileCacheDynamic>,
     cmd_tx: mpsc::Sender<WorkerCommand>,
-    res_rx: mpsc::Receiver<WorkerResult>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
     worker_handle: Option<thread::JoinHandle<()>>,
 }
@@ -277,10 +281,12 @@ impl TileCache {
             resident_states: HashMap::new(),
             partition_dirs: HashMap::new(),
             partition_signals: HashMap::new(),
-            lru: LruTileMap::new(max_lru_bytes),
-            in_flight: HashSet::new(),
+            dynamic: Mutex::new(TileCacheDynamic {
+                lru: LruTileMap::new(max_lru_bytes),
+                in_flight: HashSet::new(),
+                res_rx,
+            }),
             cmd_tx,
-            res_rx,
             repaint_cb,
             worker_handle,
         }
@@ -295,19 +301,22 @@ impl TileCache {
     }
 
     pub fn lru_len(&self) -> usize {
-        self.lru.len()
+        self.dynamic.lock().map(|d| d.lru.len()).unwrap_or(0)
     }
 
     pub fn lru_bytes(&self) -> usize {
-        self.lru.current_bytes()
+        self.dynamic
+            .lock()
+            .map(|d| d.lru.current_bytes())
+            .unwrap_or(0)
     }
 
     pub fn max_lru_bytes(&self) -> usize {
-        self.lru.max_bytes()
+        self.dynamic.lock().map(|d| d.lru.max_bytes()).unwrap_or(0)
     }
 
     pub fn in_flight_count(&self) -> usize {
-        self.in_flight.len()
+        self.dynamic.lock().map(|d| d.in_flight.len()).unwrap_or(0)
     }
 
     pub fn is_partition_preloaded(&self, partition_id: &str) -> bool {
@@ -320,8 +329,10 @@ impl TileCache {
         self.resident_states.clear();
         self.partition_dirs.clear();
         self.partition_signals.clear();
-        self.lru.clear();
-        self.in_flight.clear();
+        if let Ok(mut dyn_guard) = self.dynamic.lock() {
+            dyn_guard.lru.clear();
+            dyn_guard.in_flight.clear();
+        }
     }
 
     /// Preload `overview_1hz.parquet` and `states.parquet` for a single partition into resident RAM.
@@ -397,13 +408,20 @@ impl TileCache {
 
     /// Drain any completed background tile reads into the LRU cache.
     /// Returns the number of newly populated tiles.
-    pub fn poll_completed(&mut self) -> usize {
+    pub fn poll_completed(&self) -> usize {
+        let Ok(mut dyn_guard) = self.dynamic.lock() else {
+            return 0;
+        };
+        Self::poll_completed_locked(&mut dyn_guard)
+    }
+
+    fn poll_completed_locked(dyn_guard: &mut TileCacheDynamic) -> usize {
         let mut completed = 0usize;
-        while let Ok(msg) = self.res_rx.try_recv() {
-            self.in_flight.remove(&msg.key);
+        while let Ok(msg) = dyn_guard.res_rx.try_recv() {
+            dyn_guard.in_flight.remove(&msg.key);
             match msg.result {
                 Ok(series) => {
-                    self.lru.insert(msg.key, series);
+                    dyn_guard.lru.insert(msg.key, series);
                     completed += 1;
                 }
                 Err(err) => {
@@ -420,26 +438,29 @@ impl TileCache {
     }
 
     /// Block until all currently in-flight background requests complete (or `timeout` elapses).
-    pub fn wait_for_in_flight(&mut self, timeout: time::Duration) -> usize {
+    pub fn wait_for_in_flight(&self, timeout: time::Duration) -> usize {
+        let Ok(mut dyn_guard) = self.dynamic.lock() else {
+            return 0;
+        };
         let deadline = time::Instant::now() + timeout;
-        let mut total = self.poll_completed();
-        while !self.in_flight.is_empty() {
+        let mut total = Self::poll_completed_locked(&mut dyn_guard);
+        while !dyn_guard.in_flight.is_empty() {
             let now = time::Instant::now();
             if now >= deadline {
                 break;
             }
             let remaining = deadline.saturating_duration_since(now);
-            match self.res_rx.recv_timeout(remaining) {
+            match dyn_guard.res_rx.recv_timeout(remaining) {
                 Ok(msg) => {
-                    self.in_flight.remove(&msg.key);
+                    dyn_guard.in_flight.remove(&msg.key);
                     if let Ok(series) = msg.result {
-                        self.lru.insert(msg.key, series);
+                        dyn_guard.lru.insert(msg.key, series);
                         total += 1;
                     }
                 }
                 Err(_) => break,
             }
-            total += self.poll_completed();
+            total += Self::poll_completed_locked(&mut dyn_guard);
         }
         total
     }
@@ -451,13 +472,11 @@ impl TileCache {
     /// - If `Overview10Hz` or `FullRes` is requested and NOT in the LRU cache, enqueues a background
     ///   worker read and immediately returns the best resident overview (`Overview10Hz` or `Overview1Hz`).
     pub fn query_signal(
-        &mut self,
+        &self,
         partition_id: &str,
         signal_id: &str,
         resolution: Resolution,
     ) -> Option<TileLookup> {
-        self.poll_completed();
-
         if let Some(known) = self.partition_signals.get(partition_id)
             && !known.contains(signal_id)
         {
@@ -470,6 +489,11 @@ impl TileCache {
             .and_then(|map| map.get(signal_id))
             .cloned();
 
+        let Ok(mut dyn_guard) = self.dynamic.lock() else {
+            return resident_1hz.map(TileLookup::Ready);
+        };
+        Self::poll_completed_locked(&mut dyn_guard);
+
         if resolution == Resolution::Overview1Hz {
             return resident_1hz.map(TileLookup::Ready);
         }
@@ -480,13 +504,13 @@ impl TileCache {
             resolution,
         };
 
-        if let Some(cached) = self.lru.get(&key) {
+        if let Some(cached) = dyn_guard.lru.get(&key) {
             return Some(TileLookup::Ready(cached));
         }
 
         // Enqueue background read if not already in flight
         if let Some(partition_dir) = self.partition_dirs.get(partition_id)
-            && self.in_flight.insert(key.clone())
+            && dyn_guard.in_flight.insert(key.clone())
         {
             let _ = self.cmd_tx.send(WorkerCommand::LoadTile {
                 key,
@@ -501,7 +525,7 @@ impl TileCache {
                 signal_id: signal_id.to_owned(),
                 resolution: Resolution::Overview10Hz,
             };
-            if let Some(cached_10hz) = self.lru.get(&key_10hz) {
+            if let Some(cached_10hz) = dyn_guard.lru.get(&key_10hz) {
                 return Some(TileLookup::Fallback {
                     series: cached_10hz,
                     actual_resolution: Resolution::Overview10Hz,
@@ -517,13 +541,11 @@ impl TileCache {
 
     /// Synchronously load and cache a signal at the exact requested `resolution`.
     pub fn query_signal_blocking(
-        &mut self,
+        &self,
         partition_id: &str,
         signal_id: &str,
         resolution: Resolution,
     ) -> Result<Option<Arc<SignalSeries>>, RouterError> {
-        self.poll_completed();
-
         if let Some(known) = self.partition_signals.get(partition_id)
             && !known.contains(signal_id)
         {
@@ -531,6 +553,7 @@ impl TileCache {
         }
 
         if resolution == Resolution::Overview1Hz {
+            self.poll_completed();
             return Ok(self
                 .resident_1hz
                 .get(partition_id)
@@ -544,8 +567,11 @@ impl TileCache {
             resolution,
         };
 
-        if let Some(cached) = self.lru.get(&key) {
-            return Ok(Some(cached));
+        if let Ok(mut dyn_guard) = self.dynamic.lock() {
+            Self::poll_completed_locked(&mut dyn_guard);
+            if let Some(cached) = dyn_guard.lru.get(&key) {
+                return Ok(Some(cached));
+            }
         }
 
         let Some(partition_dir) = self.partition_dirs.get(partition_id).cloned() else {
@@ -569,7 +595,9 @@ impl TileCache {
             return Ok(None);
         }
 
-        self.lru.insert(key, Arc::clone(&series));
+        if let Ok(mut dyn_guard) = self.dynamic.lock() {
+            dyn_guard.lru.insert(key, Arc::clone(&series));
+        }
         Ok(Some(series))
     }
 
@@ -598,21 +626,23 @@ impl TileCache {
             signal_id: signal_id.to_owned(),
             resolution: Resolution::FullRes,
         };
-        if let Some(series) = self.lru.peek(&full_key)
-            && let Some(found) = series.latest_at_or_before(target_utc_ms)
-        {
-            return Some(found);
-        }
-
         let key_10hz = TileKey {
             partition_id: partition_id.to_owned(),
             signal_id: signal_id.to_owned(),
             resolution: Resolution::Overview10Hz,
         };
-        if let Some(series) = self.lru.peek(&key_10hz)
-            && let Some(found) = series.latest_at_or_before(target_utc_ms)
-        {
-            return Some(found);
+
+        if let Ok(dyn_guard) = self.dynamic.lock() {
+            if let Some(series) = dyn_guard.lru.peek(&full_key)
+                && let Some(found) = series.latest_at_or_before(target_utc_ms)
+            {
+                return Some(found);
+            }
+            if let Some(series) = dyn_guard.lru.peek(&key_10hz)
+                && let Some(found) = series.latest_at_or_before(target_utc_ms)
+            {
+                return Some(found);
+            }
         }
 
         self.resident_1hz
