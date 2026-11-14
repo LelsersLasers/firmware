@@ -102,37 +102,30 @@ impl GpsPlot {
             }
         }
 
-        // Toolbar for Color-by-Signal selection & outlier filter radius
+        // Toolbar: arbitrary Color-by-Signal selector (like XYScatter) & outlier filter radius
         ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+        let mut clear_color = false;
         ui.horizontal_wrapped(|ui| {
-            ui.label("Color:");
-            for &(short_lbl, sig_id, unit) in QUICK_COLOR_CHANNELS {
-                let is_sel = self
-                    .overlay_signal
-                    .as_ref()
-                    .is_some_and(|(id, _)| id == sig_id);
-                if ui
-                    .selectable_label(is_sel, short_lbl)
-                    .on_hover_text(sig_id)
-                    .clicked()
-                {
-                    self.overlay_signal = Some((sig_id.to_owned(), unit.to_owned()));
-                    self.show_picker = false;
-                }
-            }
+            let color_badge = match &self.overlay_signal {
+                Some((sig_id, _)) => format!("Color: {sig_id}"),
+                None => "Color: None (Solid)".to_owned(),
+            };
             if ui
-                .selectable_label(self.overlay_signal.is_none(), "Solid")
-                .clicked()
-            {
-                self.overlay_signal = None;
-                self.show_picker = false;
-            }
-            if ui
-                .selectable_label(self.show_picker, "+ Signal")
-                .on_hover_text("Pick any msg.signal or derived formula to color the GPS trajectory")
+                .selectable_label(self.show_picker, color_badge)
+                .on_hover_text(
+                    "Click to choose any msg.signal or derived formula for trajectory coloring, or drag a signal from the Signal Browser",
+                )
                 .clicked()
             {
                 self.show_picker = !self.show_picker;
+            }
+            if self.overlay_signal.is_some()
+                && ui
+                    .small_button("× Color")
+                    .on_hover_text("Clear color gradient channel (use solid trajectory color)")
+                    .clicked()
+            {
+                clear_color = true;
             }
             ui.separator();
             ui.label("Radius:");
@@ -152,8 +145,35 @@ impl GpsPlot {
                 self.map_memory.follow_my_position();
             }
         });
+        if clear_color {
+            self.overlay_signal = None;
+            self.show_picker = false;
+        }
 
         if self.show_picker {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(eframe::egui::RichText::new("Quick:").weak().small());
+                for &(short_lbl, sig_id, unit) in QUICK_COLOR_CHANNELS {
+                    let is_sel = self
+                        .overlay_signal
+                        .as_ref()
+                        .is_some_and(|(id, _)| id == sig_id);
+                    if ui
+                        .selectable_label(is_sel, short_lbl)
+                        .on_hover_text(sig_id)
+                        .clicked()
+                    {
+                        self.set_overlay_signal(sig_id.to_owned(), unit.to_owned());
+                    }
+                }
+                if ui
+                    .selectable_label(self.overlay_signal.is_none(), "Solid (None)")
+                    .clicked()
+                {
+                    self.overlay_signal = None;
+                    self.show_picker = false;
+                }
+            });
             match ui::message_picker::show_signal_picker(
                 ui,
                 ("gps_signal_picker", self.instance_num),
@@ -682,10 +702,10 @@ mod tests {
             gps.overlay_signal().map(|(s, _)| s.as_str()),
             Some("gps_speed_heading.gps_speed")
         );
-        gps.set_overlay_signal("battery.power_kw".to_owned(), "kW".to_owned());
+        gps.set_overlay_signal("front_Sabre.front_right_temp".to_owned(), "C".to_owned());
         assert_eq!(
             gps.overlay_signal(),
-            Some(&("battery.power_kw".to_owned(), "kW".to_owned()))
+            Some(&("front_Sabre.front_right_temp".to_owned(), "C".to_owned()))
         );
 
         let ctx = eframe::egui::Context::default();
@@ -702,6 +722,13 @@ mod tests {
             )),
             ..Default::default()
         };
+        let _ = ctx.run(raw_input.clone(), |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = gps.show(ui, None, &view);
+            });
+        });
+
+        gps.show_picker = true;
         let _ = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 let _ = gps.show(ui, None, &view);
