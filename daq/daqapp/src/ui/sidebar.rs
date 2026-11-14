@@ -15,10 +15,15 @@ pub fn select_database(app: &mut app::DAQApp) {
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
+        .default_width(310.0)
+        .width_range(220.0..=520.0)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
+            let panel_width = ui.available_width();
+            ui.set_max_width(panel_width);
             eframe::egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
                     show_sidebar_contents(ui, app);
                 });
         });

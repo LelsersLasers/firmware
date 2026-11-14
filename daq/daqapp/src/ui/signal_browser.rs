@@ -215,8 +215,10 @@ pub fn show_signal_browser(
     action_queue: &mut Vec<action::AppAction>,
     diagnostic: &mut Option<String>,
 ) {
-    ui.horizontal(|ui| {
-        ui.heading("🔎 Signal & Formula Browser");
+    ui.set_max_width(ui.available_width());
+
+    ui.horizontal_wrapped(|ui| {
+        ui.strong("🔎 Signal & Formula Browser");
         if ui
             .small_button("➕ New Formula")
             .on_hover_text("Define a new vectorized derived formula channel")
@@ -226,22 +228,30 @@ pub fn show_signal_browser(
         }
     });
 
-    // Search bar
-    ui.horizontal(|ui| {
-        ui.add(
-            eframe::egui::TextEdit::singleline(&mut state.search_query)
-                .desired_width((ui.available_width() - 28.0).max(60.0))
-                .hint_text("Search signal, message, unit, or glob (e.g. *temp* V)…"),
-        );
-        if !state.search_query.is_empty()
-            && ui
-                .small_button("✕")
-                .on_hover_text("Clear search filter")
-                .clicked()
-        {
-            state.search_query.clear();
-        }
-    });
+    // Search bar (right-to-left so the clear button deducts from available_width first
+    // and never causes a frame-over-frame SidePanel width feedback loop)
+    let row_width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        eframe::egui::vec2(row_width, ui.spacing().interact_size.y),
+        eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+        |ui| {
+            ui.set_max_width(row_width);
+            if !state.search_query.is_empty()
+                && ui
+                    .small_button("✕")
+                    .on_hover_text("Clear search filter")
+                    .clicked()
+            {
+                state.search_query.clear();
+            }
+            let edit_width = (ui.available_width() - 14.0).max(40.0);
+            ui.add(
+                eframe::egui::TextEdit::singleline(&mut state.search_query)
+                    .desired_width(edit_width)
+                    .hint_text("Search signal, message, unit, or glob…"),
+            );
+        },
+    );
 
     // Build message groups from SuperDBC + fallback signals from partition manifests / live buffer
     let mut bus_names: BTreeSet<String> = BTreeSet::new();
@@ -377,261 +387,275 @@ pub fn show_signal_browser(
         });
     }
 
-    ui.label(
-        eframe::egui::RichText::new(
-            "💡 Drag any signal/formula onto a Scope or GPS Plot, or click 📈",
+    ui.add(
+        eframe::egui::Label::new(
+            eframe::egui::RichText::new(
+                "💡 Drag any signal/formula onto a Scope or GPS Plot, or click 📈",
+            )
+            .small()
+            .weak(),
         )
-        .small()
-        .weak(),
+        .wrap(),
     );
 
-    // -------------------------------------------------------------------------
-    // 1. Top-level "Derived Signals (Formulas)" Folder
-    // -------------------------------------------------------------------------
-    let compiled_formulas: Vec<daqcore::analysis::CompiledDerivedSignal> =
-        router.formula_engine().definitions().to_vec();
-    let matching_formulas: Vec<&daqcore::analysis::CompiledDerivedSignal> = compiled_formulas
-        .iter()
-        .filter(|c| {
-            matches_search_query(
-                &state.search_query,
-                &[
-                    &c.def.id,
-                    &c.def.label,
-                    &c.def.unit,
-                    &c.def.expression,
-                    "derived formula",
-                ],
-            )
-        })
-        .collect();
+    ui.scope(|ui| {
+        ui.set_max_width(ui.available_width());
+        ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
 
-    eframe::egui::CollapsingHeader::new(
-        eframe::egui::RichText::new(format!(
-            "📐 Derived Signals (Formulas) ({})",
-            matching_formulas.len()
-        ))
-        .strong(),
-    )
-    .id_salt("signal_browser_derived_folder")
-    .default_open(true)
-    .show(ui, |ui| {
-        if matching_formulas.is_empty() {
-            ui.label(eframe::egui::RichText::new("No matching formulas.").weak().small());
-        }
-        for compiled in matching_formulas {
-            let def = &compiled.def;
-            let unit_suffix = if def.unit.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", def.unit)
-            };
-            let drag_payload = DraggedSignal::Derived {
-                signal_id: def.id.clone(),
-                label: def.label.clone(),
-                unit: def.unit.clone(),
-            };
-
-            ui.horizontal(|ui| {
-                let dnd_resp = ui.dnd_drag_source(
-                    eframe::egui::Id::new(("dnd_derived_signal", &def.id)),
-                    drag_payload.clone(),
-                    |ui| {
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "ƒ {} — {}{}",
-                                def.id, def.label, unit_suffix
-                            ))
-                            .small(),
-                        );
-                    },
-                );
-                let row_resp = dnd_resp.response.on_hover_text(format!(
-                    "Formula: {}\nExpression: {}\nDependencies: {}\nDrag onto a Scope/GpsPlot or click 📈",
-                    def.id,
-                    def.expression,
-                    if compiled.dependencies.is_empty() {
-                        "(none)".to_owned()
-                    } else {
-                        compiled.dependencies.join(", ")
-                    }
-                ));
-                if row_resp.double_clicked() {
-                    action_queue.push(action::AppAction::SpawnWidget(
-                        drag_payload.to_widget_constructor(),
-                    ));
-                }
-                if ui
-                    .small_button("📈")
-                    .on_hover_text("Open formula in a new Scope")
-                    .clicked()
-                {
-                    action_queue.push(action::AppAction::SpawnWidget(
-                        drag_payload.to_widget_constructor(),
-                    ));
-                }
-                if ui
-                    .small_button("✏")
-                    .on_hover_text("Edit formula expression")
-                    .clicked()
-                {
-                    state.formula_draft = Some(FormulaDraft::from_compiled(compiled));
-                }
-            });
-        }
-    });
-
-    // -------------------------------------------------------------------------
-    // 2. Hierarchical Tree: Message -> Signal (with Unit)
-    // -------------------------------------------------------------------------
-    let query_active = !state.search_query.trim().is_empty();
-    let mut visible_msg_count = 0usize;
-    let mut visible_sig_count = 0usize;
-
-    let filtered_groups: Vec<(MessageGroup, Vec<SignalLeaf>)> = groups_by_msg
-        .into_values()
-        .filter(|g| {
-            state.bus_filter.as_deref().is_none_or(|b| g.bus_name == b)
-                && state
-                    .node_filter
-                    .as_deref()
-                    .is_none_or(|n| g.transmitter == n)
-        })
-        .filter_map(|g| {
-            let msg_matches = matches_search_query(
-                &state.search_query,
-                &[&g.msg_name, &g.bus_name, &g.transmitter, &g.description],
-            );
-            let matching_sigs: Vec<SignalLeaf> = g
-                .signals
-                .iter()
-                .filter(|s| {
-                    let canonical_id = format!("{}.{}", s.msg_name, s.signal_name);
-                    msg_matches
-                        || matches_search_query(
-                            &state.search_query,
-                            &[
-                                &canonical_id,
-                                &s.signal_name,
-                                &s.unit,
-                                &s.description,
-                                &g.bus_name,
-                                &g.transmitter,
-                            ],
-                        )
-                })
-                .cloned()
-                .collect();
-            if matching_sigs.is_empty() {
-                None
-            } else {
-                visible_msg_count += 1;
-                visible_sig_count += matching_sigs.len();
-                Some((g, matching_sigs))
-            }
-        })
-        .collect();
-
-    eframe::egui::CollapsingHeader::new(
-        eframe::egui::RichText::new(format!(
-            "📡 CAN Messages & Signals ({visible_msg_count} msgs, {visible_sig_count} sigs)"
-        ))
-        .strong(),
-    )
-    .id_salt("signal_browser_can_tree")
-    .default_open(true)
-    .show(ui, |ui| {
-        if filtered_groups.is_empty() {
-            ui.label(
-                eframe::egui::RichText::new("No matching CAN messages or signals.")
-                    .weak()
-                    .small(),
-            );
-        }
-        for (group, sigs) in filtered_groups {
-            let header_label = if let Some(k) = group.key {
-                format!(
-                    "{} [{} · {} · 0x{:03X}] ({})",
-                    group.msg_name,
-                    group.bus_name,
-                    group.transmitter,
-                    k.identity,
-                    sigs.len()
+        // -------------------------------------------------------------------------
+        // 1. Top-level "Derived Signals (Formulas)" Folder
+        // -------------------------------------------------------------------------
+        let compiled_formulas: Vec<daqcore::analysis::CompiledDerivedSignal> =
+            router.formula_engine().definitions().to_vec();
+        let matching_formulas: Vec<&daqcore::analysis::CompiledDerivedSignal> = compiled_formulas
+            .iter()
+            .filter(|c| {
+                matches_search_query(
+                    &state.search_query,
+                    &[
+                        &c.def.id,
+                        &c.def.label,
+                        &c.def.unit,
+                        &c.def.expression,
+                        "derived formula",
+                    ],
                 )
-            } else {
-                format!("{} [{}] ({})", group.msg_name, group.bus_name, sigs.len())
-            };
+            })
+            .collect();
 
-            let mut header = eframe::egui::CollapsingHeader::new(
-                eframe::egui::RichText::new(header_label).small().strong(),
-            )
-            .id_salt(("sig_browser_msg", &group.msg_name));
-            if query_active && visible_msg_count <= 25 {
-                header = header.open(Some(true));
+        eframe::egui::CollapsingHeader::new(
+            eframe::egui::RichText::new(format!(
+                "📐 Derived Signals (Formulas) ({})",
+                matching_formulas.len()
+            ))
+            .strong(),
+        )
+        .id_salt("signal_browser_derived_folder")
+        .default_open(true)
+        .show(ui, |ui| {
+            if matching_formulas.is_empty() {
+                ui.label(eframe::egui::RichText::new("No matching formulas.").weak().small());
             }
+            for compiled in matching_formulas {
+                let def = &compiled.def;
+                let unit_suffix = if def.unit.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", def.unit)
+                };
+                let drag_payload = DraggedSignal::Derived {
+                    signal_id: def.id.clone(),
+                    label: def.label.clone(),
+                    unit: def.unit.clone(),
+                };
 
-            header.show(ui, |ui| {
-                for sig in sigs {
-                    let canonical_id =
-                        daqcore::storage::format_signal_id(&sig.msg_name, &sig.signal_name);
-                    let unit_badge = if sig.unit.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", sig.unit)
-                    };
-                    let drag_payload = DraggedSignal::Raw {
-                        key: sig.key,
-                        msg_name: sig.msg_name.clone(),
-                        signal_name: sig.signal_name.clone(),
-                        unit: sig.unit.clone(),
-                    };
-
-                    ui.horizontal(|ui| {
-                        let dnd_resp = ui.dnd_drag_source(
-                            eframe::egui::Id::new(("dnd_raw_signal", &canonical_id)),
-                            drag_payload.clone(),
-                            |ui| {
-                                ui.label(
+                ui.horizontal(|ui| {
+                    if ui
+                        .small_button("📈")
+                        .on_hover_text("Open formula in a new Scope")
+                        .clicked()
+                    {
+                        action_queue.push(action::AppAction::SpawnWidget(
+                            drag_payload.to_widget_constructor(),
+                        ));
+                    }
+                    if ui
+                        .small_button("✏")
+                        .on_hover_text("Edit formula expression")
+                        .clicked()
+                    {
+                        state.formula_draft = Some(FormulaDraft::from_compiled(compiled));
+                    }
+                    let dnd_resp = ui.dnd_drag_source(
+                        eframe::egui::Id::new(("dnd_derived_signal", &def.id)),
+                        drag_payload.clone(),
+                        |ui| {
+                            ui.add(
+                                eframe::egui::Label::new(
                                     eframe::egui::RichText::new(format!(
-                                        "• {}{}",
-                                        sig.signal_name, unit_badge
+                                        "ƒ {} — {}{}",
+                                        def.id, def.label, unit_suffix
                                     ))
                                     .small(),
-                                );
-                            },
-                        );
-                        let row_resp = dnd_resp.response.on_hover_text(format!(
-                            "Signal ID: {}\nUnit: {}\n{}\nDrag onto a Scope/GpsPlot or click 📈",
-                            canonical_id,
-                            if sig.unit.is_empty() {
-                                "(unitless)"
-                            } else {
-                                sig.unit.as_str()
-                            },
-                            if sig.description.is_empty() {
-                                "(no description)"
-                            } else {
-                                sig.description.as_str()
-                            }
+                                )
+                                .truncate(),
+                            );
+                        },
+                    );
+                    let row_resp = dnd_resp.response.on_hover_text(format!(
+                        "Formula: {}\nExpression: {}\nDependencies: {}\nDrag onto a Scope/GpsPlot or click 📈",
+                        def.id,
+                        def.expression,
+                        if compiled.dependencies.is_empty() {
+                            "(none)".to_owned()
+                        } else {
+                            compiled.dependencies.join(", ")
+                        }
+                    ));
+                    if row_resp.double_clicked() {
+                        action_queue.push(action::AppAction::SpawnWidget(
+                            drag_payload.to_widget_constructor(),
                         ));
-                        if row_resp.double_clicked() {
-                            action_queue.push(action::AppAction::SpawnWidget(
-                                drag_payload.to_widget_constructor(),
-                            ));
-                        }
-                        if ui
-                            .small_button("📈")
-                            .on_hover_text(format!("Open {canonical_id} in a new Scope"))
-                            .clicked()
-                        {
-                            action_queue.push(action::AppAction::SpawnWidget(
-                                drag_payload.to_widget_constructor(),
-                            ));
-                        }
-                    });
+                    }
+                });
+            }
+        });
+
+        // -------------------------------------------------------------------------
+        // 2. Hierarchical Tree: Message -> Signal (with Unit)
+        // -------------------------------------------------------------------------
+        let query_active = !state.search_query.trim().is_empty();
+        let mut visible_msg_count = 0usize;
+        let mut visible_sig_count = 0usize;
+
+        let filtered_groups: Vec<(MessageGroup, Vec<SignalLeaf>)> = groups_by_msg
+            .into_values()
+            .filter(|g| {
+                state.bus_filter.as_deref().is_none_or(|b| g.bus_name == b)
+                    && state
+                        .node_filter
+                        .as_deref()
+                        .is_none_or(|n| g.transmitter == n)
+            })
+            .filter_map(|g| {
+                let msg_matches = matches_search_query(
+                    &state.search_query,
+                    &[&g.msg_name, &g.bus_name, &g.transmitter, &g.description],
+                );
+                let matching_sigs: Vec<SignalLeaf> = g
+                    .signals
+                    .iter()
+                    .filter(|s| {
+                        let canonical_id = format!("{}.{}", s.msg_name, s.signal_name);
+                        msg_matches
+                            || matches_search_query(
+                                &state.search_query,
+                                &[
+                                    &canonical_id,
+                                    &s.signal_name,
+                                    &s.unit,
+                                    &s.description,
+                                    &g.bus_name,
+                                    &g.transmitter,
+                                ],
+                            )
+                    })
+                    .cloned()
+                    .collect();
+                if matching_sigs.is_empty() {
+                    None
+                } else {
+                    visible_msg_count += 1;
+                    visible_sig_count += matching_sigs.len();
+                    Some((g, matching_sigs))
                 }
-            });
-        }
+            })
+            .collect();
+
+        eframe::egui::CollapsingHeader::new(
+            eframe::egui::RichText::new(format!(
+                "📡 CAN Messages & Signals ({visible_msg_count} msgs, {visible_sig_count} sigs)"
+            ))
+            .strong(),
+        )
+        .id_salt("signal_browser_can_tree")
+        .default_open(true)
+        .show(ui, |ui| {
+            if filtered_groups.is_empty() {
+                ui.label(
+                    eframe::egui::RichText::new("No matching CAN messages or signals.")
+                        .weak()
+                        .small(),
+                );
+            }
+            for (group, sigs) in filtered_groups {
+                let header_label = if let Some(k) = group.key {
+                    format!(
+                        "{} [{} · {} · 0x{:03X}] ({})",
+                        group.msg_name,
+                        group.bus_name,
+                        group.transmitter,
+                        k.identity,
+                        sigs.len()
+                    )
+                } else {
+                    format!("{} [{}] ({})", group.msg_name, group.bus_name, sigs.len())
+                };
+
+                let mut header = eframe::egui::CollapsingHeader::new(
+                    eframe::egui::RichText::new(header_label).small().strong(),
+                )
+                .id_salt(("sig_browser_msg", &group.msg_name));
+                if query_active && visible_msg_count <= 25 {
+                    header = header.open(Some(true));
+                }
+
+                header.show(ui, |ui| {
+                    for sig in sigs {
+                        let canonical_id =
+                            daqcore::storage::format_signal_id(&sig.msg_name, &sig.signal_name);
+                        let unit_badge = if sig.unit.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", sig.unit)
+                        };
+                        let drag_payload = DraggedSignal::Raw {
+                            key: sig.key,
+                            msg_name: sig.msg_name.clone(),
+                            signal_name: sig.signal_name.clone(),
+                            unit: sig.unit.clone(),
+                        };
+
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button("📈")
+                                .on_hover_text(format!("Open {canonical_id} in a new Scope"))
+                                .clicked()
+                            {
+                                action_queue.push(action::AppAction::SpawnWidget(
+                                    drag_payload.to_widget_constructor(),
+                                ));
+                            }
+                            let dnd_resp = ui.dnd_drag_source(
+                                eframe::egui::Id::new(("dnd_raw_signal", &canonical_id)),
+                                drag_payload.clone(),
+                                |ui| {
+                                    ui.add(
+                                        eframe::egui::Label::new(
+                                            eframe::egui::RichText::new(format!(
+                                                "• {}{}",
+                                                sig.signal_name, unit_badge
+                                            ))
+                                            .small(),
+                                        )
+                                        .truncate(),
+                                    );
+                                },
+                            );
+                            let row_resp = dnd_resp.response.on_hover_text(format!(
+                                "Signal ID: {}\nUnit: {}\n{}\nDrag onto a Scope/GpsPlot or click 📈",
+                                canonical_id,
+                                if sig.unit.is_empty() {
+                                    "(unitless)"
+                                } else {
+                                    sig.unit.as_str()
+                                },
+                                if sig.description.is_empty() {
+                                    "(no description)"
+                                } else {
+                                    sig.description.as_str()
+                                }
+                            ));
+                            if row_resp.double_clicked() {
+                                action_queue.push(action::AppAction::SpawnWidget(
+                                    drag_payload.to_widget_constructor(),
+                                ));
+                            }
+                        });
+                    }
+                });
+            }
+        });
     });
 
     // Render the "+ New Formula" modal if open
@@ -887,6 +911,95 @@ mod tests {
         assert_eq!(
             gps.overlay_signal(),
             Some(&("dc_bus_power_kw".to_owned(), "kW".to_owned()))
+        );
+    }
+
+    #[test]
+    fn sidebar_width_remains_stable_across_frames_when_searching() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
+        let database = daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26");
+        let selection = daqcore::can_thread::BusSelection::default_single(&database)
+            .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
+        let db_sel = app::DatabaseSelection {
+            database,
+            selection,
+        };
+
+        let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
+        let mut router =
+            daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
+        let mut state = SignalBrowserState::default();
+        let mut action_queue = Vec::new();
+        let mut diag = None;
+
+        let ctx = eframe::egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        crate::ui::theme::store_theme(
+            &ctx,
+            crate::ui::theme::ThemeSelection::default().get_colors(),
+        );
+
+        let mut widths = Vec::new();
+        for frame in 0..40 {
+            if frame == 2 {
+                state.search_query = "temp".to_owned();
+            } else if frame == 20 {
+                state.search_query = "motor".to_owned();
+            }
+            let raw_input = eframe::egui::RawInput {
+                screen_rect: Some(eframe::egui::Rect::from_min_size(
+                    eframe::egui::Pos2::ZERO,
+                    eframe::egui::vec2(1280.0, 600.0),
+                )),
+                time: Some(frame as f64 * 0.016),
+                ..Default::default()
+            };
+            let _ = ctx.run(raw_input, |ctx| {
+                eframe::egui::SidePanel::left("left_sidebar")
+                    .resizable(true)
+                    .default_width(310.0)
+                    .width_range(220.0..=520.0)
+                    .show_animated(ctx, true, |ui| {
+                        let panel_width = ui.available_width();
+                        ui.set_max_width(panel_width);
+                        eframe::egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.set_max_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        eframe::egui::Image::from_bytes(
+                                            crate::assets::PER_LOGO_PATH,
+                                            crate::assets::PER_LOGO_BYTES,
+                                        )
+                                        .show_loading_spinner(true)
+                                        .corner_radius(5),
+                                    );
+                                    ui.heading("Side bar");
+                                });
+                                show_signal_browser(
+                                    ui,
+                                    &mut state,
+                                    Some(&db_sel),
+                                    &mut router,
+                                    &mut action_queue,
+                                    &mut diag,
+                                );
+                            });
+                    });
+                let left_after = ctx.available_rect().left();
+                widths.push(left_after);
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.label("workspace");
+                });
+            });
+        }
+        let first_w = widths[1];
+        let last_w = *widths.last().unwrap();
+        assert!(
+            (last_w - first_w).abs() < 1.0,
+            "Sidebar width crept from {first_w} to {last_w} across 40 frames: {widths:?}"
         );
     }
 }
