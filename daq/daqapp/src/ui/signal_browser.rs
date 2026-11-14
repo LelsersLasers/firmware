@@ -229,24 +229,28 @@ pub fn show_signal_browser(
     });
 
     // Search bar (right-to-left so the clear button deducts from available_width first
-    // and never causes a frame-over-frame SidePanel width feedback loop)
+    // and never causes a frame-over-frame SidePanel width feedback loop; explicit id_salt
+    // ensures focus is never dropped when search_query transitions from empty to non-empty)
     let row_width = ui.available_width();
     ui.allocate_ui_with_layout(
         eframe::egui::vec2(row_width, ui.spacing().interact_size.y),
         eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
         |ui| {
             ui.set_max_width(row_width);
-            if !state.search_query.is_empty()
-                && ui
-                    .small_button("✕")
-                    .on_hover_text("Clear search filter")
-                    .clicked()
+            if ui
+                .add_enabled(
+                    !state.search_query.is_empty(),
+                    eframe::egui::Button::new("✕").small(),
+                )
+                .on_hover_text("Clear search filter")
+                .clicked()
             {
                 state.search_query.clear();
             }
             let edit_width = (ui.available_width() - 14.0).max(40.0);
             ui.add(
                 eframe::egui::TextEdit::singleline(&mut state.search_query)
+                    .id(eframe::egui::Id::new("signal_browser_search_input"))
                     .desired_width(edit_width)
                     .hint_text("Search signal, message, unit, or glob…"),
             );
@@ -940,12 +944,18 @@ mod tests {
             crate::ui::theme::ThemeSelection::default().get_colors(),
         );
 
+        let search_id = eframe::egui::Id::new("signal_browser_search_input");
         let mut widths = Vec::new();
         for frame in 0..40 {
+            let mut events = Vec::new();
             if frame == 2 {
-                state.search_query = "temp".to_owned();
-            } else if frame == 20 {
-                state.search_query = "motor".to_owned();
+                events.push(eframe::egui::Event::Text("t".to_owned()));
+            } else if frame == 3 {
+                events.push(eframe::egui::Event::Text("e".to_owned()));
+            } else if frame == 4 {
+                events.push(eframe::egui::Event::Text("m".to_owned()));
+            } else if frame == 5 {
+                events.push(eframe::egui::Event::Text("p".to_owned()));
             }
             let raw_input = eframe::egui::RawInput {
                 screen_rect: Some(eframe::egui::Rect::from_min_size(
@@ -953,9 +963,13 @@ mod tests {
                     eframe::egui::vec2(1280.0, 600.0),
                 )),
                 time: Some(frame as f64 * 0.016),
+                events,
                 ..Default::default()
             };
             let _ = ctx.run(raw_input, |ctx| {
+                if frame == 1 {
+                    ctx.memory_mut(|m| m.request_focus(search_id));
+                }
                 eframe::egui::SidePanel::left("left_sidebar")
                     .resizable(true)
                     .default_width(310.0)
@@ -988,6 +1002,12 @@ mod tests {
                                 );
                             });
                     });
+                if frame >= 2 {
+                    assert!(
+                        ctx.memory(|m| m.has_focus(search_id)),
+                        "Search input lost focus on frame {frame}"
+                    );
+                }
                 let left_after = ctx.available_rect().left();
                 widths.push(left_after);
                 eframe::egui::CentralPanel::default().show(ctx, |ui| {
@@ -995,6 +1015,7 @@ mod tests {
                 });
             });
         }
+        assert_eq!(state.search_query, "temp");
         let first_w = widths[1];
         let last_w = *widths.last().unwrap();
         assert!(
