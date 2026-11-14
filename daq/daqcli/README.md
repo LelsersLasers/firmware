@@ -1,31 +1,44 @@
 # PER DaqCLI
 
-DaqCLI is a command-line companion to DaqApp for offline DAQ log parsing. It runs
-the same `daqcore::log_parse` pipeline as the app's Log Parser, so recorded `.log`
-files can be parsed and correlated into CSV tables without opening the GUI, which
-is handy for scripts, batch jobs, and CI.
+`daqcli` is the headless command-line companion to `daqapp` for offline SD card `.log` ingestion and synchronized dataset export (`Parquet`, `CSV`, and MATLAB Level 5 `.mat`).
 
-## Usage
+## Subcommands
 
-DaqCLI takes explicit paths as arguments, so it can be run from any working
-directory:
+### 1. `daqcli import` — Ingest Raw SD `.log` Files into Parquet Partitions
+
+Scans a directory of raw SD card `.log` binaries, performs 3-tier clock correlation (GPS regression -> RTC filename -> file mtime), generates multi-resolution Apache Parquet partition pyramids (`full/`, `10hz/`, `1hz/`, `states.parquet`), and registers auto-detected driving stints and fault intervals in `registry.sqlite`:
 
 ```bash
-cargo run -p daqcli -- \
+cargo run --manifest-path daq/Cargo.toml --release -p daqcli -- import \
     --logs-dir <dir with .log files> \
-    --output-dir <dir for CSV output> \
+    --store-dir <parquet store directory> \
     --superdbc <path to superdbc_*.json>
 ```
 
-SuperDBC artifacts are firmware build outputs found in `monorepo/superdbc`.
+### 2. `daqcli export` — Export Synchronized Datasets by Preset or Event
 
-## Options
+Exports a time window or named event/stint annotation (`--event "Driving Stint 1"`) from a Parquet partition store using a subteam preset (`vd`, `aero`, `powertrain_thermals`, `controls`, `raw_all`) or custom signal globs (`--signals`), evaluating derived `FormulaEngine` channels and aligning multi-rate signals automatically:
 
-- `--logs-dir` (required) - directory containing the raw `.log` files
-- `--output-dir` (required) - directory to write CSV tables into
-- `--superdbc` (required) - SuperDBC JSON artifact containing the bus definitions
-- `--prefix` - output filename prefix (default: `out`)
+```bash
+cargo run --manifest-path daq/Cargo.toml --release -p daqcli -- export \
+    --store-dir ./store \
+    --event "Driving Stint 1" \
+    --preset vd \
+    --format parquet \
+    -o stint1_vd.parquet
+```
 
+#### `daqcli export` Options
 
-Set `RUST_LOG` to control log verbosity (for example `RUST_LOG=debug`).
-Defaults to `info`.
+- `--store-dir <PATH>` (required) — Directory containing the Parquet partition store (`registry.sqlite` and `partitions/`).
+- `--event <NAME_OR_ID>` — Named event/stint annotation (e.g. `"Driving Stint 1"`). If omitted, uses `--start-ms` / `--end-ms` or the full track-day span.
+- `--start-ms <UTC_MS>` / `--end-ms <UTC_MS>` — Optional explicit UTC millisecond bounds.
+- `--preset <ID>` — Subteam signal preset from `daq/config/export_presets.json` (`vd`, `aero`, `powertrain_thermals`, `controls`, `raw_all`; defaults to `vd` when `--signals` is omitted).
+- `--signals <GLOBS>` — Optional comma-separated signal IDs or glob patterns (e.g. `"IMU_acceleration.*,battery.power_w"`).
+- `--format <parquet|csv|mat>` — Output file format (inferred from `-o` extension if omitted; defaults to `parquet`).
+- `--rate-hz <HZ>` — Override the uniform resampling rate in Hz (e.g. `100.0`).
+- `--sparse` — Export at exact union timestamps without uniform grid resampling.
+- `--superdbc <PATH>` — Optional SuperDBC JSON file for signal unit and enum/boolean state enrichment.
+- `-o, --output <PATH>` (required) — Destination file path.
+
+Set `RUST_LOG` to control log verbosity (for example `RUST_LOG=debug`). Defaults to `info`.

@@ -1260,6 +1260,7 @@ dependencies = [
  "daqcore",
  "env_logger",
  "log",
+ "tempfile",
 ]
 
 [[package]]
