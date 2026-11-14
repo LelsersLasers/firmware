@@ -1,9 +1,6 @@
-pub mod battery;
 pub mod bootloader;
 pub mod bus_load;
 pub mod command_palette;
-pub mod dynamics;
-pub mod gg_plot;
 pub mod gps_plot;
 pub mod hil;
 pub mod jitter;
@@ -15,7 +12,7 @@ pub mod sidebar;
 pub mod signal_browser;
 pub mod state_lane;
 pub mod theme;
+pub mod timeline;
 pub mod viewer_list;
 pub mod viewer_table;
-
-pub mod timeline;
+pub mod xy_scatter;

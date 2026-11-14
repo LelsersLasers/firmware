@@ -362,19 +362,19 @@ impl DAQApp {
                     .tiles()
                     .filter(|tile| matches!(tile, egui_tiles::Tile::Pane(w) if w.kind() == kind))
                     .count();
-                match widget_type.create(
+                let created = widget_type.create_all(
                     &mut self.widget_ids,
                     self.ui_to_can_tx.clone(),
                     existing_count,
-                ) {
-                    Some(mut widget) => {
+                );
+                if created.is_empty() {
+                    log::warn!("Maximum number of {:?} widgets already open", kind);
+                } else {
+                    for mut widget in created {
                         widget.handle_operational_event(&daqcore::can_thread::CanThreadEvent::Hil(
                             self.hil_snapshot.clone(),
                         ));
                         self.add_widget_to_tree(widget);
-                    }
-                    None => {
-                        log::warn!("Maximum number of {:?} widgets already open", kind)
                     }
                 }
             }

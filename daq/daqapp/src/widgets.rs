@@ -7,14 +7,11 @@ pub enum Widget {
     Bootloader(ui::bootloader::Bootloader),
     Scope(ui::scope::Scope),
     StateLane(ui::state_lane::StateLane),
+    XYScatter(ui::xy_scatter::XYScatter),
     LogParser(ui::log_parser::LogParser),
     SendUi(ui::send::SendUi),
     BusLoad(ui::bus_load::BusLoad),
-    BatteryVoltage(ui::battery::battery_voltage::BatteryVoltage),
-    BatteryTemps(ui::battery::battery_temps::BatteryTemps),
-    GgPlot(ui::gg_plot::GgPlot),
     GpsPlot(ui::gps_plot::GpsPlot),
-    Dynamics(ui::dynamics::Dynamics),
     Jitter(ui::jitter::Jitter),
     Hil(ui::hil::Hil),
 }
@@ -36,14 +33,11 @@ impl Widget {
             Widget::Bootloader(w) => &w.title,
             Widget::Scope(w) => &w.title,
             Widget::StateLane(w) => &w.title,
+            Widget::XYScatter(w) => &w.title,
             Widget::LogParser(w) => &w.title,
             Widget::SendUi(w) => &w.title,
             Widget::BusLoad(w) => &w.title,
-            Widget::BatteryVoltage(w) => &w.title,
-            Widget::BatteryTemps(w) => &w.title,
-            Widget::GgPlot(w) => &w.title,
             Widget::GpsPlot(w) => &w.title,
-            Widget::Dynamics(w) => &w.title,
             Widget::Jitter(w) => &w.title,
             Widget::Hil(w) => &w.title,
         }
@@ -56,14 +50,11 @@ impl Widget {
             Widget::Bootloader(_) => widget_constructor::WidgetKind::Bootloader,
             Widget::Scope(_) => widget_constructor::WidgetKind::Scope,
             Widget::StateLane(_) => widget_constructor::WidgetKind::StateLane,
+            Widget::XYScatter(_) => widget_constructor::WidgetKind::XYScatter,
             Widget::LogParser(_) => widget_constructor::WidgetKind::LogParser,
             Widget::SendUi(_) => widget_constructor::WidgetKind::SendUi,
             Widget::BusLoad(_) => widget_constructor::WidgetKind::BusLoad,
-            Widget::BatteryVoltage(_) => widget_constructor::WidgetKind::BatteryVoltage,
-            Widget::BatteryTemps(_) => widget_constructor::WidgetKind::BatteryTemps,
-            Widget::GgPlot(_) => widget_constructor::WidgetKind::GgPlot,
             Widget::GpsPlot(_) => widget_constructor::WidgetKind::GpsPlot,
-            Widget::Dynamics(_) => widget_constructor::WidgetKind::Dynamics,
             Widget::Jitter(_) => widget_constructor::WidgetKind::Jitter,
             Widget::Hil(_) => widget_constructor::WidgetKind::Hil,
         }
@@ -86,16 +77,13 @@ impl Widget {
             Widget::Bootloader(w) => w.show(ui, &context.ui_to_can_tx),
             Widget::Scope(w) => w.show(ui, context.database, context.view),
             Widget::StateLane(w) => w.show(ui, context.database, context.view),
+            Widget::XYScatter(w) => w.show(ui, context.database, context.view),
             Widget::LogParser(w) => {
                 w.show(ui, context.database, context.view, context.action_queue)
             }
             Widget::SendUi(w) => w.show(ui, context.database, context.formatter),
             Widget::BusLoad(w) => w.show(ui, context.bus_load, context.view),
-            Widget::BatteryVoltage(w) => w.show(ui, context.view),
-            Widget::BatteryTemps(w) => w.show(ui, context.view),
-            Widget::GgPlot(w) => w.show(ui, context.view),
             Widget::GpsPlot(w) => w.show(ui, context.view),
-            Widget::Dynamics(w) => w.show(ui, context.view),
             Widget::Jitter(w) => w.show(ui, context.database, context.view),
             Widget::Hil(w) => w.show(ui),
         }
@@ -107,6 +95,7 @@ impl Widget {
             Widget::Bootloader(widget) => widget.reset_database(),
             Widget::Scope(widget) => widget.reset_database(),
             Widget::StateLane(widget) => widget.reset_database(),
+            Widget::XYScatter(widget) => widget.reset_database(),
             Widget::Jitter(widget) => widget.reset_database(),
             _ => {}
         }

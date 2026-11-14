@@ -85,6 +85,18 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         ));
     }
 
+    if ui.button("Add XY Scatter").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::XYScatter,
+        ));
+    }
+
+    if ui.button("Add GPS Plot").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::GpsPlot,
+        ));
+    }
+
     if ui.button("Add Bootloader").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Bootloader,
@@ -109,36 +121,6 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         ));
     }
 
-    if ui.button("Add Battery Voltage").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::BatteryVoltage,
-        ));
-    }
-
-    if ui.button("Add Battery Temps").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::BatteryTemps,
-        ));
-    }
-
-    if ui.button("Add G-G Plot").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::GgPlot,
-        ));
-    }
-
-    if ui.button("Add GPS Plot").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::GpsPlot,
-        ));
-    }
-
-    if ui.button("Add Dynamics").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::Dynamics,
-        ));
-    }
-
     if ui.button("Add Jitter").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Jitter,
@@ -148,6 +130,27 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     if ui.button("Add HIL").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Hil,
+        ));
+    }
+
+    ui.separator();
+    ui.heading("Subteam Presets");
+
+    if ui.button("Preset: G-G Diagram").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetGgDiagram,
+        ));
+    }
+
+    if ui.button("Preset: Handling Understeer").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+        ));
+    }
+
+    if ui.button("Preset: Battery Pack Overview").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetBatteryOverview,
         ));
     }
 

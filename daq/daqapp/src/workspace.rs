@@ -169,20 +169,18 @@ mod tests {
             widget_constructor::WidgetConstructor::ViewerList,
             widget_constructor::WidgetConstructor::Bootloader,
             widget_constructor::WidgetConstructor::ScopeEmpty,
+            widget_constructor::WidgetConstructor::StateLane,
+            widget_constructor::WidgetConstructor::XYScatter,
             widget_constructor::WidgetConstructor::LogParser,
             widget_constructor::WidgetConstructor::SendUi,
             widget_constructor::WidgetConstructor::BusLoad,
-            widget_constructor::WidgetConstructor::BatteryVoltage,
-            widget_constructor::WidgetConstructor::BatteryTemps,
-            widget_constructor::WidgetConstructor::GgPlot,
             widget_constructor::WidgetConstructor::GpsPlot,
-            widget_constructor::WidgetConstructor::Dynamics,
             widget_constructor::WidgetConstructor::Jitter,
             widget_constructor::WidgetConstructor::Hil,
         ];
         let mut list: Vec<widgets::Widget> = constructors
             .into_iter()
-            .filter_map(|c| c.create(&mut ids, tx.clone(), 0))
+            .flat_map(|c| c.create_all(&mut ids, tx.clone(), 0))
             .collect();
 
         if let Some(db) = db
@@ -246,7 +244,7 @@ mod tests {
         ];
 
         let mut all_widgets = build_all_widgets(db.as_ref(), tx.clone());
-        assert!(all_widgets.len() >= 14);
+        assert!(all_widgets.len() >= 12);
 
         let ctx = eframe::egui::Context::default();
         ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());

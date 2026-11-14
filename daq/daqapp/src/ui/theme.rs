@@ -174,32 +174,6 @@ impl ThemeColors {
             .unwrap_or(eframe::egui::Color32::from_rgb(209, 154, 102))
     }
 
-    pub fn success_color(&self) -> eframe::egui::Color32 {
-        self.success
-            .as_deref()
-            .map(Self::parse_hex)
-            .unwrap_or(eframe::egui::Color32::from_rgb(152, 195, 121))
-    }
-
-    pub fn info_color(&self) -> eframe::egui::Color32 {
-        self.info
-            .as_deref()
-            .map(Self::parse_hex)
-            .unwrap_or(eframe::egui::Color32::from_rgb(97, 175, 239))
-    }
-
-    pub fn text_color(&self) -> eframe::egui::Color32 {
-        Self::parse_hex(&self.text)
-    }
-
-    pub fn panel_color(&self) -> eframe::egui::Color32 {
-        Self::parse_hex(&self.panel_bg)
-    }
-
-    pub fn accent_color(&self) -> eframe::egui::Color32 {
-        Self::parse_hex(&self.accent)
-    }
-
     pub fn to_egui_style(&self) -> eframe::egui::Style {
         let mut style = eframe::egui::Style::default();
 
