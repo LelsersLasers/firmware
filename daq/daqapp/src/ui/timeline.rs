@@ -1,4 +1,4 @@
-use crate::{app, telemetry, ui};
+use crate::{app, ui, workspace_view};
 
 /// Draft state for creating or editing a Track Day [`daqcore::storage::Annotation`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,12 +106,23 @@ impl AnnotationDraft {
     }
 }
 
-/// Persistent UI state for the Master Timeline Bar and its Annotation Editor modal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkFilter {
+    All,
+    StintsAndEvents,
+    Partitions,
+    Faults,
+}
+
+/// Persistent UI state for the Master Timeline Bar, Calendar/Subchunk Navigator, and Annotation Editor modal.
 #[derive(Debug, Clone)]
 pub struct TimelineUiState {
     pub editor: Option<AnnotationDraft>,
     pub show_stints: bool,
     pub show_faults: bool,
+    pub show_chunk_navigator: bool,
+    pub chunk_search_query: String,
+    pub chunk_filter: ChunkFilter,
 }
 
 impl Default for TimelineUiState {
@@ -120,6 +131,9 @@ impl Default for TimelineUiState {
             editor: None,
             show_stints: true,
             show_faults: true,
+            show_chunk_navigator: false,
+            chunk_search_query: String::new(),
+            chunk_filter: ChunkFilter::All,
         }
     }
 }
@@ -212,15 +226,26 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     }
 
     let mut span_changed = false;
-    eframe::egui::TopBottomPanel::top("shared_timeline").show(ctx, |ui| {
-        span_changed = show_timeline_contents(
-            ui,
-            &mut app.router,
-            &mut app.timeline_ui,
-            &mut app.bus_load_samples,
-            &mut app.diagnostic,
-        );
-    });
+    let top_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
+        .inner_margin(eframe::egui::Margin::symmetric(6, 3));
+    eframe::egui::TopBottomPanel::top("shared_timeline")
+        .frame(top_frame)
+        .show(ctx, |ui| {
+            span_changed = show_timeline_contents(
+                ui,
+                &mut app.router,
+                &mut app.timeline_ui,
+                &mut app.bus_load_samples,
+                &mut app.diagnostic,
+            );
+        });
+
+    show_chunk_navigator_window(
+        ctx,
+        &mut app.router,
+        &mut app.timeline_ui,
+        &mut app.diagnostic,
+    );
 
     show_annotation_editor_modal(
         ctx,
@@ -239,13 +264,14 @@ pub fn show_timeline_contents(
     ui: &mut eframe::egui::Ui,
     router: &mut daqcore::router::VirtualTimelineRouter,
     timeline_ui: &mut TimelineUiState,
-    bus_load_samples: &mut Vec<telemetry::BusLoadSample>,
+    bus_load_samples: &mut Vec<workspace_view::BusLoadSample>,
     diagnostic: &mut Option<String>,
 ) -> bool {
     let theme = ui::theme::get_theme(ui.ctx());
     let accent_color =
         parse_hex_color(&theme.accent, eframe::egui::Color32::from_rgb(56, 189, 248));
     let previous_span = router.timeline().window_secs();
+    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
     // -------------------------------------------------------------------------
     // Row 1: Transport, Track Day Selector, Gap Folding, Clock Provenance Badge
@@ -257,7 +283,64 @@ pub fn show_timeline_contents(
     let mut open_new_bookmark = false;
     let mut open_new_interval = false;
 
+    // Pre-query active day annotations so the toolbar can display `Stints (N) ▾` and `Faults (N) ▾` menus
+    let captured_for_menu = router.captured_time_span();
+    let (menu_day_min, menu_day_max) = router
+        .timeline()
+        .day_bounds_ms()
+        .or_else(|| captured_for_menu.map(|(s, e)| (s.unix_millis(), e.unix_millis())))
+        .unwrap_or_else(|| {
+            (
+                router.timeline().start_utc_ms(),
+                router.timeline().end_utc_ms(),
+            )
+        });
+    let menu_day_min = menu_day_min.min(router.timeline().start_utc_ms());
+    let menu_day_max = menu_day_max
+        .max(router.timeline().end_utc_ms())
+        .max(menu_day_min + 1_000);
+    let all_day_annotations: Vec<daqcore::storage::Annotation> = router
+        .query_annotations_in_range(menu_day_min..=menu_day_max)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| {
+            active_day_id
+                .as_deref()
+                .is_none_or(|day_id| a.track_day_id == day_id)
+        })
+        .collect();
+    let mut stint_annotations: Vec<daqcore::storage::Annotation> = all_day_annotations
+        .iter()
+        .filter(|a| a.category != "fault")
+        .cloned()
+        .collect();
+    stint_annotations.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+    let mut fault_annotations: Vec<daqcore::storage::Annotation> = all_day_annotations
+        .iter()
+        .filter(|a| a.category == "fault")
+        .cloned()
+        .collect();
+    fault_annotations.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+
+    let mut menu_single_click: Option<(String, i64, Option<i64>)> = None;
+    let mut menu_shift_click: Option<(String, i64, Option<i64>)> = None;
+    let mut menu_edit_ann: Option<daqcore::storage::Annotation> = None;
+    let mut menu_delete_id: Option<String> = None;
+    let mut menu_jump_fault_ms: Option<i64> = None;
+    let selected_ann_ids_for_menu: Vec<String> =
+        router.timeline().selected_annotation_ids().to_vec();
+
     ui.horizontal_wrapped(|ui| {
+        if ui
+            .selectable_label(timeline_ui.show_chunk_navigator, "📅 Browse Chunks")
+            .on_hover_text(
+                "Open the Calendar & Subchunk Navigator (browse days, SD partitions, driving stints, and annotations)",
+            )
+            .clicked()
+        {
+            timeline_ui.show_chunk_navigator = !timeline_ui.show_chunk_navigator;
+        }
+
         // Track Day ComboBox
         if !track_days.is_empty() {
             let selected_text = active_day_id.as_deref().unwrap_or("All Track Days");
@@ -287,6 +370,40 @@ pub fn show_timeline_contents(
                         }
                     }
                 });
+        }
+
+        // Quick `< Prev Stint` / `Next Stint >` buttons to step sequentially across subchunks
+        if !stint_annotations.is_empty() {
+            let cur_start = router.timeline().start_utc_ms();
+            if ui
+                .small_button("< Stint")
+                .on_hover_text("Jump to previous Driving Stint / Event")
+                .clicked()
+            {
+                let prev = stint_annotations
+                    .iter()
+                    .rev()
+                    .find(|a| a.start_utc_ms < cur_start - 500)
+                    .or_else(|| stint_annotations.last());
+                if let Some(ann) = prev {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
+            if ui
+                .small_button("Stint >")
+                .on_hover_text("Jump to next Driving Stint / Event")
+                .clicked()
+            {
+                let next = stint_annotations
+                    .iter()
+                    .find(|a| a.start_utc_ms > cur_start + 500)
+                    .or_else(|| stint_annotations.first());
+                if let Some(ann) = next {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
         }
 
         let timeline = router.timeline_mut();
@@ -436,21 +553,166 @@ pub fn show_timeline_contents(
             timeline.set_collapse_idle_gaps(fold_gaps);
         }
 
-        ui.checkbox(&mut timeline_ui.show_stints, "Stints")
-            .on_hover_text("Show/hide driving stints, laps, and manual event annotations");
-        ui.checkbox(&mut timeline_ui.show_faults, "Faults")
-            .on_hover_text("Show/hide auto-detected fault annotations");
+        // Stints & Events dropdown menu (clean chronological list, snap or compare)
+        ui.menu_button(format!("🏷 Stints ({})", stint_annotations.len()), |ui| {
+            ui.set_min_width(300.0);
+            ui.checkbox(&mut timeline_ui.show_stints, "Show Stints & Events on timeline");
+            ui.separator();
+            if stint_annotations.is_empty() {
+                ui.label(
+                    eframe::egui::RichText::new("No stints or events in this track day.")
+                        .italics()
+                        .weak(),
+                );
+            } else {
+                eframe::egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .show(ui, |ui| {
+                        for ann in &stint_annotations {
+                            let is_sel = selected_ann_ids_for_menu.contains(&ann.id);
+                            let dur_s = ann
+                                .end_utc_ms
+                                .map(|e| (e - ann.start_utc_ms).max(0) as f64 / 1000.0);
+                            let time_lbl =
+                                daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label();
+                            let row_lbl = match dur_s {
+                                Some(d) if d > 0.0 => {
+                                    format!("{}  ({time_lbl}, {d:.1}s)", ann.name)
+                                }
+                                _ => format!("📍 {}  ({time_lbl})", ann.name),
+                            };
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .selectable_label(is_sel, row_lbl)
+                                    .on_hover_text("Click to snap viewport to this stint/event")
+                                    .clicked()
+                                {
+                                    menu_single_click =
+                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                                    ui.close();
+                                }
+                                if ui
+                                    .small_button(if is_sel { "-Cmp" } else { "+Cmp" })
+                                    .on_hover_text("Toggle multi-stint Comparison / Overlay Mode")
+                                    .clicked()
+                                {
+                                    menu_shift_click =
+                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                                }
+                                if ui.small_button("Edit").on_hover_text("Edit event").clicked() {
+                                    menu_edit_ann = Some(ann.clone());
+                                    ui.close();
+                                }
+                                if ui.small_button("×").on_hover_text("Delete event").clicked() {
+                                    menu_delete_id = Some(ann.id.clone());
+                                }
+                            });
+                        }
+                    });
+            }
+        });
+
+        // Faults dropdown menu (grouped by fault signal name so 189 faults never pile on top of each other)
+        ui.menu_button(format!("⚠ Faults ({})", fault_annotations.len()), |ui| {
+            ui.set_min_width(340.0);
+            ui.checkbox(
+                &mut timeline_ui.show_faults,
+                "Show fault tick markers on timeline",
+            );
+            ui.separator();
+            if fault_annotations.is_empty() {
+                ui.label(
+                    eframe::egui::RichText::new("No faults detected in this track day.")
+                        .italics()
+                        .weak(),
+                );
+            } else {
+                // Group faults by signal name preserving chronological order of first occurrence
+                let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> = Vec::new();
+                for f in &fault_annotations {
+                    let short = f
+                        .name
+                        .strip_prefix("Fault: ")
+                        .unwrap_or(&f.name)
+                        .to_owned();
+                    if let Some((_, list)) = grouped.iter_mut().find(|(k, _)| k == &short) {
+                        list.push(f);
+                    } else {
+                        grouped.push((short, vec![f]));
+                    }
+                }
+                ui.label(
+                    eframe::egui::RichText::new(format!(
+                        "{} fault types ({} total transitions) — click to jump:",
+                        grouped.len(),
+                        fault_annotations.len()
+                    ))
+                    .weak()
+                    .small(),
+                );
+                eframe::egui::ScrollArea::vertical()
+                    .max_height(300.0)
+                    .show(ui, |ui| {
+                        for (fault_name, occurrences) in grouped {
+                            let first_ms = occurrences[0].start_utc_ms;
+                            let first_lbl =
+                                daqcore::time::Time::from_unix_millis(first_ms).label();
+                            let header = format!(
+                                "⚠ {}  [{}×, first @ {}]",
+                                fault_name,
+                                occurrences.len(),
+                                first_lbl
+                            );
+                            ui.collapsing(header, |ui| {
+                                for (idx, occ) in occurrences.iter().take(50).enumerate() {
+                                    let t_lbl =
+                                        daqcore::time::Time::from_unix_millis(occ.start_utc_ms)
+                                            .label();
+                                    let dur_str = occ
+                                        .end_utc_ms
+                                        .filter(|&e| e > occ.start_utc_ms)
+                                        .map(|e| {
+                                            format!(
+                                                " ({:.2}s)",
+                                                (e - occ.start_utc_ms) as f64 / 1000.0
+                                            )
+                                        })
+                                        .unwrap_or_default();
+                                    if ui
+                                        .small_button(format!("#{} @ {}{}", idx + 1, t_lbl, dur_str))
+                                        .on_hover_text("Jump playhead and 10s window to this fault")
+                                        .clicked()
+                                    {
+                                        menu_jump_fault_ms = Some(occ.start_utc_ms);
+                                        ui.close();
+                                    }
+                                }
+                                if occurrences.len() > 50 {
+                                    ui.label(
+                                        eframe::egui::RichText::new(format!(
+                                            "…and {} more occurrences",
+                                            occurrences.len() - 50
+                                        ))
+                                        .weak()
+                                        .small(),
+                                    );
+                                }
+                            });
+                        }
+                    });
+            }
+        });
 
         // Add Event / Bookmark buttons
         if ui
-            .button("📍 + Bookmark (M)")
+            .small_button("📍 +Bookmark")
             .on_hover_text("Drop a point event bookmark at the current Playhead (Hotkey: M)")
             .clicked()
         {
             open_new_bookmark = true;
         }
         if ui
-            .button("🏷 + Interval Event")
+            .small_button("🏷 +Event")
             .on_hover_text("Create a named interval annotation spanning [start .. end]")
             .clicked()
         {
@@ -465,6 +727,28 @@ pub fn show_timeline_contents(
             clear_live_clicked = true;
         }
     });
+
+    if let Some((id, s, e)) = menu_single_click {
+        router.timeline_mut().select_single_annotation(id, s, e);
+    }
+    if let Some((id, s, e)) = menu_shift_click {
+        router.timeline_mut().toggle_comparison_annotation(id, s, e);
+    }
+    if let Some(ann) = menu_edit_ann {
+        timeline_ui.open_edit(&ann);
+    }
+    if let Some(del_id) = menu_delete_id {
+        let now_ms = daqcore::time::Time::now().unix_millis();
+        if let Err(err) = router.soft_delete_annotation(&del_id, now_ms) {
+            *diagnostic = Some(format!("Failed to delete annotation: {err}"));
+        }
+    }
+    if let Some(fault_ms) = menu_jump_fault_ms {
+        let tl = router.timeline_mut();
+        let half_win = (tl.window_ms() / 2).clamp(2_500, 10_000);
+        tl.snap_to_range_ms(fault_ms.saturating_sub(half_win), fault_ms.saturating_add(half_win));
+        tl.set_setpoint(daqcore::time::Time::from_unix_millis(fault_ms));
+    }
 
     if let Some(day_choice) = requested_day_change
         && let Err(err) = router.select_track_day(day_choice)
@@ -522,8 +806,8 @@ pub fn show_timeline_contents(
         eframe::egui::Frame::NONE
             .fill(prov_color.gamma_multiply(0.18))
             .stroke(eframe::egui::Stroke::new(1.0_f32, prov_color))
-            .corner_radius(4.0)
-            .inner_margin(eframe::egui::Margin::symmetric(6, 2))
+            .corner_radius(3.0)
+            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
             .show(ui, |ui| {
                 ui.label(
                     eframe::egui::RichText::new(&prov_text)
@@ -538,8 +822,8 @@ pub fn show_timeline_contents(
         eframe::egui::Frame::NONE
             .fill(ui.visuals().widgets.noninteractive.bg_fill)
             .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .corner_radius(4.0)
-            .inner_margin(eframe::egui::Margin::symmetric(6, 2))
+            .corner_radius(3.0)
+            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
             .show(ui, |ui| {
                 ui.label(
                     eframe::egui::RichText::new(format!(
@@ -675,7 +959,7 @@ fn show_day_overview_lane(
         .collect();
     let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
 
-    let lane_height = 54.0;
+    let lane_height = 38.0;
     let width = ui.available_width().max(1.0);
     let (rect, lane_response) = ui.allocate_exact_size(
         eframe::egui::vec2(width, lane_height),
@@ -751,8 +1035,8 @@ fn show_day_overview_lane(
 
     // 4. Render 1Hz Activity Envelope along the bottom half of the Day Overview lane
     if !activity_1hz.is_empty() {
-        let env_bottom = rect.bottom() - 2.0;
-        let env_max_h = 18.0;
+        let env_bottom = rect.bottom() - 1.5;
+        let env_max_h = 12.0;
         let pixel_cols = (rect.width().ceil() as usize).clamp(1, 2048);
         let mut col_peaks = vec![0.0f32; pixel_cols];
         for &(bucket_ms, intensity) in &activity_1hz {
@@ -811,82 +1095,16 @@ fn show_day_overview_lane(
         }
     }
 
-    // 6. Render Event Annotation Pills (dedicated non-overlapping rows + spatial clustering)
-    let mut pill_interacted = false;
+    // 6. Render Stints/Events (top band, true time width — never inflated or falsely merged)
+    //    and Fault Onset Ticks (bottom 8px strip — crisp 2px ticks that never pile into a giant bar)
+    let mut interacted_with_overlay = false;
     let mut pending_single_click: Option<(String, i64, Option<i64>)> = None;
     let mut pending_shift_click: Option<(String, i64, Option<i64>)> = None;
     let mut pending_edit: Option<daqcore::storage::Annotation> = None;
     let mut pending_delete_id: Option<String> = None;
 
-    struct PillCluster {
-        row: usize,
-        left_x: f32,
-        right_x: f32,
-        min_start_ms: i64,
-        max_end_ms: i64,
-        items: Vec<daqcore::storage::Annotation>,
-    }
-
-    let mut clusters: Vec<PillCluster> = Vec::new();
-    for row in 0..2 {
-        if (row == 0 && !timeline_ui.show_stints) || (row == 1 && !timeline_ui.show_faults) {
-            continue;
-        }
-        let mut row_anns: Vec<&daqcore::storage::Annotation> = annotations
-            .iter()
-            .filter(|a| {
-                let is_fault = a.category == "fault";
-                if row == 0 { !is_fault } else { is_fault }
-            })
-            .collect();
-        row_anns.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
-
-        let mut row_clusters: Vec<PillCluster> = Vec::new();
-        for ann in row_anns {
-            let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
-            let x0 = time_to_x(ann.start_utc_ms);
-            let x1 = time_to_x(ann_end_ms);
-            let is_point =
-                ann.end_utc_ms.is_none() || ann_end_ms <= ann.start_utc_ms || (x1 - x0).abs() < 8.0;
-            let short_name = ann.name.strip_prefix("Fault: ").unwrap_or(&ann.name);
-            let desired_w = if is_point {
-                (short_name.len() as f32 * 5.8 + 20.0).clamp(48.0, 96.0)
-            } else {
-                (x1 - x0).max(56.0)
-            };
-            let pill_left = x0.clamp(rect.left(), (rect.right() - 32.0).max(rect.left()));
-            let pill_right = (pill_left + desired_w).min(rect.right());
-            if pill_right <= pill_left + 2.0 {
-                continue;
-            }
-
-            if let Some(last) = row_clusters.last_mut()
-                && pill_left < last.right_x + 4.0
-            {
-                last.min_start_ms = last.min_start_ms.min(ann.start_utc_ms);
-                last.max_end_ms = last.max_end_ms.max(ann_end_ms);
-                let span_right = x1.clamp(rect.left(), rect.right());
-                last.right_x = last
-                    .right_x
-                    .max(span_right)
-                    .max((last.left_x + 76.0).min(rect.right()));
-                last.items.push(ann.clone());
-            } else {
-                row_clusters.push(PillCluster {
-                    row,
-                    left_x: pill_left,
-                    right_x: pill_right,
-                    min_start_ms: ann.start_utc_ms,
-                    max_end_ms: ann_end_ms,
-                    items: vec![ann.clone()],
-                });
-            }
-        }
-        clusters.extend(row_clusters);
-    }
-
     let opaque_pill_fill = |c: eframe::egui::Color32, selected: bool| -> eframe::egui::Color32 {
-        let mix = if selected { 0.68_f32 } else { 0.42_f32 };
+        let mix = if selected { 0.68_f32 } else { 0.45_f32 };
         let bg = [22.0_f32, 26.0_f32, 34.0_f32];
         let r = (bg[0] * (1.0 - mix) + (c.r() as f32) * mix).round() as u8;
         let g = (bg[1] * (1.0 - mix) + (c.g() as f32) * mix).round() as u8;
@@ -894,179 +1112,232 @@ fn show_day_overview_lane(
         eframe::egui::Color32::from_rgb(r, g, b)
     };
 
-    for (cluster_idx, cluster) in clusters.iter().enumerate() {
-        let primary = &cluster.items[0];
-        let count = cluster.items.len();
-        let y_top = rect.top() + 3.0 + (cluster.row as f32) * 18.0;
-        let pill_rect = eframe::egui::Rect::from_min_max(
-            eframe::egui::pos2(cluster.left_x, y_top),
-            eframe::egui::pos2(cluster.right_x, y_top + 15.0),
-        );
-
-        let base_color = parse_hex_color(&primary.color, accent_color);
-        let is_selected = cluster
-            .items
+    if timeline_ui.show_stints {
+        let mut stints: Vec<&daqcore::storage::Annotation> = annotations
             .iter()
-            .any(|a| selected_ann_ids.contains(&a.id));
-        let fill_color = opaque_pill_fill(base_color, is_selected);
-        let stroke = if is_selected {
-            eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::WHITE)
-        } else {
-            eframe::egui::Stroke::new(1.0_f32, base_color)
-        };
+            .filter(|a| a.category != "fault")
+            .collect();
+        stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
 
-        painter.rect_filled(pill_rect, 4.0, fill_color);
-        painter.rect_stroke(pill_rect, 4.0, stroke, eframe::egui::StrokeKind::Inside);
-
-        let short_primary = primary
-            .name
-            .strip_prefix("Fault: ")
-            .unwrap_or(&primary.name);
-        let label_text = if count == 1 {
-            let prefix = if primary.category == "fault" {
-                "⚠ "
-            } else if primary.end_utc_ms.is_none() {
-                "📍 "
+        for (stint_idx, ann) in stints.into_iter().enumerate() {
+            let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
+            let x0 = time_to_x(ann.start_utc_ms).clamp(rect.left(), rect.right());
+            let x1 = time_to_x(ann_end_ms).clamp(rect.left(), rect.right());
+            let is_point = ann.end_utc_ms.is_none() || ann_end_ms <= ann.start_utc_ms;
+            let (pill_left, pill_right) = if is_point {
+                (
+                    (x0 - 4.0).max(rect.left()),
+                    (x0 + 4.0).min(rect.right()),
+                )
             } else {
-                ""
+                (x0, x1.max(x0 + 5.0).min(rect.right()))
             };
-            format!("{prefix}{short_primary}")
-        } else if cluster.row == 1 {
-            format!("⚠ {count} Faults ({short_primary})")
-        } else {
-            format!("{count} Events ({short_primary})")
-        };
-
-        let text_clip = pill_rect
-            .shrink2(eframe::egui::vec2(4.0, 0.0))
-            .intersect(clip_rect);
-        if text_clip.width() > 10.0 {
-            ui.painter_at(text_clip).text(
-                eframe::egui::pos2(pill_rect.left() + 4.0, pill_rect.center().y),
-                eframe::egui::Align2::LEFT_CENTER,
-                label_text,
-                eframe::egui::FontId::proportional(10.5),
-                eframe::egui::Color32::WHITE,
+            let pill_rect = eframe::egui::Rect::from_min_max(
+                eframe::egui::pos2(pill_left, rect.top() + 2.0),
+                eframe::egui::pos2(pill_right, rect.top() + 18.0),
             );
-        }
 
-        let hover_summary = if count == 1 {
-            let ann_end_ms = primary.end_utc_ms.unwrap_or(primary.start_utc_ms);
-            format!(
-                "{} [{}]\n{} .. {}\n{}\nClick: Snap viewport · Shift+Click: Compare · Right-Click: Edit/Delete",
-                primary.name,
-                primary.category,
-                daqcore::time::Time::from_unix_millis(primary.start_utc_ms).label(),
+            let base_color = parse_hex_color(&ann.color, accent_color);
+            let is_selected = selected_ann_ids.contains(&ann.id);
+            let fill_color = opaque_pill_fill(base_color, is_selected);
+            let stroke = if is_selected {
+                eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::WHITE)
+            } else {
+                eframe::egui::Stroke::new(1.0_f32, base_color)
+            };
+
+            painter.rect_filled(pill_rect, 3.0, fill_color);
+            painter.rect_stroke(pill_rect, 3.0, stroke, eframe::egui::StrokeKind::Inside);
+
+            if pill_rect.width() >= 36.0 {
+                let text_clip = pill_rect
+                    .shrink2(eframe::egui::vec2(3.0, 0.0))
+                    .intersect(clip_rect);
+                if text_clip.width() > 8.0 {
+                    ui.painter_at(text_clip).text(
+                        eframe::egui::pos2(pill_rect.left() + 4.0, pill_rect.center().y),
+                        eframe::egui::Align2::LEFT_CENTER,
+                        &ann.name,
+                        eframe::egui::FontId::proportional(10.0),
+                        eframe::egui::Color32::WHITE,
+                    );
+                }
+            }
+
+            let dur_s = (ann_end_ms - ann.start_utc_ms).max(0) as f64 / 1000.0;
+            let hover_summary = format!(
+                "{} [{}]\n{} .. {} ({dur_s:.1}s)\n{}\nClick: Snap viewport · Shift+Click: Compare · Right-Click: Edit/Delete",
+                ann.name,
+                ann.category,
+                daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label(),
                 daqcore::time::Time::from_unix_millis(ann_end_ms).label(),
-                if primary.notes.is_empty() {
+                if ann.notes.is_empty() {
                     "(no notes)"
                 } else {
-                    primary.notes.as_str()
+                    ann.notes.as_str()
                 }
-            )
-        } else {
-            let mut lines = vec![format!(
-                "{} grouped annotations ({} .. {}):",
-                count,
-                daqcore::time::Time::from_unix_millis(cluster.min_start_ms).label(),
-                daqcore::time::Time::from_unix_millis(cluster.max_end_ms).label(),
-            )];
-            for item in cluster.items.iter().take(10) {
-                lines.push(format!(
-                    "• {} ({})",
-                    item.name,
-                    daqcore::time::Time::from_unix_millis(item.start_utc_ms).label()
-                ));
-            }
-            if count > 10 {
-                lines.push(format!("…and {} more (Right-Click to inspect)", count - 10));
-            }
-            lines.push("Click: Snap viewport · Right-Click: Inspect individual events".to_owned());
-            lines.join("\n")
-        };
+            );
 
-        let pill_resp = ui
-            .interact(
-                pill_rect,
-                ui.id()
-                    .with(("day_annotation_cluster", cluster.row, cluster_idx)),
-                eframe::egui::Sense::click(),
-            )
-            .on_hover_text(hover_summary);
+            let pill_resp = ui
+                .interact(
+                    pill_rect,
+                    ui.id().with(("day_stint_pill", stint_idx)),
+                    eframe::egui::Sense::click(),
+                )
+                .on_hover_text(hover_summary);
 
-        let cluster_end_opt =
-            (cluster.max_end_ms > cluster.min_start_ms).then_some(cluster.max_end_ms);
-        if pill_resp.clicked() {
-            pill_interacted = true;
-            let shift = ui.input(|i| i.modifiers.shift);
-            if shift {
-                pending_shift_click =
-                    Some((primary.id.clone(), cluster.min_start_ms, cluster_end_opt));
-            } else {
-                pending_single_click =
-                    Some((primary.id.clone(), cluster.min_start_ms, cluster_end_opt));
-            }
-        }
-
-        pill_resp.context_menu(|ui| {
-            if count == 1 {
-                ui.label(eframe::egui::RichText::new(&primary.name).strong());
-                ui.separator();
-                if ui.button("Snap Viewport to Event").clicked() {
+            if pill_resp.clicked() {
+                interacted_with_overlay = true;
+                let shift = ui.input(|i| i.modifiers.shift);
+                if shift {
+                    pending_shift_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                } else {
                     pending_single_click =
-                        Some((primary.id.clone(), primary.start_utc_ms, primary.end_utc_ms));
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
+
+            pill_resp.context_menu(|ui| {
+                ui.label(eframe::egui::RichText::new(&ann.name).strong());
+                ui.separator();
+                if ui.button("Snap Viewport to Stint/Event").clicked() {
+                    pending_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                     ui.close();
                 }
                 if ui.button("Toggle Comparison Mode (Shift+Click)").clicked() {
                     pending_shift_click =
-                        Some((primary.id.clone(), primary.start_utc_ms, primary.end_utc_ms));
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                     ui.close();
                 }
                 if ui.button("Edit Event…").clicked() {
-                    pending_edit = Some(primary.clone());
+                    pending_edit = Some(ann.clone());
                     ui.close();
                 }
                 if ui.button("Delete Event").clicked() {
-                    pending_delete_id = Some(primary.id.clone());
+                    pending_delete_id = Some(ann.id.clone());
                     ui.close();
                 }
-            } else {
-                ui.label(eframe::egui::RichText::new(format!("Cluster ({count} Events)")).strong());
-                if ui.button("Snap Viewport to Full Cluster Span").clicked() {
-                    pending_single_click =
-                        Some((primary.id.clone(), cluster.min_start_ms, cluster_end_opt));
-                    ui.close();
-                }
-                ui.separator();
-                eframe::egui::ScrollArea::vertical()
-                    .max_height(240.0)
-                    .show(ui, |ui| {
-                        for item in &cluster.items {
-                            ui.menu_button(&item.name, |ui| {
-                                if ui.button("Snap Viewport").clicked() {
-                                    pending_single_click =
-                                        Some((item.id.clone(), item.start_utc_ms, item.end_utc_ms));
-                                    ui.close();
-                                }
-                                if ui.button("Toggle Comparison").clicked() {
-                                    pending_shift_click =
-                                        Some((item.id.clone(), item.start_utc_ms, item.end_utc_ms));
-                                    ui.close();
-                                }
-                                if ui.button("Edit…").clicked() {
-                                    pending_edit = Some(item.clone());
-                                    ui.close();
-                                }
-                                if ui.button("Delete").clicked() {
-                                    pending_delete_id = Some(item.id.clone());
-                                    ui.close();
-                                }
-                            });
-                        }
-                    });
-            }
-        });
+            });
+        }
     }
+
+    // Fault Onset Ticks along the bottom strip (`rect.bottom() - 10.0 .. rect.bottom() - 2.0`):
+    // Crisp 2px red ticks quantized by horizontal pixel column so 189 faults never pile into a wide block.
+    if timeline_ui.show_faults {
+        let fault_y_top = rect.bottom() - 10.0;
+        let fault_y_bot = rect.bottom() - 2.0;
+        let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
+        let mut last_tick_px: Option<i32> = None;
+        for ann in annotations.iter().filter(|a| a.category == "fault") {
+            let fx = time_to_x(ann.start_utc_ms).clamp(rect.left() + 1.0, rect.right() - 1.0);
+            let px_col = (fx.round() as i32) / 2;
+            if last_tick_px == Some(px_col) {
+                continue;
+            }
+            last_tick_px = Some(px_col);
+            painter.line_segment(
+                [
+                    eframe::egui::pos2(fx, fault_y_top),
+                    eframe::egui::pos2(fx, fault_y_bot),
+                ],
+                eframe::egui::Stroke::new(2.0_f32, fault_color),
+            );
+        }
+    }
+
+    // 7. Draw Active Viewport `[start .. end]` with draggable Left/Right edge grips on the Day Overview lane
+    let vp_left = time_to_x(router.timeline().start_utc_ms()).clamp(rect.left(), rect.right());
+    let vp_right = time_to_x(router.timeline().end_utc_ms())
+        .clamp(rect.left(), rect.right())
+        .max(vp_left + 4.0);
+    let vp_rect = eframe::egui::Rect::from_min_max(
+        eframe::egui::pos2(vp_left, rect.top() + 1.0),
+        eframe::egui::pos2(vp_right, rect.bottom() - 1.0),
+    );
+    painter.rect_filled(
+        vp_rect,
+        2.0,
+        eframe::egui::Color32::from_rgba_unmultiplied(255, 255, 255, 24),
+    );
+    painter.rect_stroke(
+        vp_rect,
+        2.0,
+        eframe::egui::Stroke::new(1.5_f32, eframe::egui::Color32::WHITE),
+        eframe::egui::StrokeKind::Inside,
+    );
+    // Highlight left and right viewport resize grips
+    for edge_x in [vp_left, vp_right] {
+        let grip_rect = eframe::egui::Rect::from_center_size(
+            eframe::egui::pos2(edge_x, rect.center().y),
+            eframe::egui::vec2(3.0, 14.0),
+        );
+        painter.rect_filled(grip_rect, 1.5, accent_color);
+    }
+
+    let left_grip_hit = eframe::egui::Rect::from_center_size(
+        eframe::egui::pos2(vp_left, rect.center().y),
+        eframe::egui::vec2(10.0, lane_height),
+    );
+    let right_grip_hit = eframe::egui::Rect::from_center_size(
+        eframe::egui::pos2(vp_right, rect.center().y),
+        eframe::egui::vec2(10.0, lane_height),
+    );
+    let left_grip_resp = ui
+        .interact(
+            left_grip_hit,
+            ui.id().with("day_vp_left_grip"),
+            eframe::egui::Sense::drag(),
+        )
+        .on_hover_cursor(eframe::egui::CursorIcon::ResizeHorizontal)
+        .on_hover_text("Drag to adjust window start time");
+    let right_grip_resp = ui
+        .interact(
+            right_grip_hit,
+            ui.id().with("day_vp_right_grip"),
+            eframe::egui::Sense::drag(),
+        )
+        .on_hover_cursor(eframe::egui::CursorIcon::ResizeHorizontal)
+        .on_hover_text("Drag to adjust window end time");
+
+    if left_grip_resp.dragged()
+        && let Some(pointer) = left_grip_resp.interact_pointer_pos()
+    {
+        interacted_with_overlay = true;
+        let tl = router.timeline_mut();
+        let new_start = x_to_time(pointer.x)
+            .min(tl.end_utc_ms() - daqcore::timeline::MIN_WINDOW_MS);
+        tl.set_start(daqcore::time::Time::from_unix_millis(new_start));
+        let _ = tl.set_window_secs(tl.end().secs(tl.start()));
+    } else if right_grip_resp.dragged()
+        && let Some(pointer) = right_grip_resp.interact_pointer_pos()
+    {
+        interacted_with_overlay = true;
+        let tl = router.timeline_mut();
+        let new_end = x_to_time(pointer.x)
+            .max(tl.start_utc_ms() + daqcore::timeline::MIN_WINDOW_MS);
+        tl.set_end(daqcore::time::Time::from_unix_millis(new_end));
+        let _ = tl.set_window_secs(tl.end().secs(tl.start()));
+    }
+
+    let ph_x = time_to_x(router.timeline().setpoint_utc_ms()).clamp(rect.left(), rect.right());
+    painter.line_segment(
+        [
+            eframe::egui::pos2(ph_x, rect.top()),
+            eframe::egui::pos2(ph_x, rect.bottom()),
+        ],
+        eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::YELLOW),
+    );
+
+    // Subtle lane badge at top-left
+    painter.text(
+        eframe::egui::pos2(rect.left() + 4.0, rect.bottom() - 2.0),
+        eframe::egui::Align2::LEFT_BOTTOM,
+        "DAY OVERVIEW",
+        eframe::egui::FontId::monospace(8.5),
+        eframe::egui::Color32::from_gray(140),
+    );
 
     if let Some((id, s, e)) = pending_single_click {
         router.timeline_mut().select_single_annotation(id, s, e);
@@ -1084,36 +1355,6 @@ fn show_day_overview_lane(
         }
     }
 
-    // 7. Draw Active Viewport `[start .. end]` & Playhead on the Day Overview lane
-    let vp_left = time_to_x(router.timeline().start_utc_ms()).clamp(rect.left(), rect.right());
-    let vp_right = time_to_x(router.timeline().end_utc_ms())
-        .clamp(rect.left(), rect.right())
-        .max(vp_left + 3.0);
-    let vp_rect = eframe::egui::Rect::from_min_max(
-        eframe::egui::pos2(vp_left, rect.top()),
-        eframe::egui::pos2(vp_right, rect.bottom()),
-    );
-    painter.rect_filled(
-        vp_rect,
-        2.0,
-        eframe::egui::Color32::from_rgba_unmultiplied(255, 255, 255, 26),
-    );
-    painter.rect_stroke(
-        vp_rect,
-        2.0,
-        eframe::egui::Stroke::new(1.5_f32, eframe::egui::Color32::WHITE),
-        eframe::egui::StrokeKind::Inside,
-    );
-
-    let ph_x = time_to_x(router.timeline().setpoint_utc_ms()).clamp(rect.left(), rect.right());
-    painter.line_segment(
-        [
-            eframe::egui::pos2(ph_x, rect.top()),
-            eframe::egui::pos2(ph_x, rect.bottom()),
-        ],
-        eframe::egui::Stroke::new(1.5_f32, eframe::egui::Color32::YELLOW),
-    );
-
     // Outer frame stroke
     painter.rect_stroke(
         rect,
@@ -1122,8 +1363,48 @@ fn show_day_overview_lane(
         eframe::egui::StrokeKind::Inside,
     );
 
-    // 8. Interactions on the Day Overview background (pan/jump, scroll-wheel zoom, right-click add event)
-    if !pill_interacted
+    // 8. Interactions on the Day Overview background (pan/jump, fault hover tooltip, scroll-wheel zoom)
+    if let Some(hover_pos) = lane_response.hover_pos()
+        && timeline_ui.show_faults
+        && hover_pos.y >= rect.bottom() - 12.0
+    {
+        let mut nearby_faults: Vec<&daqcore::storage::Annotation> = annotations
+            .iter()
+            .filter(|a| {
+                a.category == "fault"
+                    && (time_to_x(a.start_utc_ms) - hover_pos.x).abs() <= 5.0
+            })
+            .collect();
+        nearby_faults.sort_by_key(|a| a.start_utc_ms);
+        if !nearby_faults.is_empty() {
+            let first_ms = nearby_faults[0].start_utc_ms;
+            let mut unique_names: Vec<&str> = Vec::new();
+            for f in &nearby_faults {
+                let short = f.name.strip_prefix("Fault: ").unwrap_or(&f.name);
+                if !unique_names.contains(&short) {
+                    unique_names.push(short);
+                }
+            }
+            let tip = format!(
+                "⚠ {} fault transition(s) near {}:\n• {}\n(Click tick to jump playhead · Use '⚠ Faults' menu above to browse all faults)",
+                nearby_faults.len(),
+                daqcore::time::Time::from_unix_millis(first_ms).label(),
+                unique_names.into_iter().take(6).collect::<Vec<_>>().join("\n• "),
+            );
+            lane_response.clone().on_hover_text(tip);
+            if !interacted_with_overlay && lane_response.clicked() {
+                interacted_with_overlay = true;
+                let span_ms =
+                    (router.timeline().end_utc_ms() - router.timeline().start_utc_ms()).max(100);
+                router.timeline_mut().pan_to_start_ms(first_ms - span_ms / 2);
+                router
+                    .timeline_mut()
+                    .set_setpoint(daqcore::time::Time::from_unix_millis(first_ms));
+            }
+        }
+    }
+
+    if !interacted_with_overlay
         && (lane_response.dragged() || lane_response.clicked())
         && let Some(pointer) = lane_response.interact_pointer_pos()
     {
@@ -1184,7 +1465,7 @@ fn show_active_window_scrub_lane(
         .query_annotations_in_range(win_start_ms..=win_end_ms)
         .unwrap_or_default();
 
-    let scrub_height = 46.0;
+    let scrub_height = 24.0;
     let width = ui.available_width().max(1.0);
     let (rect, background) = ui.allocate_exact_size(
         eframe::egui::vec2(width, scrub_height),
@@ -1195,9 +1476,9 @@ fn show_active_window_scrub_lane(
 
     painter.rect_filled(rect, 4.0, eframe::egui::Color32::from_gray(18));
 
-    let pad_x = (rect.width() * 0.03).clamp(6.0, 32.0);
+    let pad_x = (rect.width() * 0.02).clamp(6.0, 20.0);
     let area = rect.shrink2(eframe::egui::vec2(pad_x, 0.0));
-    let axis_y = area.bottom() - 15.0;
+    let axis_y = area.bottom() - 12.0;
 
     let time_to_x = |utc_ms: i64| -> f32 {
         let frac = ((utc_ms - win_start_ms) as f64 / win_span_ms).clamp(0.0, 1.0) as f32;
@@ -1208,35 +1489,40 @@ fn show_active_window_scrub_lane(
         win_start_ms + (frac * win_span_ms).round() as i64
     };
 
-    // Thin non-stacking 3px top accent strips for annotations inside the active window
-    for row in 0..2 {
-        if (row == 0 && !timeline_ui.show_stints) || (row == 1 && !timeline_ui.show_faults) {
-            continue;
-        }
-        let mut spans: Vec<(f32, f32, eframe::egui::Color32)> = Vec::new();
-        for ann in overlapping_annotations.iter().filter(|a| {
-            let is_fault = a.category == "fault";
-            if row == 0 { !is_fault } else { is_fault }
-        }) {
+    // Stint strip (top 3px) and Fault onset ticks (2px vertical ticks) inside the active window
+    if timeline_ui.show_stints {
+        for ann in overlapping_annotations.iter().filter(|a| a.category != "fault") {
             let ann_end = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
             let x0 = time_to_x(ann.start_utc_ms.max(win_start_ms));
             let x1 = time_to_x(ann_end.min(win_end_ms)).max(x0 + 3.0);
             let color = parse_hex_color(&ann.color, accent_color);
-            if let Some(last) = spans.last_mut()
-                && x0 <= last.1 + 1.0
-            {
-                last.1 = last.1.max(x1);
-            } else {
-                spans.push((x0, x1, color));
-            }
-        }
-        let strip_y = area.top() + 2.0 + (row as f32) * 4.0;
-        for (x0, x1, color) in spans {
             let strip_rect = eframe::egui::Rect::from_min_max(
-                eframe::egui::pos2(x0, strip_y),
-                eframe::egui::pos2(x1, strip_y + 3.0),
+                eframe::egui::pos2(x0, area.top() + 2.0),
+                eframe::egui::pos2(x1, area.top() + 5.0),
             );
             painter.rect_filled(strip_rect, 1.5, color.gamma_multiply(0.75));
+        }
+    }
+    if timeline_ui.show_faults {
+        let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
+        let mut last_tick_px: Option<i32> = None;
+        for ann in overlapping_annotations.iter().filter(|a| a.category == "fault") {
+            if ann.start_utc_ms < win_start_ms || ann.start_utc_ms > win_end_ms {
+                continue;
+            }
+            let fx = time_to_x(ann.start_utc_ms);
+            let px_col = (fx.round() as i32) / 2;
+            if last_tick_px == Some(px_col) {
+                continue;
+            }
+            last_tick_px = Some(px_col);
+            painter.line_segment(
+                [
+                    eframe::egui::pos2(fx, area.top() + 2.0),
+                    eframe::egui::pos2(fx, axis_y - 1.0),
+                ],
+                eframe::egui::Stroke::new(1.5_f32, fault_color),
+            );
         }
     }
 
@@ -1277,76 +1563,25 @@ fn show_active_window_scrub_lane(
         );
     }
 
+    // Playhead (`setpoint`) indicator on the Active Window Scrub Bar.
+    // Clicking or dragging anywhere on this bar smoothly scrubs the Playhead!
     let timeline = router.timeline_mut();
-    let mut handle_dragged = false;
+    let ph_px = time_to_x(timeline.setpoint_utc_ms());
+    let ph_y = area.top() + 7.0;
+    painter.line_segment(
+        [
+            eframe::egui::pos2(ph_px, rect.top() + 1.0),
+            eframe::egui::pos2(ph_px, rect.bottom() - 1.0),
+        ],
+        eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::YELLOW),
+    );
+    painter.circle_filled(
+        eframe::egui::pos2(ph_px, ph_y),
+        5.0,
+        eframe::egui::Color32::YELLOW,
+    );
 
-    // Left (`start`) and Right (`end`) zoom handles + Playhead (`setpoint`) handle
-    let handles = [
-        ("start", timeline.start_utc_ms(), area.left(), accent_color),
-        ("end", timeline.end_utc_ms(), area.right(), accent_color),
-        (
-            "playhead",
-            timeline.setpoint_utc_ms(),
-            time_to_x(timeline.setpoint_utc_ms()),
-            eframe::egui::Color32::YELLOW,
-        ),
-    ];
-
-    for (idx, (name, val_ms, px, color)) in handles.into_iter().enumerate() {
-        let y = area.top() + 12.0;
-        let handle_rect = eframe::egui::Rect::from_center_size(
-            eframe::egui::pos2(px, y),
-            eframe::egui::vec2(18.0, 18.0),
-        );
-        let resp = ui
-            .interact(
-                handle_rect,
-                ui.id().with(("scrub_handle", idx)),
-                eframe::egui::Sense::drag(),
-            )
-            .on_hover_text(format!(
-                "Drag {name}: {}",
-                daqcore::time::Time::from_unix_millis(val_ms).label()
-            ));
-
-        painter.line_segment(
-            [
-                eframe::egui::pos2(px, area.top() + 2.0),
-                eframe::egui::pos2(px, axis_y),
-            ],
-            eframe::egui::Stroke::new(if idx == 2 { 2.0_f32 } else { 1.5_f32 }, color),
-        );
-        painter.circle_filled(eframe::egui::pos2(px, y), 4.5, color);
-
-        if resp.dragged() {
-            handle_dragged = true;
-            let delta_x = resp.drag_delta().x;
-            let delta_ms = ((delta_x / area.width().max(1.0)) as f64 * win_span_ms).round() as i64;
-            match idx {
-                0 => {
-                    let new_start = (timeline.start_utc_ms() + delta_ms)
-                        .min(timeline.end_utc_ms() - daqcore::timeline::MIN_WINDOW_MS);
-                    timeline.set_start(daqcore::time::Time::from_unix_millis(new_start));
-                    let _ = timeline.set_window_secs(timeline.end().secs(timeline.start()));
-                }
-                1 => {
-                    let new_end = (timeline.end_utc_ms() + delta_ms)
-                        .max(timeline.start_utc_ms() + daqcore::timeline::MIN_WINDOW_MS);
-                    timeline.set_end(daqcore::time::Time::from_unix_millis(new_end));
-                    let _ = timeline.set_window_secs(timeline.end().secs(timeline.start()));
-                }
-                _ => {
-                    if let Some(pointer) = resp.interact_pointer_pos() {
-                        let new_sp = x_to_time(pointer.x);
-                        timeline.set_setpoint(daqcore::time::Time::from_unix_millis(new_sp));
-                    }
-                }
-            }
-        }
-    }
-
-    if !handle_dragged
-        && (background.clicked() || background.dragged())
+    if (background.clicked() || background.dragged())
         && let Some(pointer) = background.interact_pointer_pos()
     {
         let new_sp = x_to_time(pointer.x);
@@ -1363,6 +1598,10 @@ fn show_active_window_scrub_lane(
             timeline.zoom_around_ms(anchor_ms, factor);
         }
     }
+
+    background.on_hover_text(
+        "Click or drag anywhere on this ruler to scrub the yellow Playhead · Scroll wheel to zoom",
+    );
 
     painter.rect_stroke(
         rect,
@@ -1505,6 +1744,391 @@ pub fn show_annotation_editor_modal(
     }
 }
 
+/// Floating window wrapper for the Calendar & Subchunk Navigator (`📅 Browse Chunks`).
+pub fn show_chunk_navigator_window(
+    ctx: &eframe::egui::Context,
+    router: &mut daqcore::router::VirtualTimelineRouter,
+    timeline_ui: &mut TimelineUiState,
+    diagnostic: &mut Option<String>,
+) {
+    if !timeline_ui.show_chunk_navigator {
+        return;
+    }
+    let mut open = timeline_ui.show_chunk_navigator;
+    eframe::egui::Window::new("📅 Calendar & Subchunk Navigator")
+        .open(&mut open)
+        .default_width(420.0)
+        .default_height(460.0)
+        .resizable(true)
+        .collapsible(true)
+        .show(ctx, |ui| {
+            show_chunk_navigator_contents(ui, router, timeline_ui, diagnostic, 380.0);
+        });
+    timeline_ui.show_chunk_navigator = open;
+}
+
+/// Shared Calendar & Subchunk Navigator view (used in both the floating `📅 Browse Chunks` window
+/// and the collapsible section in the Left Sidebar).
+pub fn show_chunk_navigator_contents(
+    ui: &mut eframe::egui::Ui,
+    router: &mut daqcore::router::VirtualTimelineRouter,
+    timeline_ui: &mut TimelineUiState,
+    diagnostic: &mut Option<String>,
+    max_scroll_height: f32,
+) {
+    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+
+    // Search & Category Filter Header
+    ui.horizontal(|ui| {
+        ui.add(
+            eframe::egui::TextEdit::singleline(&mut timeline_ui.chunk_search_query)
+                .desired_width((ui.available_width() - 28.0).max(60.0))
+                .hint_text("Search date, stint, partition, fault, or note…"),
+        );
+        if !timeline_ui.chunk_search_query.is_empty() && ui.small_button("×").clicked() {
+            timeline_ui.chunk_search_query.clear();
+        }
+    });
+
+    ui.horizontal_wrapped(|ui| {
+        for (filter, lbl) in [
+            (ChunkFilter::All, "All"),
+            (ChunkFilter::StintsAndEvents, "Stints & Events"),
+            (ChunkFilter::Partitions, "Partitions"),
+            (ChunkFilter::Faults, "Faults"),
+        ] {
+            if ui
+                .selectable_label(timeline_ui.chunk_filter == filter, lbl)
+                .clicked()
+            {
+                timeline_ui.chunk_filter = filter;
+            }
+        }
+    });
+    ui.separator();
+
+    let query = timeline_ui.chunk_search_query.trim().to_lowercase();
+    let matches = |text: &str| -> bool {
+        query.is_empty() || text.to_lowercase().contains(&query)
+    };
+
+    // Collect all Track Days, SD Partitions, and Annotations across the entire store
+    let track_days = router.list_track_days().unwrap_or_default();
+    let all_partitions: Vec<(String, String, i64, i64, usize)> = router
+        .partitions()
+        .iter()
+        .map(|p| {
+            (
+                p.track_day_id.clone(),
+                p.partition_id.clone(),
+                p.start_utc_ms,
+                p.end_utc_ms,
+                p.manifest.signals.len(),
+            )
+        })
+        .collect();
+    let all_annotations: Vec<daqcore::storage::Annotation> = router
+        .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+        .unwrap_or_default();
+
+    let mut day_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for td in &track_days {
+        day_ids.insert(td.id.clone());
+    }
+    for (day_id, _, _, _, _) in &all_partitions {
+        day_ids.insert(day_id.clone());
+    }
+    for ann in &all_annotations {
+        day_ids.insert(ann.track_day_id.clone());
+    }
+
+    if day_ids.is_empty() {
+        ui.label(
+            eframe::egui::RichText::new("No recorded sessions or annotations loaded yet.")
+                .italics()
+                .weak(),
+        );
+        return;
+    }
+
+    let cur_win_start = router.timeline().start_utc_ms();
+    let cur_win_end = router.timeline().end_utc_ms();
+    let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
+
+    let mut req_select_day: Option<Option<String>> = None;
+    let mut req_snap_range: Option<(String, i64, i64)> = None;
+    let mut req_single_ann: Option<(String, String, i64, Option<i64>)> = None;
+    let mut req_compare_ann: Option<(String, i64, Option<i64>)> = None;
+    let mut req_edit_ann: Option<daqcore::storage::Annotation> = None;
+    let mut req_delete_ann_id: Option<String> = None;
+    let mut req_jump_fault: Option<(String, i64)> = None;
+
+    eframe::egui::ScrollArea::vertical()
+        .id_salt(("chunk_navigator_scroll", max_scroll_height as i32))
+        .max_height(max_scroll_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            // Show newest track days first for fast multi-day navigation
+            for day_id in day_ids.into_iter().rev() {
+                let mut day_parts: Vec<&(String, String, i64, i64, usize)> = all_partitions
+                    .iter()
+                    .filter(|(d, p_id, s, e, _)| {
+                        d == &day_id
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::Partitions)
+                            && matches(&format!(
+                                "{day_id} {p_id} {} {}",
+                                daqcore::time::Time::from_unix_millis(*s).label(),
+                                daqcore::time::Time::from_unix_millis(*e).label()
+                            ))
+                    })
+                    .collect();
+                day_parts.sort_by_key(|(_, _, s, _, _)| *s);
+
+                let mut day_stints: Vec<&daqcore::storage::Annotation> = all_annotations
+                    .iter()
+                    .filter(|a| {
+                        a.track_day_id == day_id
+                            && a.category != "fault"
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::StintsAndEvents)
+                            && matches(&format!(
+                                "{day_id} {} {} {}",
+                                a.name,
+                                a.category,
+                                a.notes
+                            ))
+                    })
+                    .collect();
+                day_stints
+                    .sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+
+                let mut day_faults: Vec<&daqcore::storage::Annotation> = all_annotations
+                    .iter()
+                    .filter(|a| {
+                        a.track_day_id == day_id
+                            && a.category == "fault"
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::Faults)
+                            && matches(&format!("{day_id} {}", a.name))
+                    })
+                    .collect();
+                day_faults.sort_by_key(|a| a.start_utc_ms);
+
+                if day_parts.is_empty() && day_stints.is_empty() && day_faults.is_empty() {
+                    continue;
+                }
+
+                let day_header = format!(
+                    "📅 {}  ({} stints · {} partitions · {} faults)",
+                    day_id,
+                    day_stints.len(),
+                    day_parts.len(),
+                    day_faults.len()
+                );
+
+                eframe::egui::CollapsingHeader::new(
+                    eframe::egui::RichText::new(day_header).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button("↔ Fit Entire Day")
+                            .on_hover_text("Select this Track Day and zoom out to its full span")
+                            .clicked()
+                        {
+                            req_select_day = Some(Some(day_id.clone()));
+                        }
+                    });
+
+                    // 1. Driving Stints & Event Annotations (Primary Subchunks)
+                    if !day_stints.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("Driving Stints & Events:")
+                                .weak()
+                                .small(),
+                        );
+                        for ann in &day_stints {
+                            let ann_end = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
+                            let dur_s = (ann_end - ann.start_utc_ms).max(0) as f64 / 1000.0;
+                            let start_lbl =
+                                daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label();
+                            let end_lbl = daqcore::time::Time::from_unix_millis(ann_end).label();
+                            let is_active = selected_ann_ids.contains(&ann.id)
+                                || ((cur_win_start - ann.start_utc_ms).abs() <= 1_000
+                                    && (cur_win_end - ann_end).abs() <= 1_000);
+                            let label = if dur_s > 0.0 {
+                                format!("🏷 {}  [{start_lbl} .. {end_lbl} · {dur_s:.1}s]", ann.name)
+                            } else {
+                                format!("📍 {}  [{start_lbl}]", ann.name)
+                            };
+                            let hover = if ann.notes.is_empty() {
+                                "Click to jump viewport to this subchunk".to_owned()
+                            } else {
+                                format!("{}\nClick to jump viewport to this subchunk", ann.notes)
+                            };
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .selectable_label(is_active, label)
+                                    .on_hover_text(hover)
+                                    .clicked()
+                                {
+                                    req_single_ann = Some((
+                                        day_id.clone(),
+                                        ann.id.clone(),
+                                        ann.start_utc_ms,
+                                        ann.end_utc_ms,
+                                    ));
+                                }
+                                if ui
+                                    .small_button(if selected_ann_ids.contains(&ann.id) {
+                                        "-Cmp"
+                                    } else {
+                                        "+Cmp"
+                                    })
+                                    .on_hover_text("Toggle multi-stint Comparison / Overlay Mode")
+                                    .clicked()
+                                {
+                                    req_compare_ann =
+                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                                }
+                                if ui.small_button("Edit").clicked() {
+                                    req_edit_ann = Some((*ann).clone());
+                                }
+                                if ui.small_button("×").clicked() {
+                                    req_delete_ann_id = Some(ann.id.clone());
+                                }
+                            });
+                        }
+                    }
+
+                    // 2. Recorded SD Log Partitions (Session Subchunks)
+                    if !day_parts.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("Recorded Log Partitions (SD Chunks):")
+                                .weak()
+                                .small(),
+                        );
+                        for (_, part_id, p_start, p_end, sig_count) in &day_parts {
+                            let dur_s = (*p_end - *p_start).max(0) as f64 / 1000.0;
+                            let start_lbl = daqcore::time::Time::from_unix_millis(*p_start).label();
+                            let end_lbl = daqcore::time::Time::from_unix_millis(*p_end).label();
+                            let is_active = (cur_win_start - *p_start).abs() <= 1_000
+                                && (cur_win_end - *p_end).abs() <= 1_000;
+                            let lbl = format!(
+                                "• {start_lbl} .. {end_lbl}  ({dur_s:.0}s · {sig_count} signals)"
+                            );
+                            if ui
+                                .selectable_label(is_active, lbl)
+                                .on_hover_text(format!(
+                                    "Partition {part_id}\nClick to snap viewport to this recorded partition"
+                                ))
+                                .clicked()
+                            {
+                                req_snap_range = Some((day_id.clone(), *p_start, *p_end));
+                            }
+                        }
+                    }
+
+                    // 3. Grouped Faults in this Track Day
+                    if !day_faults.is_empty() {
+                        let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> =
+                            Vec::new();
+                        for f in &day_faults {
+                            let short = f
+                                .name
+                                .strip_prefix("Fault: ")
+                                .unwrap_or(&f.name)
+                                .to_owned();
+                            if let Some((_, list)) = grouped.iter_mut().find(|(k, _)| k == &short) {
+                                list.push(*f);
+                            } else {
+                                grouped.push((short, vec![*f]));
+                            }
+                        }
+                        ui.collapsing(
+                            format!(
+                                "⚠ Faults ({} types, {} transitions)",
+                                grouped.len(),
+                                day_faults.len()
+                            ),
+                            |ui| {
+                                for (fault_name, occurrences) in grouped {
+                                    let first_ms = occurrences[0].start_utc_ms;
+                                    let first_lbl =
+                                        daqcore::time::Time::from_unix_millis(first_ms).label();
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .small_button(format!(
+                                                "⚠ {} ({}×, 1st @ {})",
+                                                fault_name,
+                                                occurrences.len(),
+                                                first_lbl
+                                            ))
+                                            .on_hover_text(
+                                                "Click to jump 10s window & playhead to first occurrence",
+                                            )
+                                            .clicked()
+                                        {
+                                            req_jump_fault = Some((day_id.clone(), first_ms));
+                                        }
+                                    });
+                                }
+                            },
+                        );
+                    }
+                });
+            }
+        });
+
+    if let Some(day_opt) = req_select_day {
+        if let Err(err) = router.select_track_day(day_opt) {
+            *diagnostic = Some(format!("Failed to select track day: {err}"));
+        } else if let Some((lo, hi)) = router.timeline().day_bounds_ms() {
+            router.timeline_mut().snap_to_range_ms(lo, hi);
+        }
+    }
+    if let Some((day_id, lo, hi)) = req_snap_range {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        router.timeline_mut().snap_to_range_ms(lo, hi);
+    }
+    if let Some((day_id, ann_id, s, e)) = req_single_ann {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        router.timeline_mut().select_single_annotation(ann_id, s, e);
+    }
+    if let Some((ann_id, s, e)) = req_compare_ann {
+        router
+            .timeline_mut()
+            .toggle_comparison_annotation(ann_id, s, e);
+    }
+    if let Some(ann) = req_edit_ann {
+        timeline_ui.open_edit(&ann);
+    }
+    if let Some(del_id) = req_delete_ann_id {
+        let now_ms = daqcore::time::Time::now().unix_millis();
+        if let Err(err) = router.soft_delete_annotation(&del_id, now_ms) {
+            *diagnostic = Some(format!("Failed to delete annotation: {err}"));
+        }
+    }
+    if let Some((day_id, fault_ms)) = req_jump_fault {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        let tl = router.timeline_mut();
+        let half_win = (tl.window_ms() / 2).clamp(2_500, 10_000);
+        tl.snap_to_range_ms(
+            fault_ms.saturating_sub(half_win),
+            fault_ms.saturating_add(half_win),
+        );
+        tl.set_setpoint(daqcore::time::Time::from_unix_millis(fault_ms));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1575,7 +2199,10 @@ mod tests {
         );
         assert!(router.timeline().is_comparison_mode());
 
-        let mut timeline_ui = TimelineUiState::default();
+        let mut timeline_ui = TimelineUiState {
+            show_chunk_navigator: true,
+            ..Default::default()
+        };
         timeline_ui.open_new_at_playhead(&router, true);
         assert!(timeline_ui.editor.is_some());
 
@@ -1607,6 +2234,7 @@ mod tests {
                     );
                 });
                 show_annotation_editor_modal(ctx, &mut router, &mut timeline_ui, &mut diagnostic);
+                show_chunk_navigator_window(ctx, &mut router, &mut timeline_ui, &mut diagnostic);
             });
             assert!(
                 diagnostic.is_none(),
@@ -1826,7 +2454,7 @@ mod tests {
                 );
             });
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let view = crate::telemetry::TelemetryView::new(&router);
+                let view = crate::workspace_view::WorkspaceDataView::new(&router);
                 let _ = scope.show(ui, Some(&db_sel), &view);
             });
         });

@@ -15,8 +15,8 @@ pub fn select_database(app: &mut app::DAQApp) {
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
-        .default_width(310.0)
-        .width_range(220.0..=520.0)
+        .default_width(250.0)
+        .width_range(190.0..=480.0)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
             let panel_width = ui.available_width();
             ui.set_max_width(panel_width);
@@ -46,6 +46,21 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         app.toggle_theme(ui.ctx());
         app.save_settings();
     }
+
+    ui.separator();
+
+    eframe::egui::CollapsingHeader::new("📅 Sessions, Stints & Chunks")
+        .id_salt("sidebar_chunk_navigator")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui::timeline::show_chunk_navigator_contents(
+                ui,
+                &mut app.router,
+                &mut app.timeline_ui,
+                &mut app.diagnostic,
+                240.0,
+            );
+        });
 
     ui.separator();
 
@@ -79,6 +94,24 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         ));
     }
 
+    if ui.button("Add State Lanes").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::StateLane,
+        ));
+    }
+
+    if ui.button("Add XY Scatter").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::XYScatter,
+        ));
+    }
+
+    if ui.button("Add GPS Plot").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::GpsPlot,
+        ));
+    }
+
     if ui.button("Add Bootloader").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Bootloader,
@@ -103,36 +136,6 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         ));
     }
 
-    if ui.button("Add Battery Voltage").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::BatteryVoltage,
-        ));
-    }
-
-    if ui.button("Add Battery Temps").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::BatteryTemps,
-        ));
-    }
-
-    if ui.button("Add G-G Plot").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::GgPlot,
-        ));
-    }
-
-    if ui.button("Add GPS Plot").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::GpsPlot,
-        ));
-    }
-
-    if ui.button("Add Dynamics").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::Dynamics,
-        ));
-    }
-
     if ui.button("Add Jitter").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Jitter,
@@ -142,6 +145,27 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     if ui.button("Add HIL").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Hil,
+        ));
+    }
+
+    ui.separator();
+    ui.heading("Subteam Presets");
+
+    if ui.button("Preset: G-G Diagram").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetGgDiagram,
+        ));
+    }
+
+    if ui.button("Preset: Handling Understeer").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+        ));
+    }
+
+    if ui.button("Preset: Battery Pack Overview").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::PresetBatteryOverview,
         ));
     }
 

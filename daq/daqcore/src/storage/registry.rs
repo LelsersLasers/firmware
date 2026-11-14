@@ -308,6 +308,7 @@ impl Registry {
             }
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(RegistryError::Migration)?;
+            Self::renumber_auto_stints_in_conn(&mut conn, None)?;
         }
 
         Ok(Self { pool })
@@ -559,6 +560,8 @@ impl Registry {
                 Self::upsert_annotation_in_conn(conn, annotation)?;
             }
 
+            Self::renumber_auto_stints_in_conn(conn, Some(&manifest.track_day_id))?;
+
             Ok(was_newly_inserted)
         })
     }
@@ -786,6 +789,55 @@ impl Registry {
                 Ok(true)
             }
         }
+    }
+
+    /// Renumber active auto-detected driving stints sequentially (`Driving Stint #1`, `#2`, ...)
+    /// chronologically within each Track Day so numbering continues across partitions instead of
+    /// restarting at `#1` in every partition.
+    fn renumber_auto_stints_in_conn(
+        conn: &mut SqliteConnection,
+        track_day_filter: Option<&str>,
+    ) -> Result<(), diesel::result::Error> {
+        let mut query = annotations::table
+            .filter(annotations::source.eq("auto"))
+            .filter(annotations::category.eq("driving_stint"))
+            .filter(annotations::deleted.eq(false))
+            .into_boxed();
+        if let Some(day_id) = track_day_filter {
+            query = query.filter(annotations::track_day_id.eq(day_id));
+        }
+
+        let rows = query
+            .order((
+                annotations::track_day_id.asc(),
+                annotations::start_utc_ms.asc(),
+                annotations::id.asc(),
+            ))
+            .select(AnnotationRow::as_select())
+            .load::<AnnotationRow>(conn)?;
+
+        let mut current_day: Option<String> = None;
+        let mut stint_idx: usize = 0;
+
+        for row in rows {
+            if !row.name.starts_with("Driving Stint #") {
+                continue;
+            }
+            if current_day.as_deref() != Some(row.track_day_id.as_str()) {
+                current_day = Some(row.track_day_id.clone());
+                stint_idx = 1;
+            } else {
+                stint_idx += 1;
+            }
+            let expected_name = format!("Driving Stint #{stint_idx}");
+            if row.name != expected_name {
+                diesel::update(annotations::table.filter(annotations::id.eq(&row.id)))
+                    .set(annotations::name.eq(&expected_name))
+                    .execute(conn)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1063,5 +1115,66 @@ mod tests {
         assert_eq!(delta[0].id, "auto_stint_p1_110000");
         assert_eq!(delta[1].id, "auto_fault_p1_140000");
         assert!(delta[1].deleted);
+    }
+
+    #[test]
+    fn test_auto_stints_are_uniquely_numbered_across_partitions_in_track_day() {
+        let registry = Registry::open_in_memory().expect("in-memory registry");
+
+        let make_stint = |part_id: &str, idx: usize, start_ms: i64, end_ms: i64| Annotation {
+            id: format!("auto_stint_{part_id}_{start_ms}"),
+            track_day_id: "2026-09-06".to_owned(),
+            name: format!("Driving Stint #{idx}"),
+            category: "driving_stint".to_owned(),
+            color: "#22c55e".to_owned(),
+            start_utc_ms: start_ms,
+            end_utc_ms: Some(end_ms),
+            author: "daqcore".to_owned(),
+            source: "auto".to_owned(),
+            notes: String::new(),
+            updated_at_ms: 100,
+            deleted: false,
+        };
+
+        // Register later partition FIRST to verify chronological ordering works regardless of import order
+        let m2 = sample_manifest(
+            "p2",
+            "2026-09-06",
+            200_000,
+            290_000,
+            "hash_p2",
+            vec![
+                make_stint("p2", 1, 210_000, 230_000),
+                make_stint("p2", 2, 250_000, 280_000),
+            ],
+        );
+        registry.register_manifest(&m2, true).unwrap();
+
+        let m1 = sample_manifest(
+            "p1",
+            "2026-09-06",
+            100_000,
+            190_000,
+            "hash_p1",
+            vec![
+                make_stint("p1", 1, 110_000, 140_000),
+                make_stint("p1", 2, 160_000, 180_000),
+            ],
+        );
+        registry.register_manifest(&m1, true).unwrap();
+
+        let day_anns = registry
+            .list_annotations_for_day("2026-09-06", false)
+            .unwrap();
+        let names: Vec<&str> = day_anns.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "Driving Stint #1",
+                "Driving Stint #2",
+                "Driving Stint #3",
+                "Driving Stint #4",
+            ]
+        );
     }
 }

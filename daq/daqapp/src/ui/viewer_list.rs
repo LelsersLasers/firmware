@@ -1,4 +1,4 @@
-use crate::{app, telemetry};
+use crate::{app, workspace_view};
 
 pub struct ViewerList {
     pub title: String,
@@ -16,10 +16,11 @@ impl ViewerList {
         ui: &mut eframe::egui::Ui,
         formatter: &Option<daqcore::formatter::Formatter>,
         database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
+        let live_frames = view.live_frames_to_setpoint();
         ui.heading(&self.title);
-        if view.setpoint_frames.is_empty() && view.router.partitions().is_empty() {
+        if live_frames.is_empty() && view.router.partitions().is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
         eframe::egui::ScrollArea::horizontal()
@@ -67,7 +68,7 @@ impl ViewerList {
                         }
                     })
                     .body(|mut body| {
-                        if view.setpoint_frames.is_empty()
+                        if live_frames.is_empty()
                             && let Some(db) = database
                         {
                             let mut rows = Vec::new();
@@ -125,7 +126,7 @@ impl ViewerList {
                             }
                             return;
                         }
-                        for frame in view.setpoint_frames.iter().rev().take(200) {
+                        for frame in live_frames.iter().rev().take(200) {
                             let bus_name =
                                 database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
                             if let Some(decoded) = &frame.decoded {

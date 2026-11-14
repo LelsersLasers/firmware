@@ -1,5 +1,5 @@
 use crate::{
-    action, paths, settings, shortcuts, telemetry, ui, util, widget_ids, widgets, workspace,
+    action, paths, settings, shortcuts, ui, util, widget_ids, widgets, workspace, workspace_view,
 };
 use std::{error, mem, path, sync::mpsc};
 
@@ -60,7 +60,9 @@ pub struct DAQApp {
     pub can_bus_speed: daqcore::connection::CanBusSpeed,
     pub udp_port: u16,
     pub router: daqcore::router::VirtualTimelineRouter,
-    pub bus_load_samples: Vec<telemetry::BusLoadSample>,
+    pub bus_load_samples: Vec<workspace_view::BusLoadSample>,
+    pub hover_utc_ms: Option<i64>,
+    pub hover_distance_m: Option<f64>,
     pub can_thread: daqcore::can_thread::CanThreadHandle,
     hil_snapshot: daqcore::hil::engine::HilSnapshot,
     active_source: Option<daqcore::connection::ConnectionSource>,
@@ -166,6 +168,8 @@ impl DAQApp {
             udp_port: settings.udp_port,
             router,
             bus_load_samples: Vec::new(),
+            hover_utc_ms: None,
+            hover_distance_m: None,
             hil_snapshot: daqcore::hil::engine::HilSnapshot::idle(),
             active_source: None,
             diagnostic: None,
@@ -358,19 +362,19 @@ impl DAQApp {
                     .tiles()
                     .filter(|tile| matches!(tile, egui_tiles::Tile::Pane(w) if w.kind() == kind))
                     .count();
-                match widget_type.create(
+                let created = widget_type.create_all(
                     &mut self.widget_ids,
                     self.ui_to_can_tx.clone(),
                     existing_count,
-                ) {
-                    Some(mut widget) => {
+                );
+                if created.is_empty() {
+                    log::warn!("Maximum number of {:?} widgets already open", kind);
+                } else {
+                    for mut widget in created {
                         widget.handle_operational_event(&daqcore::can_thread::CanThreadEvent::Hil(
                             self.hil_snapshot.clone(),
                         ));
                         self.add_widget_to_tree(widget);
-                    }
-                    None => {
-                        log::warn!("Maximum number of {:?} widgets already open", kind)
                     }
                 }
             }
@@ -478,7 +482,7 @@ impl eframe::App for DAQApp {
                     self.connection_status = ConnectionStatus::Disconnected;
                 }
                 daqcore::can_thread::CanThreadEvent::BusLoad { timestamp, buses } => {
-                    let sample = telemetry::BusLoadSample { timestamp, buses };
+                    let sample = workspace_view::BusLoadSample { timestamp, buses };
 
                     let index = self
                         .bus_load_samples

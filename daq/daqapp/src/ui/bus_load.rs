@@ -1,4 +1,4 @@
-use crate::telemetry;
+use crate::workspace_view;
 use std::collections::BTreeMap;
 
 const BUS_COLORS: [eframe::egui::Color32; 6] = [
@@ -14,7 +14,7 @@ fn color_for_bus(bus_id: u8) -> eframe::egui::Color32 {
     BUS_COLORS[usize::from(bus_id) % BUS_COLORS.len()]
 }
 
-fn max_bus_load(samples: &[telemetry::BusLoadSample], bus_id: u8, window_idx: usize) -> f32 {
+fn max_bus_load(samples: &[workspace_view::BusLoadSample], bus_id: u8, window_idx: usize) -> f32 {
     samples
         .iter()
         .flat_map(|sample| &sample.buses)
@@ -25,7 +25,7 @@ fn max_bus_load(samples: &[telemetry::BusLoadSample], bus_id: u8, window_idx: us
 
 fn show_load_row(
     ui: &mut eframe::egui::Ui,
-    samples: &[telemetry::BusLoadSample],
+    samples: &[workspace_view::BusLoadSample],
     reading: &daqcore::can::bus_load::BusLoadReading,
 ) {
     let color = color_for_bus(reading.bus_id);
@@ -51,8 +51,8 @@ impl BusLoad {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        samples: &[telemetry::BusLoadSample],
-        view: &telemetry::TelemetryView<'_>,
+        samples: &[workspace_view::BusLoadSample],
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let start_time = view.timeline.start();
         let end_time = view.timeline.end();
@@ -82,7 +82,7 @@ impl BusLoad {
                 (
                     bus_name,
                     color_for_bus(bus_id),
-                    telemetry::decimate(&points, pixels),
+                    workspace_view::decimate(&points, pixels),
                 )
             })
             .collect();
@@ -118,12 +118,17 @@ impl BusLoad {
 
         let plot_width = ui.available_width().max(60.0);
         let plot_height = ui.available_height().max(60.0);
+        let start_ms = start_time.unix_millis();
+        let end_ms = end_time.unix_millis();
+        let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
         egui_plot::Plot::new(&self.title)
             .width(plot_width)
             .height(plot_height)
-            .allow_zoom([false, true])
-            .allow_drag([false, true])
-            .allow_scroll([false, true])
+            .allow_zoom(false)
+            .allow_drag(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false)
+            .allow_double_click_reset(false)
             .x_axis_formatter(|mark, _| {
                 let offset_ms = (mark.value * 1000.0).round() as i64;
                 start_time.offset(offset_ms).label()
@@ -139,11 +144,43 @@ impl BusLoad {
                     egui_plot::VLine::new("Playhead", playhead)
                         .color(eframe::egui::Color32::YELLOW),
                 );
+                let mut anchor_ms = view.timeline.setpoint_utc_ms();
+                if plot.response().hovered()
+                    && let Some(coord) = plot.pointer_coordinate()
+                {
+                    let clamped_x = coord.x.clamp(0.0, duration);
+                    let utc_ms = start_ms + (clamped_x * 1000.0).round() as i64;
+                    anchor_ms = utc_ms;
+                    view.set_hover_utc_ms(Some(utc_ms));
+                    if plot.response().clicked() {
+                        view.request_setpoint_utc_ms(utc_ms);
+                    }
+                }
+                if plot.response().hovered() {
+                    let (scroll, zoom_delta) =
+                        plot.ctx().input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+                    if (zoom_delta - 1.0).abs() > 1e-3 {
+                        let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
+                        view.request_zoom_around_ms(anchor_ms, factor);
+                    } else if scroll.y.abs() > 0.5 {
+                        let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                        view.request_zoom_around_ms(anchor_ms, factor);
+                    }
+                    if scroll.x.abs() > 0.5 {
+                        let delta_ms =
+                            (-(scroll.x as f64) / (plot_width as f64) * span_ms).round() as i64;
+                        view.request_pan_delta_ms(delta_ms);
+                    }
+                }
             });
         egui_tiles::UiResponse::None
     }
 
-    fn show_load_table(&self, ui: &mut eframe::egui::Ui, samples: &[telemetry::BusLoadSample]) {
+    fn show_load_table(
+        &self,
+        ui: &mut eframe::egui::Ui,
+        samples: &[workspace_view::BusLoadSample],
+    ) {
         let Some(last) = samples.last() else {
             ui.label("No bus-load samples in the selected interval.");
             return;

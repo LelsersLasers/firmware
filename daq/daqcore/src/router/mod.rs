@@ -567,6 +567,12 @@ impl VirtualTimelineRouter {
             );
         }
 
+        if out.is_empty() {
+            let res = Resolution::for_window_ms((end_ms - start_ms).max(1), 1600.0);
+            let series = self.query_signal(signal_id, range.clone(), res);
+            out = rle_intervals_from_series(&series, &range);
+        }
+
         out
     }
 
@@ -868,6 +874,64 @@ impl VirtualTimelineRouter {
         }
         Ok(deleted)
     }
+}
+
+fn rle_intervals_from_series(
+    series: &SignalSeries,
+    range: &ops::RangeInclusive<i64>,
+) -> Vec<StateInterval> {
+    let pairs: Vec<(i64, i64)> = match series {
+        SignalSeries::Exact {
+            timestamps_ms,
+            values,
+        } => timestamps_ms
+            .iter()
+            .copied()
+            .zip(values.iter().copied())
+            .filter(|&(_, v)| v.is_finite())
+            .map(|(t, v)| (t, v.round() as i64))
+            .collect(),
+        SignalSeries::Envelope(buckets) => buckets
+            .iter()
+            .filter(|b| b.mean.is_finite())
+            .map(|b| (b.utc_ms, b.mean.round() as i64))
+            .collect(),
+    };
+    let Some(&(first_t, first_raw)) = pairs.first() else {
+        return Vec::new();
+    };
+    let mut intervals = Vec::new();
+    let mut cur_start = first_t;
+    let mut last_t = first_t;
+    let mut cur_raw = first_raw;
+    for &(t, raw) in &pairs[1..] {
+        if raw == cur_raw {
+            last_t = t;
+        } else {
+            let interval = StateInterval {
+                start_utc_ms: cur_start,
+                end_utc_ms: t,
+                raw_int: cur_raw,
+                label: format!("RAW_{cur_raw}"),
+            };
+            if let Some(clamped) = interval.clamped_to(range) {
+                intervals.push(clamped);
+            }
+            cur_start = t;
+            last_t = t;
+            cur_raw = raw;
+        }
+    }
+    let tail = StateInterval {
+        start_utc_ms: cur_start,
+        end_utc_ms: last_t.max(cur_start),
+        raw_int: cur_raw,
+        label: format!("RAW_{cur_raw}"),
+    };
+    if let Some(clamped) = tail.clamped_to(range) {
+        intervals.push(clamped);
+    }
+    intervals
 }
 
 use std::io;

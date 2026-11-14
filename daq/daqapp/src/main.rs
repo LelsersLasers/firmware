@@ -6,13 +6,13 @@ mod assets;
 mod paths;
 mod settings;
 mod shortcuts;
-mod telemetry;
 mod ui;
 mod util;
 mod widget_constructor;
 mod widget_ids;
 mod widgets;
 mod workspace;
+mod workspace_view;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

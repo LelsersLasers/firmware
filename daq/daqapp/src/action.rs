@@ -16,16 +16,40 @@ impl AppAction {
     pub fn cmd_palette_list() -> Vec<(&'static str, widget_constructor::WidgetConstructor)> {
         vec![
             (
+                "Spawn Scope",
+                widget_constructor::WidgetConstructor::ScopeEmpty,
+            ),
+            (
+                "Spawn State Lanes",
+                widget_constructor::WidgetConstructor::StateLane,
+            ),
+            (
+                "Spawn XY Scatter",
+                widget_constructor::WidgetConstructor::XYScatter,
+            ),
+            (
+                "Spawn GPS Plot",
+                widget_constructor::WidgetConstructor::GpsPlot,
+            ),
+            (
+                "Preset: G-G Diagram",
+                widget_constructor::WidgetConstructor::PresetGgDiagram,
+            ),
+            (
+                "Preset: Handling Understeer",
+                widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+            ),
+            (
+                "Preset: Battery Pack Overview",
+                widget_constructor::WidgetConstructor::PresetBatteryOverview,
+            ),
+            (
                 "Spawn CAN Table",
                 widget_constructor::WidgetConstructor::ViewerTable,
             ),
             (
                 "Spawn CAN List",
                 widget_constructor::WidgetConstructor::ViewerList,
-            ),
-            (
-                "Spawn Scope",
-                widget_constructor::WidgetConstructor::ScopeEmpty,
             ),
             (
                 "Spawn Bootloader",
@@ -42,26 +66,6 @@ impl AppAction {
             (
                 "Spawn Bus Load",
                 widget_constructor::WidgetConstructor::BusLoad,
-            ),
-            (
-                "Spawn Battery Voltage",
-                widget_constructor::WidgetConstructor::BatteryVoltage,
-            ),
-            (
-                "Spawn Battery Temps",
-                widget_constructor::WidgetConstructor::BatteryTemps,
-            ),
-            (
-                "Spawn G-G Plot",
-                widget_constructor::WidgetConstructor::GgPlot,
-            ),
-            (
-                "Spawn GPS Plot",
-                widget_constructor::WidgetConstructor::GpsPlot,
-            ),
-            (
-                "Spawn Dynamics",
-                widget_constructor::WidgetConstructor::Dynamics,
             ),
             (
                 "Spawn Jitter",

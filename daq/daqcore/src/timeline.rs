@@ -489,9 +489,6 @@ impl MasterTimeline {
                 self.end_track = Track::Frozen;
                 self.setpoint_track = Track::Frozen;
             }
-            if self.setpoint >= self.end && self.end > self.start {
-                self.setpoint = self.start;
-            }
             self.is_playing = true;
         } else {
             self.is_playing = false;
@@ -513,6 +510,8 @@ impl MasterTimeline {
     }
 
     /// Advance the playhead during active playback by `real_dt_secs * playback_speed`.
+    /// When the playhead reaches the end of the active window, the window's end time
+    /// continues to extend rather than pausing playback.
     /// Returns `true` if the timeline state changed.
     pub fn advance_playback(&mut self, real_dt_secs: f64) -> bool {
         if !self.is_playing || !real_dt_secs.is_finite() || real_dt_secs <= 0.0 {
@@ -534,28 +533,21 @@ impl MasterTimeline {
             return true;
         }
 
-        // Playhead reached the end of the active viewport.
-        // If no single annotation is pinned and day_bounds extends further, pan the window forward.
-        if self.selected_annotation_ids.is_empty()
-            && let Some((_, day_max_ms)) = self.day_bounds_ms
-            && cur_end_ms < day_max_ms
-        {
-            let shift_ms = (next_ms - cur_end_ms).min(day_max_ms - cur_end_ms);
-            let span_ms = cur_end_ms.saturating_sub(self.start.unix_millis());
-            let new_end_ms = cur_end_ms.saturating_add(shift_ms);
-            let new_start_ms = new_end_ms.saturating_sub(span_ms);
-            self.start = time::Time::from_unix_millis(new_start_ms);
-            self.end = time::Time::from_unix_millis(new_end_ms);
-            self.setpoint = self.end;
-            if new_end_ms >= day_max_ms {
-                self.is_playing = false;
-            }
-            return true;
-        }
-
+        // Playhead reached or passed the end of the active viewport: extend `end` along with
+        // `setpoint` so playback continues seamlessly without pausing.
+        self.end = time::Time::from_unix_millis(next_ms);
         self.setpoint = self.end;
-        self.is_playing = false;
-        cur_setpoint_ms != cur_end_ms
+        self.end_track = Track::Frozen;
+        self.setpoint_track = Track::Frozen;
+        self.window_ms = next_ms
+            .saturating_sub(self.start.unix_millis())
+            .max(MIN_WINDOW_MS);
+        if let Some((day_min, day_max)) = self.day_bounds_ms
+            && next_ms > day_max
+        {
+            self.day_bounds_ms = Some((day_min, next_ms));
+        }
+        true
     }
 
     /// Step the playhead (`setpoint`) by `delta_ms` (positive or negative), shifting
@@ -904,25 +896,35 @@ mod tests {
         tl.snap_to_range_ms(1_000_000, 1_060_000);
         tl.set_day_bounds_ms(Some((1_000_000, 1_120_000)));
 
-        // Starting playback when setpoint == end rewinds setpoint to start
+        // Position playhead inside the window, then play across the window end:
+        // when the playhead passes `end`, `end` continues to extend instead of pausing.
+        tl.set_setpoint(time::Time::from_unix_millis(1_058_000));
         tl.set_playing(true);
         assert!(tl.is_playing());
-        assert_eq!(tl.setpoint_utc_ms(), 1_000_000);
-
-        // Advance 2.0s at 2x speed -> +4,000 ms
         tl.set_playback_speed(2.0);
-        assert!(tl.advance_playback(2.0));
-        assert_eq!(tl.setpoint_utc_ms(), 1_004_000);
+
+        // Advance 0.5s at 2x speed -> +1,000 ms (still inside [1_000_000, 1_060_000])
+        assert!(tl.advance_playback(0.5));
+        assert_eq!(tl.setpoint_utc_ms(), 1_059_000);
+        assert_eq!(tl.end_utc_ms(), 1_060_000);
+        assert!(tl.is_playing());
+
+        // Advance 1.5s at 2x speed -> +3,000 ms (crosses 1_060_000 -> extends `end` to 1_062_000)
+        assert!(tl.advance_playback(1.5));
+        assert_eq!(tl.start_utc_ms(), 1_000_000);
+        assert_eq!(tl.end_utc_ms(), 1_062_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_062_000);
+        assert!(tl.is_playing());
 
         // Step frame +100ms and -50ms
         tl.step_by_ms(100);
         assert!(!tl.is_playing());
-        assert_eq!(tl.setpoint_utc_ms(), 1_004_100);
+        assert_eq!(tl.setpoint_utc_ms(), 1_062_100);
         tl.step_by_ms(-50);
-        assert_eq!(tl.setpoint_utc_ms(), 1_004_050);
+        assert_eq!(tl.setpoint_utc_ms(), 1_062_050);
 
         // Zoom in down to 100ms minimum clamp
-        tl.zoom_around_ms(1_004_050, 0.0001);
+        tl.zoom_around_ms(1_062_050, 0.0001);
         assert_eq!(tl.end_utc_ms() - tl.start_utc_ms(), MIN_WINDOW_MS);
 
         // Single-click annotation snaps to range; shift-click second annotation enables comparison mode

@@ -384,8 +384,14 @@ fn write_single_partition(
             let acc = columns.entry(signal_id).or_insert_with(|| {
                 let sig_def = msg_def.and_then(|m| m.signal(sig_name));
                 let unit = sig_def.map(|s| s.unit().to_owned()).unwrap_or_default();
-                let is_discrete = sig_def.is_some_and(|s| s.choices().next().is_some());
                 let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+                let is_discrete = is_fault_flag
+                    || sig_def.is_some_and(|s| {
+                        s.choices().next().is_some()
+                            || (s.bit_length() == 1
+                                && (s.scale() - 1.0).abs() < 1e-9
+                                && s.offset().abs() < 1e-9)
+                    });
                 SignalColumnAccumulator {
                     unit,
                     is_discrete,

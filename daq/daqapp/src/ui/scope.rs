@@ -1,38 +1,121 @@
-use crate::{app, telemetry, ui};
-use std::{fs, mem};
+use crate::{app, ui, workspace_view};
+use std::fs;
 
-// Makes invalid combinations of id/name/signal name unrepresentable
-enum ScopeState {
-    PickingMessage {
-        picker: ui::message_picker::MessagePickerState,
-    },
-    PickingSignal {
-        selected_msg: daqcore::superdbc::message::MessageKey,
-    },
-    Configured {
-        key: daqcore::superdbc::message::MessageKey,
-        msg_name: String,
-        signal_name: String,
-    },
-    ConfiguredDerived {
-        signal_id: String,
-        label: String,
-        unit: String,
-    },
+pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
+    eframe::egui::Color32::from_rgb(80, 190, 255),  // Sky Blue
+    eframe::egui::Color32::from_rgb(255, 160, 60),  // Amber Orange
+    eframe::egui::Color32::from_rgb(100, 230, 140), // Mint Green
+    eframe::egui::Color32::from_rgb(235, 110, 245), // Orchid Purple
+    eframe::egui::Color32::from_rgb(255, 95, 105),  // Coral Red
+    eframe::egui::Color32::from_rgb(70, 225, 220),  // Teal Cyan
+    eframe::egui::Color32::from_rgb(250, 220, 80),  // Warm Yellow
+    eframe::egui::Color32::from_rgb(165, 140, 255), // Periwinkle
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScopeXAxisMode {
+    #[default]
+    UtcTime,
+    ElapsedTime,
+    TrackDistance,
 }
 
-impl Default for ScopeState {
-    fn default() -> Self {
-        ScopeState::PickingMessage {
-            picker: ui::message_picker::MessagePickerState::default(),
+impl ScopeXAxisMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::UtcTime => "UTC Time",
+            Self::ElapsedTime => "Elapsed (s)",
+            Self::TrackDistance => "Distance (m)",
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScopeChannel {
+    pub signal_id: String,
+    pub label: String,
+    pub unit: String,
+    pub color: eframe::egui::Color32,
+    pub key: Option<daqcore::superdbc::message::MessageKey>,
+    pub is_derived: bool,
+}
+
+impl ScopeChannel {
+    fn title_label(&self) -> &str {
+        if self.is_derived || self.key.is_none() {
+            &self.signal_id
+        } else {
+            &self.label
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelStats {
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub cursor: Option<f64>,
+}
+
+/// Affine mapping between a secondary unit group's physical Y values and the primary Y-axis plot space.
+#[derive(Debug, Clone, Copy)]
+pub struct UnitAxisTransform {
+    pub scale: f64,
+    pub offset: f64,
+}
+
+impl UnitAxisTransform {
+    pub const IDENTITY: Self = Self {
+        scale: 1.0,
+        offset: 0.0,
+    };
+
+    pub fn from_ranges(primary_min: f64, primary_max: f64, sec_min: f64, sec_max: f64) -> Self {
+        let p_span = (primary_max - primary_min).abs();
+        let s_span = (sec_max - sec_min).abs();
+        if p_span < 1e-9 || s_span < 1e-9 || !p_span.is_finite() || !s_span.is_finite() {
+            return Self::IDENTITY;
+        }
+        let scale = p_span / s_span;
+        let offset = primary_min - sec_min * scale;
+        Self { scale, offset }
+    }
+
+    #[inline]
+    pub fn phys_to_plot(self, y_phys: f64) -> f64 {
+        if !y_phys.is_finite() {
+            return f64::NAN;
+        }
+        self.offset + self.scale * y_phys
+    }
+
+    #[inline]
+    pub fn plot_to_phys(self, y_plot: f64) -> f64 {
+        if self.scale.abs() < 1e-12 {
+            y_plot
+        } else {
+            (y_plot - self.offset) / self.scale
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopePickerTarget {
+    AddChannel,
+    SpeedSignal,
 }
 
 pub struct Scope {
     pub title: String,
     instance_num: usize,
-    state: ScopeState,
+    custom_title: bool,
+    channels: Vec<ScopeChannel>,
+    picker_target: Option<ScopePickerTarget>,
+    search_query: String,
+    pub x_axis_mode: ScopeXAxisMode,
+    pub speed_signal_id: String,
+    y_bounds_override: Option<(f64, f64)>,
 }
 
 impl Scope {
@@ -42,14 +125,25 @@ impl Scope {
         msg_name: String,
         signal_name: String,
     ) -> Self {
+        let signal_id = daqcore::storage::format_signal_id(&msg_name, &signal_name);
+        let channel = ScopeChannel {
+            signal_id,
+            label: signal_name.clone(),
+            unit: String::new(),
+            color: CHANNEL_PALETTE[0],
+            key: Some(key),
+            is_derived: false,
+        };
         Self {
             title: format!("Scope: {signal_name}"),
             instance_num,
-            state: ScopeState::Configured {
-                key,
-                msg_name,
-                signal_name,
-            },
+            custom_title: false,
+            channels: vec![channel],
+            picker_target: None,
+            search_query: String::new(),
+            x_axis_mode: ScopeXAxisMode::UtcTime,
+            speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -57,7 +151,13 @@ impl Scope {
         Self {
             title: format!("Scope #{instance_num}"),
             instance_num,
-            state: ScopeState::default(),
+            custom_title: false,
+            channels: Vec::new(),
+            picker_target: Some(ScopePickerTarget::AddChannel),
+            search_query: String::new(),
+            x_axis_mode: ScopeXAxisMode::UtcTime,
+            speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -67,205 +167,191 @@ impl Scope {
         label: String,
         unit: String,
     ) -> Self {
+        let is_derived = !signal_id.contains('.');
+        let channel = ScopeChannel {
+            signal_id: signal_id.clone(),
+            label,
+            unit,
+            color: CHANNEL_PALETTE[0],
+            key: None,
+            is_derived,
+        };
         Self {
             title: format!("Scope: {signal_id}"),
             instance_num,
-            state: ScopeState::ConfiguredDerived {
+            custom_title: false,
+            channels: vec![channel],
+            picker_target: None,
+            search_query: String::new(),
+            x_axis_mode: ScopeXAxisMode::UtcTime,
+            speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
+        }
+    }
+
+    pub fn new_multi(
+        instance_num: usize,
+        title: impl Into<String>,
+        signals: Vec<(String, String, String)>,
+    ) -> Self {
+        let mut channels = Vec::with_capacity(signals.len());
+        for (idx, (signal_id, label, unit)) in signals.into_iter().enumerate() {
+            channels.push(ScopeChannel {
                 signal_id,
                 label,
                 unit,
-            },
+                color: CHANNEL_PALETTE[idx % CHANNEL_PALETTE.len()],
+                key: None,
+                is_derived: false,
+            });
+        }
+        Self {
+            title: title.into(),
+            instance_num,
+            custom_title: true,
+            channels,
+            picker_target: None,
+            search_query: String::new(),
+            x_axis_mode: ScopeXAxisMode::UtcTime,
+            speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn channels(&self) -> &[ScopeChannel] {
+        &self.channels
+    }
+
+    pub fn add_channel(
+        &mut self,
+        signal_id: String,
+        label: String,
+        unit: String,
+        key: Option<daqcore::superdbc::message::MessageKey>,
+        is_derived: bool,
+    ) {
+        if self.channels.iter().any(|c| c.signal_id == signal_id) {
+            self.picker_target = None;
+            return;
+        }
+        let color = CHANNEL_PALETTE[self.channels.len() % CHANNEL_PALETTE.len()];
+        self.channels.push(ScopeChannel {
+            signal_id,
+            label,
+            unit,
+            color,
+            key,
+            is_derived,
+        });
+        self.picker_target = None;
+        self.refresh_title();
+    }
+
+    pub fn remove_channel(&mut self, index: usize) {
+        if index < self.channels.len() {
+            self.channels.remove(index);
+            for (i, ch) in self.channels.iter_mut().enumerate() {
+                ch.color = CHANNEL_PALETTE[i % CHANNEL_PALETTE.len()];
+            }
+            if self.channels.is_empty() {
+                self.custom_title = false;
+                self.picker_target = Some(ScopePickerTarget::AddChannel);
+            }
+            self.refresh_title();
+        }
+    }
+
+    fn refresh_title(&mut self) {
+        if self.custom_title && !self.channels.is_empty() {
+            return;
+        }
+        match self.channels.as_slice() {
+            [] => {
+                self.title = format!("Scope #{}", self.instance_num);
+            }
+            [only] => {
+                self.title = format!("Scope: {}", only.title_label());
+            }
+            [first, rest @ ..] => {
+                self.title = format!("Scope: {} +{}", first.title_label(), rest.len());
+            }
         }
     }
 
     pub fn apply_dragged_signal(&mut self, dragged: ui::signal_browser::DraggedSignal) {
         match dragged {
             ui::signal_browser::DraggedSignal::Raw {
-                key: Some(key),
-                msg_name,
-                signal_name,
-                ..
-            } => {
-                self.title = format!("Scope: {signal_name}");
-                self.state = ScopeState::Configured {
-                    key,
-                    msg_name,
-                    signal_name,
-                };
-            }
-            ui::signal_browser::DraggedSignal::Raw {
-                key: None,
+                key,
                 msg_name,
                 signal_name,
                 unit,
             } => {
                 let signal_id = daqcore::storage::format_signal_id(&msg_name, &signal_name);
-                let label = format!("{msg_name}.{signal_name}");
-                self.title = format!("Scope: {signal_id}");
-                self.state = ScopeState::ConfiguredDerived {
-                    signal_id,
-                    label,
-                    unit,
-                };
+                self.add_channel(signal_id, signal_name, unit, key, false);
             }
             ui::signal_browser::DraggedSignal::Derived {
                 signal_id,
                 label,
                 unit,
             } => {
-                self.title = format!("Scope: {signal_id}");
-                self.state = ScopeState::ConfiguredDerived {
-                    signal_id,
-                    label,
-                    unit,
+                let display_label = if label.is_empty() {
+                    signal_id.clone()
+                } else {
+                    label
                 };
+                self.add_channel(signal_id, display_label, unit, None, true);
             }
+        }
+    }
+
+    pub fn reset_database(&mut self) {
+        for ch in &mut self.channels {
+            ch.key = None;
         }
     }
 
     fn show_picker(
         &mut self,
         ui: &mut eframe::egui::Ui,
+        target: ScopePickerTarget,
         database: Option<&app::DatabaseSelection>,
-        formula_engine: &daqcore::analysis::FormulaEngine,
-    ) -> bool {
-        eframe::egui::ScrollArea::vertical()
-            .id_salt(("scope_picker", self.instance_num))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                self.show_picker_inner(ui, database, formula_engine)
-            })
-            .inner
-    }
-
-    fn show_picker_inner(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
-        formula_engine: &daqcore::analysis::FormulaEngine,
-    ) -> bool {
-        let mut picked_derived: Option<(String, String, String)> = None;
-        if matches!(self.state, ScopeState::PickingMessage { .. }) {
-            eframe::egui::CollapsingHeader::new(
-                eframe::egui::RichText::new("Derived Signals (Formulas)").strong(),
-            )
-            .default_open(false)
-            .show(ui, |ui| {
-                for compiled in formula_engine.definitions() {
-                    let def = &compiled.def;
-                    let unit_suffix = if def.unit.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", def.unit)
-                    };
-                    let btn_label = format!("{} — {}{}", def.id, def.label, unit_suffix);
-                    if ui
-                        .add(eframe::egui::Button::new(btn_label).wrap())
-                        .clicked()
-                    {
-                        picked_derived =
-                            Some((def.id.clone(), def.label.clone(), def.unit.clone()));
-                    }
-                }
-            });
-            ui.separator();
-        }
-
-        if let Some((signal_id, label, unit)) = picked_derived {
-            self.title = format!("Scope: {signal_id}");
-            self.state = ScopeState::ConfiguredDerived {
-                signal_id,
-                label,
-                unit,
-            };
-            return true;
-        }
-
-        let Some(database) = database else {
-            ui::message_picker::no_database_placeholder(ui);
-            return false;
+        view: &workspace_view::WorkspaceDataView<'_>,
+    ) {
+        let prompt = match target {
+            ScopePickerTarget::AddChannel => "Select signal to plot:",
+            ScopePickerTarget::SpeedSignal => "Select speed signal:",
         };
-
-        let state = mem::take(&mut self.state);
-
-        let (new_state, just_configured) = match state {
-            ScopeState::PickingMessage { mut picker } => {
-                let picked = picker.show(ui, database, true);
-                match picked {
-                    Some(msg) => (ScopeState::PickingSignal { selected_msg: msg }, false),
-                    None => (ScopeState::PickingMessage { picker }, false),
-                }
+        let allow_cancel = !self.channels.is_empty();
+        match ui::message_picker::show_signal_picker(
+            ui,
+            ("scope_signal_picker", self.instance_num),
+            prompt,
+            allow_cancel,
+            false,
+            &mut self.search_query,
+            database,
+            view,
+        ) {
+            ui::message_picker::SignalPickerAction::None => {}
+            ui::message_picker::SignalPickerAction::Cancelled => {
+                self.picker_target = None;
             }
-            ScopeState::PickingSignal { selected_msg } => {
-                let Some(message) = database.database.message_by_key(selected_msg) else {
-                    self.state = ScopeState::default();
-                    return false;
-                };
-                let bus_name = database.bus_name(selected_msg.bus_id);
-                let identity = message.identity();
-
-                ui.separator();
-                ui.add(
-                    eframe::egui::Label::new(
-                        eframe::egui::RichText::new(format!(
-                            "Selected Message: [{bus_name}] {} (0x{identity:03X}) — pick a signal:",
-                            message.name()
-                        ))
-                        .strong(),
-                    )
-                    .wrap(),
-                );
-
-                let mut picked_signal = None;
-                for sig in message.signals() {
-                    if ui
-                        .add(eframe::egui::Button::new(sig.name()).wrap())
-                        .clicked()
-                    {
-                        picked_signal = Some(sig.name().to_owned());
-                        break;
-                    }
+            ui::message_picker::SignalPickerAction::Picked(picked) => match target {
+                ScopePickerTarget::AddChannel => {
+                    self.add_channel(
+                        picked.signal_id,
+                        picked.signal_name,
+                        picked.unit,
+                        picked.key,
+                        picked.is_derived,
+                    );
                 }
-
-                // Choosing a signal configures the query against shared history.
-                if let Some(signal_name) = picked_signal {
-                    (
-                        ScopeState::Configured {
-                            key: selected_msg,
-                            msg_name: message.name().to_owned(),
-                            signal_name,
-                        },
-                        true,
-                    )
-                } else if ui.button("⬅ Back to message search").clicked() {
-                    (
-                        ScopeState::PickingMessage {
-                            picker: ui::message_picker::MessagePickerState::default(),
-                        },
-                        false,
-                    )
-                } else {
-                    (ScopeState::PickingSignal { selected_msg }, false)
+                ScopePickerTarget::SpeedSignal => {
+                    self.speed_signal_id = picked.signal_id;
+                    self.picker_target = None;
                 }
-            }
-            configured @ (ScopeState::Configured { .. } | ScopeState::ConfiguredDerived { .. }) => {
-                (configured, false)
-            }
-        };
-
-        self.state = new_state;
-
-        if just_configured && let ScopeState::Configured { signal_name, .. } = &self.state {
-            self.title = format!("Scope: {}", signal_name);
-        }
-
-        just_configured
-    }
-
-    pub fn reset_database(&mut self) {
-        if !matches!(self.state, ScopeState::ConfiguredDerived { .. }) {
-            self.state = ScopeState::default();
-            self.title = format!("Scope #{}", self.instance_num);
+            },
         }
     }
 
@@ -273,7 +359,7 @@ impl Scope {
         &mut self,
         ui: &mut eframe::egui::Ui,
         database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
         if let Some(payload) =
@@ -294,61 +380,20 @@ impl Scope {
             }
         }
 
-        if !matches!(
-            self.state,
-            ScopeState::Configured { .. } | ScopeState::ConfiguredDerived { .. }
-        ) {
-            self.show_picker(ui, database, view.router.formula_engine());
+        if self.channels.is_empty() || self.picker_target.is_some() {
+            let target = self
+                .picker_target
+                .unwrap_or(ScopePickerTarget::AddChannel);
+            self.show_picker(ui, target, database, view);
             return egui_tiles::UiResponse::None;
         }
 
-        let (signal_id, signal, heading_text, y_label) = match &self.state {
-            ScopeState::Configured {
-                key,
-                msg_name,
-                signal_name,
-            } => {
-                let target_key = *key;
-                let identity = target_key.identity;
-                let bus_name = database.map_or("Unknown", |db| db.bus_name(target_key.bus_id));
-                let sig_id = daqcore::storage::format_signal_id(msg_name, signal_name);
-                let heading = format!(
-                    "{}: [{bus_name}] {msg_name} (0x{identity:03X}) - {signal_name}",
-                    self.title
-                );
-                (sig_id, signal_name.clone(), heading, signal_name.clone())
+        // Resolve units for any channel whose unit was not populated yet.
+        for ch in &mut self.channels {
+            if ch.unit.is_empty() {
+                ch.unit = view.resolve_signal_unit(&ch.signal_id, database);
             }
-            ScopeState::ConfiguredDerived {
-                signal_id,
-                label,
-                unit,
-            } => {
-                let y_axis = if unit.is_empty() {
-                    signal_id.clone()
-                } else {
-                    format!("{signal_id} ({unit})")
-                };
-                let heading = format!("{}: [Derived] {label} ({signal_id})", self.title);
-                (signal_id.clone(), signal_id.clone(), heading, y_axis)
-            }
-            _ => return egui_tiles::UiResponse::None,
-        };
-
-        let start = view.timeline.start();
-        let start_ms = start.unix_millis();
-        let duration = view.timeline.end().secs(start).max(0.001);
-        let playhead = view.timeline.setpoint().secs(start);
-
-        let width_px = ui.available_width().max(1.0);
-        let resolution = view.timeline.resolution_for_width(width_px);
-        let series = view.query_signal(&signal_id, resolution);
-
-        let base_staleness_ms = view.router.formula_engine().max_staleness_ms();
-        let max_gap_ms = resolution
-            .bucket_width_ms()
-            .map_or(base_staleness_ms, |bw| base_staleness_ms.max(bw * 3));
-
-        let (points, envelope_min_max) = series_to_points(&series, start_ms, max_gap_ms);
+        }
 
         let comparison_annotations: Vec<daqcore::storage::Annotation> =
             if view.timeline.is_comparison_mode() {
@@ -362,197 +407,952 @@ impl Scope {
             } else {
                 Vec::new()
             };
+        let is_comparison = comparison_annotations.len() >= 2;
 
-        let mut change = false;
+        // Top toolbar: X-axis mode selector, add/clear channel buttons, CSV export.
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+        let mut open_picker: Option<ScopePickerTarget> = None;
+        let mut clear_all = false;
+        let mut export_csv = false;
         ui.horizontal_wrapped(|ui| {
-            ui.strong(&heading_text);
-            if comparison_annotations.len() >= 2 {
+            if is_comparison {
                 ui.colored_label(
                     eframe::egui::Color32::from_rgb(255, 190, 60),
-                    format!(
-                        "[Comparison: {} stints/events]",
-                        comparison_annotations.len()
-                    ),
+                    format!("[Overlay: {} laps/events]", comparison_annotations.len()),
                 );
+                ui.separator();
             }
-            change = ui.button("Change signal").clicked();
-            if ui.button("Export CSV").clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .set_file_name(format!("{}_data.csv", signal))
-                    .add_filter("CSV", &["csv"])
-                    .save_file()
+            ui.label("X:");
+            for mode in [
+                ScopeXAxisMode::UtcTime,
+                ScopeXAxisMode::ElapsedTime,
+                ScopeXAxisMode::TrackDistance,
+            ] {
+                if ui
+                    .selectable_label(self.x_axis_mode == mode, mode.label())
+                    .clicked()
+                {
+                    self.x_axis_mode = mode;
+                    if mode == ScopeXAxisMode::TrackDistance && self.speed_signal_id.is_empty() {
+                        self.speed_signal_id = view.resolve_default_speed_signal(database);
+                    }
+                }
+            }
+            if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+                let short_spd = self
+                    .speed_signal_id
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&self.speed_signal_id);
+                if ui
+                    .small_button(format!("Speed: {short_spd}"))
+                    .on_hover_text(format!(
+                        "Speed signal for distance integration: {}\nClick to pick another msg.signal",
+                        self.speed_signal_id
+                    ))
+                    .clicked()
+                {
+                    open_picker = Some(ScopePickerTarget::SpeedSignal);
+                }
+            }
+            ui.separator();
+            if ui
+                .small_button("+ Signal")
+                .on_hover_text("Add another signal or derived formula to this Scope")
+                .clicked()
             {
-                let mut text = String::from("Time_Seconds,Value\n");
-                for p in &points {
-                    text.push_str(&format!("{},{}\n", p[0], p[1]));
-                }
-
-                if let Err(e) = fs::write(path, text) {
-                    log::error!("Export failed: {e}");
-                }
+                open_picker = Some(ScopePickerTarget::AddChannel);
+            }
+            if self.channels.len() > 1 && ui.small_button("Clear").clicked() {
+                clear_all = true;
+            }
+            if ui.small_button("Export CSV").clicked() {
+                export_csv = true;
             }
         });
-        if change {
-            self.state = ScopeState::default();
-            self.title = format!("Scope #{}", self.instance_num);
+
+        if let Some(target) = open_picker {
+            self.picker_target = Some(target);
+            return egui_tiles::UiResponse::None;
+        }
+        if clear_all {
+            self.channels.clear();
+            self.custom_title = false;
+            self.refresh_title();
+            self.picker_target = Some(ScopePickerTarget::AddChannel);
             return egui_tiles::UiResponse::None;
         }
 
+        let width_px = ui.available_width().max(1.0);
         let pixels = width_px as usize;
-        let plot_width = ui.available_width().max(60.0);
-        let plot_height = ui.available_height().max(60.0);
+        let resolution = view.timeline.resolution_for_width(width_px);
+        let base_staleness_ms = view.router.formula_engine().max_staleness_ms();
+        let max_gap_ms = resolution
+            .bucket_width_ms()
+            .map_or(base_staleness_ms, |bw| base_staleness_ms.max(bw * 3));
 
-        if comparison_annotations.len() >= 2 {
-            let palette = [
-                eframe::egui::Color32::from_rgb(80, 190, 255),
-                eframe::egui::Color32::from_rgb(255, 160, 60),
-                eframe::egui::Color32::from_rgb(100, 230, 140),
-                eframe::egui::Color32::from_rgb(230, 110, 250),
-            ];
-            let mut max_duration_s = 1.0_f64;
-            let mut overlay_series = Vec::with_capacity(comparison_annotations.len());
-            for (idx, ann) in comparison_annotations.iter().enumerate() {
-                let ann_start_ms = ann.start_utc_ms;
-                let ann_end_ms = ann
-                    .end_utc_ms
-                    .unwrap_or(ann.start_utc_ms + 30_000)
-                    .max(ann.start_utc_ms + 1_000);
-                let ann_dur_s = ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
-                max_duration_s = max_duration_s.max(ann_dur_s);
-                let ann_res = daqcore::router::Resolution::for_window_ms(
-                    (ann_end_ms - ann_start_ms).max(1),
-                    width_px,
-                );
-                let ann_data =
-                    view.router
-                        .query_signal(&signal_id, ann_start_ms..=ann_end_ms, ann_res);
-                let (pts, _) = series_to_points(&ann_data, ann_start_ms, max_gap_ms);
-                let decimated = telemetry::decimate(&pts, pixels);
-                let color = palette[idx % palette.len()];
-                overlay_series.push((
-                    format!("{} ({:.1}s)", ann.name, ann_dur_s),
-                    decimated,
-                    color,
-                ));
-            }
-
-            egui_plot::Plot::new(("scope_plot_cmp", self.instance_num))
-                .legend(egui_plot::Legend::default())
-                .width(plot_width)
-                .height(plot_height)
-                .allow_zoom([false, true])
-                .allow_drag([false, true])
-                .allow_scroll([false, true])
-                .x_axis_formatter(|mark, _| format!("{:.1}s", mark.value))
-                .x_axis_label("Relative Stint Time (s)")
-                .y_axis_label(&y_label)
-                .show(ui, |plot| {
-                    plot.set_plot_bounds_x(0.0..=max_duration_s);
-                    for (name, pts, color) in overlay_series {
-                        plot.line(
-                            egui_plot::Line::new(name, egui_plot::PlotPoints::from(pts))
-                                .color(color),
-                        );
-                    }
+        // Build unit groups in order of appearance so each unique unit gets its own Y-axis.
+        let mut unit_groups: Vec<String> = Vec::new();
+        let mut channel_unit_group: Vec<usize> = Vec::with_capacity(self.channels.len());
+        for ch in &self.channels {
+            let pos = unit_groups
+                .iter()
+                .position(|u| u == &ch.unit)
+                .unwrap_or_else(|| {
+                    unit_groups.push(ch.unit.clone());
+                    unit_groups.len() - 1
                 });
+            channel_unit_group.push(pos);
+        }
+
+        let start = view.timeline.start();
+        let start_ms = start.unix_millis();
+        let end_ms = view.timeline.end_utc_ms();
+        let duration_s = view.timeline.end().secs(start).max(0.001);
+        let playhead_s = view.timeline.setpoint().secs(start);
+
+        // Query data and compute per-channel statistics & unit bounds.
+        let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
+        let mut unit_bounds: Vec<(f64, f64)> = vec![(f64::INFINITY, f64::NEG_INFINITY); unit_groups.len()];
+
+        // Prepared traces to plot (before unit affine normalization):
+        let mut raw_traces: Vec<PreparedTrace> = Vec::new();
+        let mut max_x_bound = duration_s;
+        let mut primary_distance_lookup: Option<(i64, Vec<i64>, Vec<f64>)> = None;
+
+        if is_comparison {
+            max_x_bound = 0.001;
+            let line_styles = [
+                egui_plot::LineStyle::Solid,
+                egui_plot::LineStyle::dashed_dense(),
+                egui_plot::LineStyle::dotted_dense(),
+                egui_plot::LineStyle::dashed_loose(),
+            ];
+
+            for (ch_idx, ch) in self.channels.iter().enumerate() {
+                let unit_idx = channel_unit_group[ch_idx];
+                let mut ch_min = f64::INFINITY;
+                let mut ch_max = f64::NEG_INFINITY;
+                let mut ch_sum = 0.0;
+                let mut ch_cnt = 0usize;
+
+                for (lap_idx, ann) in comparison_annotations.iter().enumerate() {
+                    let ann_start_ms = ann.start_utc_ms;
+                    let ann_end_ms = ann
+                        .end_utc_ms
+                        .unwrap_or(ann.start_utc_ms + 30_000)
+                        .max(ann.start_utc_ms + 1_000);
+                    let ann_res = daqcore::router::Resolution::for_window_ms(
+                        (ann_end_ms - ann_start_ms).max(1),
+                        width_px,
+                    );
+                    let style = line_styles[lap_idx % line_styles.len()];
+                    let trace_color = if self.channels.len() == 1 {
+                        CHANNEL_PALETTE[lap_idx % CHANNEL_PALETTE.len()]
+                    } else {
+                        ch.color
+                    };
+
+                    if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+                        let dist_series = view.query_signal_vs_distance(
+                            &ch.signal_id,
+                            &self.speed_signal_id,
+                            ann_start_ms..=ann_end_ms,
+                            ann_res,
+                        );
+                        let lap_dist_m = dist_series.total_distance_m().max(1.0);
+                        max_x_bound = max_x_bound.max(lap_dist_m);
+                        for &v in &dist_series.values {
+                            if v.is_finite() {
+                                ch_min = ch_min.min(v);
+                                ch_max = ch_max.max(v);
+                                ch_sum += v;
+                                ch_cnt += 1;
+                            }
+                        }
+                        if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty() {
+                            primary_distance_lookup = Some((
+                                ann_start_ms,
+                                dist_series.timestamps_ms.clone(),
+                                dist_series.distances_m.clone(),
+                            ));
+                        }
+                        let pts: Vec<[f64; 2]> = dist_series
+                            .distances_m
+                            .into_iter()
+                            .zip(dist_series.values)
+                            .map(|(d, v)| [d, v])
+                            .collect();
+                        let decimated = workspace_view::decimate(&pts, pixels);
+                        raw_traces.push(PreparedTrace {
+                            name: format!("{} — {} ({:.0}m)", ch.label, ann.name, lap_dist_m),
+                            unit_idx,
+                            color: trace_color,
+                            style,
+                            mean_points: decimated,
+                            envelope_bands: Vec::new(),
+                        });
+                    } else {
+                        let ann_dur_s = ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
+                        max_x_bound = max_x_bound.max(ann_dur_s);
+                        let series =
+                            view.query_signal_range(&ch.signal_id, ann_start_ms..=ann_end_ms, ann_res);
+                        if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
+                            ch_min = ch_min.min(s_min);
+                            ch_max = ch_max.max(s_max);
+                            ch_sum += s_mean;
+                            ch_cnt += 1;
+                        }
+                        let (pts, env_bands) =
+                            series_to_points_and_bands(&series, ann_start_ms, max_gap_ms, pixels);
+                        raw_traces.push(PreparedTrace {
+                            name: format!("{} — {} ({:.1}s)", ch.label, ann.name, ann_dur_s),
+                            unit_idx,
+                            color: trace_color,
+                            style,
+                            mean_points: pts,
+                            envelope_bands: env_bands,
+                        });
+                    }
+                }
+
+                if ch_cnt > 0 && ch_min.is_finite() && ch_max.is_finite() {
+                    unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(ch_min);
+                    unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(ch_max);
+                    let cursor = view
+                        .latest_signal_value_at_cursor(&ch.signal_id)
+                        .map(|(_, v)| v);
+                    channel_stats[ch_idx] = Some(ChannelStats {
+                        min: ch_min,
+                        max: ch_max,
+                        mean: ch_sum / (ch_cnt as f64),
+                        cursor,
+                    });
+                }
+            }
+        } else {
+            // Single-window mode (UTC Time, Elapsed Time, or Track Distance)
+            if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+                max_x_bound = 1.0;
+                for (ch_idx, ch) in self.channels.iter().enumerate() {
+                    let unit_idx = channel_unit_group[ch_idx];
+                    let dist_series = view.query_signal_vs_distance(
+                        &ch.signal_id,
+                        &self.speed_signal_id,
+                        start_ms..=end_ms,
+                        resolution,
+                    );
+                    max_x_bound = max_x_bound.max(dist_series.total_distance_m().max(1.0));
+                    let mut ch_min = f64::INFINITY;
+                    let mut ch_max = f64::NEG_INFINITY;
+                    let mut ch_sum = 0.0;
+                    let mut ch_cnt = 0usize;
+                    for &v in &dist_series.values {
+                        if v.is_finite() {
+                            ch_min = ch_min.min(v);
+                            ch_max = ch_max.max(v);
+                            ch_sum += v;
+                            ch_cnt += 1;
+                        }
+                    }
+                    if ch_cnt > 0 {
+                        unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(ch_min);
+                        unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(ch_max);
+                        let cursor = view
+                            .latest_signal_value_at_cursor(&ch.signal_id)
+                            .map(|(_, v)| v);
+                        channel_stats[ch_idx] = Some(ChannelStats {
+                            min: ch_min,
+                            max: ch_max,
+                            mean: ch_sum / (ch_cnt as f64),
+                            cursor,
+                        });
+                    }
+                    if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty() {
+                        primary_distance_lookup = Some((
+                            start_ms,
+                            dist_series.timestamps_ms.clone(),
+                            dist_series.distances_m.clone(),
+                        ));
+                    }
+                    let pts: Vec<[f64; 2]> = dist_series
+                        .distances_m
+                        .into_iter()
+                        .zip(dist_series.values)
+                        .map(|(d, v)| [d, v])
+                        .collect();
+                    let decimated = workspace_view::decimate(&pts, pixels);
+                    raw_traces.push(PreparedTrace {
+                        name: ch.label.clone(),
+                        unit_idx,
+                        color: ch.color,
+                        style: egui_plot::LineStyle::Solid,
+                        mean_points: decimated,
+                        envelope_bands: Vec::new(),
+                    });
+                }
+            } else {
+                for (ch_idx, ch) in self.channels.iter().enumerate() {
+                    let unit_idx = channel_unit_group[ch_idx];
+                    let series = view.query_signal(&ch.signal_id, resolution);
+                    if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
+                        unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(s_min);
+                        unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(s_max);
+                        let cursor = view
+                            .latest_signal_value_at_cursor(&ch.signal_id)
+                            .map(|(_, v)| v);
+                        channel_stats[ch_idx] = Some(ChannelStats {
+                            min: s_min,
+                            max: s_max,
+                            mean: s_mean,
+                            cursor,
+                        });
+                    }
+                    let (pts, env_bands) =
+                        series_to_points_and_bands(&series, start_ms, max_gap_ms, pixels);
+                    raw_traces.push(PreparedTrace {
+                        name: ch.label.clone(),
+                        unit_idx,
+                        color: ch.color,
+                        style: egui_plot::LineStyle::Solid,
+                        mean_points: pts,
+                        envelope_bands: env_bands,
+                    });
+                }
+            }
+        }
+
+        if export_csv
+            && let Some(first_trace) = raw_traces.first()
+            && let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}_data.csv", self.title.replace([' ', ':'], "_")))
+                .add_filter("CSV", &["csv"])
+                .save_file()
+        {
+            let mut text = String::from("X,Value\n");
+            for p in &first_trace.mean_points {
+                text.push_str(&format!("{},{}\n", p[0], p[1]));
+            }
+            if let Err(e) = fs::write(path, text) {
+                log::error!("Export failed: {e}");
+            }
+        }
+
+        // Render compact per-channel legend + cursor/min/max/mean statistics strip.
+        let mut remove_idx: Option<usize> = None;
+        ui.horizontal_wrapped(|ui| {
+            for (idx, ch) in self.channels.iter().enumerate() {
+                let unit_str = if ch.unit.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", ch.unit)
+                };
+                let stats_text = if let Some(st) = channel_stats[idx] {
+                    let cur_str = st
+                        .cursor
+                        .map_or_else(|| "—".to_owned(), |v| format!("{v:.2}{unit_str}"));
+                    let kind_prefix = if ch.is_derived { "ƒ " } else { "" };
+                    format!(
+                        "■ {}{} = {}  [min {:.2}, max {:.2}, avg {:.2}]",
+                        kind_prefix, ch.label, cur_str, st.min, st.max, st.mean
+                    )
+                } else {
+                    format!("■ {}{unit_str} (no samples)", ch.label)
+                };
+                ui.colored_label(ch.color, stats_text)
+                    .on_hover_text(&ch.signal_id);
+                if ui
+                    .small_button("×")
+                    .on_hover_text(format!("Remove {}", ch.signal_id))
+                    .clicked()
+                {
+                    remove_idx = Some(idx);
+                }
+                ui.add_space(6.0);
+            }
+        });
+        if let Some(idx) = remove_idx {
+            self.remove_channel(idx);
             return egui_tiles::UiResponse::None;
         }
 
-        if points.is_empty() {
+        if raw_traces.iter().all(|t| t.mean_points.is_empty()) {
             ui.label("No retained samples in the selected interval.");
         }
 
-        let points = telemetry::decimate(&points, pixels);
+        // Normalize unit bounds and build multi-unit Y axes.
+        let normalized_bounds: Vec<(f64, f64)> = unit_bounds
+            .iter()
+            .map(|&(lo, hi)| {
+                if !lo.is_finite() || !hi.is_finite() {
+                    (-1.0, 1.0)
+                } else if (hi - lo).abs() < 1e-6 {
+                    let pad = (lo.abs() * 0.05).max(1.0);
+                    (lo - pad, hi + pad)
+                } else {
+                    let pad = (hi - lo) * 0.05;
+                    (lo - pad, hi + pad)
+                }
+            })
+            .collect();
 
-        let trace_color = eframe::egui::Color32::from_rgb(80, 190, 255);
-        let envelope_color = eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 90);
+        let (primary_min, primary_max) = normalized_bounds.first().copied().unwrap_or((-1.0, 1.0));
+        let unit_transforms: Vec<UnitAxisTransform> = normalized_bounds
+            .iter()
+            .enumerate()
+            .map(|(idx, &(lo, hi))| {
+                if idx == 0 {
+                    UnitAxisTransform::IDENTITY
+                } else {
+                    UnitAxisTransform::from_ranges(primary_min, primary_max, lo, hi)
+                }
+            })
+            .collect();
 
-        egui_plot::Plot::new(("scope_plot", self.instance_num))
-            .legend(egui_plot::Legend::default())
+        let multi_unit = unit_groups.len() > 1;
+        let y_axes: Vec<egui_plot::AxisHints<'static>> = unit_groups
+            .iter()
+            .enumerate()
+            .map(|(u_idx, unit_name)| {
+                let placement = if u_idx % 2 == 0 {
+                    egui_plot::HPlacement::Left
+                } else {
+                    egui_plot::HPlacement::Right
+                };
+                let tf = unit_transforms[u_idx];
+                let mut hints = egui_plot::AxisHints::new_y()
+                    .placement(placement)
+                    .formatter(move |mark, _range| {
+                        let phys = tf.plot_to_phys(mark.value);
+                        let phys_step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
+                        let decimals = (-phys_step.log10().floor() as isize).clamp(0, 3) as usize;
+                        eframe::egui::emath::format_with_decimals_in_range(phys, decimals..=decimals)
+                    });
+                if multi_unit && !unit_name.is_empty() {
+                    hints = hints.label(unit_name.clone());
+                }
+                hints
+            })
+            .collect();
+
+        let x_axis_mode = self.x_axis_mode;
+
+        // Compute playhead X and linked hover X in the current X-axis coordinate system.
+        let playhead_x: Option<f64> = if is_comparison {
+            None
+        } else {
+            match x_axis_mode {
+                ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
+                ScopeXAxisMode::TrackDistance => primary_distance_lookup
+                    .as_ref()
+                    .and_then(|(_, ts, ds)| interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())),
+            }
+        };
+
+        let hover_x: Option<f64> = match x_axis_mode {
+            ScopeXAxisMode::TrackDistance => view.hover_distance_m().or_else(|| {
+                let hover_ms = view.hover_utc_ms()?;
+                let (_, ts, ds) = primary_distance_lookup.as_ref()?;
+                interpolate_distance_at_ms(ts, ds, hover_ms)
+            }),
+            ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
+                view.hover_utc_ms().map(|hover_ms| {
+                    let ref_start_ms = if is_comparison {
+                        comparison_annotations
+                            .first()
+                            .map_or(start_ms, |a| a.start_utc_ms)
+                    } else {
+                        start_ms
+                    };
+                    ((hover_ms - ref_start_ms) as f64) / 1000.0
+                })
+            }
+        };
+
+        let plot_width = ui.available_width().max(60.0);
+        let plot_height = ui.available_height().max(60.0);
+
+        let plot_id = (
+            "scope_plot_v2",
+            self.instance_num,
+            is_comparison,
+            x_axis_mode as u8,
+        );
+        let (active_y_min, active_y_max) =
+            self.y_bounds_override.unwrap_or((primary_min, primary_max));
+        let mut next_y_override = self.y_bounds_override;
+
+        let mut plot = egui_plot::Plot::new(plot_id)
+            .custom_y_axes(y_axes)
             .width(plot_width)
             .height(plot_height)
-            .allow_zoom([false, true])
-            .allow_drag([false, true])
-            .allow_scroll([false, true])
-            .x_axis_formatter(|mark, _| {
-                let offset_ms = (mark.value * 1000.0).round() as i64;
-                start.offset(offset_ms).label()
-            })
-            .x_axis_label("Time")
-            .y_axis_label(&y_label)
-            .show(ui, |plot| {
-                plot.set_plot_bounds_x(0.0..=duration);
-                if let Some((min_pts, max_pts)) = envelope_min_max {
-                    let min_pts = telemetry::decimate(&min_pts, pixels);
-                    let max_pts = telemetry::decimate(&max_pts, pixels);
-                    plot.line(
-                        egui_plot::Line::new(
-                            format!("{signal} (bucket max)"),
-                            egui_plot::PlotPoints::from(max_pts),
-                        )
-                        .color(envelope_color),
-                    );
-                    plot.line(
-                        egui_plot::Line::new(
-                            format!("{signal} (bucket min)"),
-                            egui_plot::PlotPoints::from(min_pts),
-                        )
-                        .color(envelope_color),
+            .allow_zoom(false)
+            .allow_drag(false)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false)
+            .allow_double_click_reset(false)
+            .x_axis_formatter(move |mark, _| match (is_comparison, x_axis_mode) {
+                (_, ScopeXAxisMode::TrackDistance) => format!("{:.0} m", mark.value),
+                (true, _) | (false, ScopeXAxisMode::ElapsedTime) => format!("{:.1}s", mark.value),
+                (false, ScopeXAxisMode::UtcTime) => {
+                    let offset_ms = (mark.value * 1000.0).round() as i64;
+                    start.offset(offset_ms).label()
+                }
+            });
+        if self.channels.len() > 1 || is_comparison {
+            plot = plot.legend(egui_plot::Legend::default());
+        }
+        plot.show(ui, |plot_ui| {
+                plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
+                plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
+
+                for trace in raw_traces {
+                    let tf = unit_transforms[trace.unit_idx];
+                    let fill_color = trace.color.gamma_multiply(0.22);
+                    let band_stroke =
+                        eframe::egui::Stroke::new(0.5_f32, trace.color.gamma_multiply(0.35));
+
+                    for quad in trace.envelope_bands {
+                        let mapped_quad = vec![
+                            [quad[0][0], tf.phys_to_plot(quad[0][1])],
+                            [quad[1][0], tf.phys_to_plot(quad[1][1])],
+                            [quad[2][0], tf.phys_to_plot(quad[2][1])],
+                            [quad[3][0], tf.phys_to_plot(quad[3][1])],
+                        ];
+                        plot_ui.polygon(
+                            egui_plot::Polygon::new("", mapped_quad)
+                                .fill_color(fill_color)
+                                .stroke(band_stroke)
+                                .allow_hover(false),
+                        );
+                    }
+
+                    let mapped_pts: Vec<[f64; 2]> = trace
+                        .mean_points
+                        .into_iter()
+                        .map(|[x, y]| [x, tf.phys_to_plot(y)])
+                        .collect();
+
+                    plot_ui.line(
+                        egui_plot::Line::new(trace.name, egui_plot::PlotPoints::from(mapped_pts))
+                            .color(trace.color)
+                            .style(trace.style),
                     );
                 }
-                plot.line(
-                    egui_plot::Line::new(&signal, egui_plot::PlotPoints::from(points))
-                        .color(trace_color),
-                );
-                plot.vline(
-                    egui_plot::VLine::new("Playhead", playhead)
-                        .color(eframe::egui::Color32::YELLOW),
-                );
+
+                if let Some(px) = playhead_x {
+                    plot_ui.vline(
+                        egui_plot::VLine::new("", px)
+                            .color(eframe::egui::Color32::YELLOW)
+                            .width(1.5_f32),
+                    );
+                }
+
+                if let Some(hx) = hover_x
+                    && hx >= 0.0
+                    && hx <= max_x_bound
+                {
+                    plot_ui.vline(
+                        egui_plot::VLine::new("", hx)
+                            .color(eframe::egui::Color32::from_rgba_unmultiplied(
+                                180, 235, 255, 210,
+                            ))
+                            .style(egui_plot::LineStyle::dashed_dense()),
+                    );
+                }
+
+                let mut pointer_utc_ms: Option<i64> = None;
+                let mut pointer_plot_y: Option<f64> = None;
+                if plot_ui.response().hovered()
+                    && let Some(coord) = plot_ui.pointer_coordinate()
+                {
+                    pointer_plot_y = Some(coord.y);
+                    let clamped_x = coord.x.clamp(0.0, max_x_bound);
+                    match x_axis_mode {
+                        ScopeXAxisMode::TrackDistance => {
+                            view.set_hover_distance_m(Some(clamped_x));
+                            if let Some((_, ts, ds)) = &primary_distance_lookup
+                                && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
+                            {
+                                view.set_hover_utc_ms(Some(utc_ms));
+                                pointer_utc_ms = Some(utc_ms);
+                                if plot_ui.response().clicked() {
+                                    view.request_setpoint_utc_ms(utc_ms);
+                                }
+                            }
+                        }
+                        ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
+                            let ref_start_ms = if is_comparison {
+                                comparison_annotations
+                                    .first()
+                                    .map_or(start_ms, |a| a.start_utc_ms)
+                            } else {
+                                start_ms
+                            };
+                            let utc_ms = ref_start_ms + (clamped_x * 1000.0).round() as i64;
+                            view.set_hover_utc_ms(Some(utc_ms));
+                            pointer_utc_ms = Some(utc_ms);
+                            if plot_ui.response().clicked() {
+                                view.request_setpoint_utc_ms(utc_ms);
+                            }
+                        }
+                    }
+                }
+
+                // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
+                // selected window; it never changes the MasterTimeline X range.
+                if plot_ui.response().double_clicked() {
+                    next_y_override = None;
+                    plot_ui.set_plot_bounds_y(primary_min..=primary_max);
+                }
+
+                if !is_comparison {
+                    let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
+                    let anchor_ms =
+                        pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
+
+                    if plot_ui.response().hovered() {
+                        let (scroll, zoom_delta, shift_held) = plot_ui.ctx().input(|i| {
+                            (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift)
+                        });
+                        if shift_held && scroll.y.abs() > 0.5 {
+                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                            let cur_span = (active_y_max - active_y_min).max(1e-6);
+                            let new_span = (cur_span * factor).clamp(1e-4, 1e9);
+                            let anchor_y = pointer_plot_y
+                                .unwrap_or((active_y_min + active_y_max) * 0.5)
+                                .clamp(active_y_min, active_y_max);
+                            let ratio = (anchor_y - active_y_min) / cur_span;
+                            let new_lo = anchor_y - ratio * new_span;
+                            next_y_override = Some((new_lo, new_lo + new_span));
+                        } else if (zoom_delta - 1.0).abs() > 1e-3 {
+                            let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
+                            view.request_zoom_around_ms(anchor_ms, factor);
+                        } else if scroll.y.abs() > 0.5 {
+                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                            view.request_zoom_around_ms(anchor_ms, factor);
+                        }
+                        if scroll.x.abs() > 0.5 {
+                            let delta_ms = (-(scroll.x as f64) / (plot_width as f64) * span_ms)
+                                .round() as i64;
+                            view.request_pan_delta_ms(delta_ms);
+                        }
+                    }
+
+                    let plot_rect = plot_ui.response().rect;
+                    let drag_dx = if plot_ui
+                        .response()
+                        .dragged_by(eframe::egui::PointerButton::Primary)
+                    {
+                        plot_ui.response().drag_delta().x
+                    } else {
+                        plot_ui.ctx().input(|i| {
+                            if i.pointer.primary_down()
+                                && i.pointer
+                                    .press_origin()
+                                    .is_some_and(|origin| plot_rect.contains(origin))
+                            {
+                                i.pointer.delta().x
+                            } else {
+                                0.0
+                            }
+                        })
+                    };
+                    if drag_dx.abs() > 0.0 {
+                        let delta_ms =
+                            (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
+                        view.request_pan_delta_ms(delta_ms);
+                    }
+                }
             });
+        self.y_bounds_override = next_y_override;
+
         egui_tiles::UiResponse::None
     }
 }
 
-type SeriesPlotPoints = (Vec<[f64; 2]>, Option<(Vec<[f64; 2]>, Vec<[f64; 2]>)>);
+struct PreparedTrace {
+    name: String,
+    unit_idx: usize,
+    color: eframe::egui::Color32,
+    style: egui_plot::LineStyle,
+    mean_points: Vec<[f64; 2]>,
+    envelope_bands: Vec<[[f64; 2]; 4]>,
+}
 
-fn series_to_points(
+fn series_window_stats(series: &daqcore::router::SignalSeries) -> Option<(f64, f64, f64)> {
+    match series {
+        daqcore::router::SignalSeries::Exact { values, .. } => {
+            let mut min_v = f64::INFINITY;
+            let mut max_v = f64::NEG_INFINITY;
+            let mut sum_v = 0.0;
+            let mut count = 0usize;
+            for &v in values {
+                if v.is_finite() {
+                    min_v = min_v.min(v);
+                    max_v = max_v.max(v);
+                    sum_v += v;
+                    count += 1;
+                }
+            }
+            (count > 0).then(|| (min_v, max_v, sum_v / (count as f64)))
+        }
+        daqcore::router::SignalSeries::Envelope(buckets) => {
+            let mut min_v = f64::INFINITY;
+            let mut max_v = f64::NEG_INFINITY;
+            let mut sum_v = 0.0;
+            let mut count = 0usize;
+            for b in buckets {
+                if b.min.is_finite() && b.max.is_finite() && b.mean.is_finite() {
+                    min_v = min_v.min(b.min);
+                    max_v = max_v.max(b.max);
+                    sum_v += b.mean;
+                    count += 1;
+                }
+            }
+            (count > 0).then(|| (min_v, max_v, sum_v / (count as f64)))
+        }
+    }
+}
+
+/// Convert a [`daqcore::router::SignalSeries`] into decimated mean line points AND convex
+/// trapezoid `[min, max]` polygon quads for shaded envelope rendering.
+pub fn series_to_points_and_bands(
     series: &daqcore::router::SignalSeries,
     start_ms: i64,
     max_gap_ms: i64,
-) -> SeriesPlotPoints {
+    pixels: usize,
+) -> (Vec<[f64; 2]>, Vec<[[f64; 2]; 4]>) {
     match series {
         daqcore::router::SignalSeries::Exact {
             timestamps_ms,
             values,
         } => {
-            let pts = telemetry::points_with_gap_breaks(
+            let pts = workspace_view::points_with_gap_breaks(
                 timestamps_ms.iter().copied().zip(values.iter().copied()),
                 start_ms,
                 max_gap_ms,
             );
-            (pts, None)
+            (workspace_view::decimate(&pts, pixels), Vec::new())
         }
         daqcore::router::SignalSeries::Envelope(buckets) => {
-            let mean_pts = telemetry::points_with_gap_breaks(
+            let mean_pts = workspace_view::points_with_gap_breaks(
                 buckets.iter().map(|b| (b.utc_ms, b.mean)),
                 start_ms,
                 max_gap_ms,
             );
-            let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
-            let min_max = has_spread.then(|| {
-                let min_pts = telemetry::points_with_gap_breaks(
-                    buckets.iter().map(|b| (b.utc_ms, b.min)),
-                    start_ms,
-                    max_gap_ms,
-                );
-                let max_pts = telemetry::points_with_gap_breaks(
-                    buckets.iter().map(|b| (b.utc_ms, b.max)),
-                    start_ms,
-                    max_gap_ms,
-                );
-                (min_pts, max_pts)
+            let decimated_mean = workspace_view::decimate(&mean_pts, pixels);
+            let quads = build_envelope_quads(buckets, start_ms, max_gap_ms, pixels);
+            (decimated_mean, quads)
+        }
+    }
+}
+
+/// Build convex trapezoid quads `[[t0, min0], [t1, min1], [t1, max1], [t0, max0]]` from
+/// overview `EnvelopePoint` buckets, breaking across unlogged gaps `> max_gap_ms`.
+pub fn build_envelope_quads(
+    buckets: &[daqcore::router::EnvelopePoint],
+    start_ms: i64,
+    max_gap_ms: i64,
+    pixels: usize,
+) -> Vec<[[f64; 2]; 4]> {
+    if buckets.len() < 2 {
+        return Vec::new();
+    }
+    let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
+    if !has_spread {
+        return Vec::new();
+    }
+
+    let step = buckets.len().div_ceil(pixels.max(64)).max(1);
+    let mut sampled: Vec<&daqcore::router::EnvelopePoint> =
+        buckets.iter().step_by(step).collect();
+    if let Some(last) = buckets.last()
+        && sampled.last().is_none_or(|b| b.utc_ms != last.utc_ms)
+    {
+        sampled.push(last);
+    }
+
+    let mut quads = Vec::with_capacity(sampled.len().saturating_sub(1));
+    for pair in sampled.windows(2) {
+        let b0 = pair[0];
+        let b1 = pair[1];
+        if b1.utc_ms <= b0.utc_ms || b1.utc_ms - b0.utc_ms > max_gap_ms {
+            continue;
+        }
+        if !b0.min.is_finite()
+            || !b0.max.is_finite()
+            || !b1.min.is_finite()
+            || !b1.max.is_finite()
+        {
+            continue;
+        }
+        let t0 = ((b0.utc_ms - start_ms) as f64) / 1000.0;
+        let t1 = ((b1.utc_ms - start_ms) as f64) / 1000.0;
+        quads.push([
+            [t0, b0.min],
+            [t1, b1.min],
+            [t1, b1.max],
+            [t0, b0.max],
+        ]);
+    }
+    quads
+}
+
+fn interpolate_distance_at_ms(
+    timestamps_ms: &[i64],
+    distances_m: &[f64],
+    target_ms: i64,
+) -> Option<f64> {
+    if timestamps_ms.is_empty() || timestamps_ms.len() != distances_m.len() {
+        return None;
+    }
+    let idx = timestamps_ms.partition_point(|&t| t <= target_ms);
+    if idx == 0 {
+        return distances_m.first().copied();
+    }
+    if idx >= timestamps_ms.len() {
+        return distances_m.last().copied();
+    }
+    let t0 = timestamps_ms[idx - 1];
+    let t1 = timestamps_ms[idx];
+    let d0 = distances_m[idx - 1];
+    let d1 = distances_m[idx];
+    if t1 <= t0 {
+        return Some(d1);
+    }
+    let alpha = ((target_ms - t0) as f64) / ((t1 - t0) as f64);
+    Some(d0 + alpha.clamp(0.0, 1.0) * (d1 - d0))
+}
+
+fn interpolate_ms_at_distance(
+    timestamps_ms: &[i64],
+    distances_m: &[f64],
+    target_d: f64,
+) -> Option<i64> {
+    if timestamps_ms.is_empty() || timestamps_ms.len() != distances_m.len() {
+        return None;
+    }
+    let idx = distances_m.partition_point(|&d| d <= target_d);
+    if idx == 0 {
+        return timestamps_ms.first().copied();
+    }
+    if idx >= distances_m.len() {
+        return timestamps_ms.last().copied();
+    }
+    let d0 = distances_m[idx - 1];
+    let d1 = distances_m[idx];
+    let t0 = timestamps_ms[idx - 1];
+    let t1 = timestamps_ms[idx];
+    if (d1 - d0).abs() < 1e-9 {
+        return Some(t1);
+    }
+    let alpha = ((target_d - d0) / (d1 - d0)).clamp(0.0, 1.0);
+    Some(t0 + (((t1 - t0) as f64) * alpha).round() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_axis_transform_roundtrips_physical_values() {
+        let tf = UnitAxisTransform::from_ranges(200.0, 400.0, -50.0, 150.0);
+        assert!((tf.phys_to_plot(-50.0) - 200.0).abs() < 1e-9);
+        assert!((tf.phys_to_plot(150.0) - 400.0).abs() < 1e-9);
+        assert!((tf.plot_to_phys(300.0) - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn build_envelope_quads_splits_across_gaps_and_preserves_convex_bounds() {
+        let buckets = vec![
+            daqcore::router::EnvelopePoint {
+                utc_ms: 1_000,
+                min: 10.0,
+                max: 14.0,
+                mean: 12.0,
+            },
+            daqcore::router::EnvelopePoint {
+                utc_ms: 1_100,
+                min: 11.0,
+                max: 15.0,
+                mean: 13.0,
+            },
+            // Large gap > 500 ms
+            daqcore::router::EnvelopePoint {
+                utc_ms: 5_000,
+                min: 8.0,
+                max: 12.0,
+                mean: 10.0,
+            },
+            daqcore::router::EnvelopePoint {
+                utc_ms: 5_100,
+                min: 9.0,
+                max: 13.0,
+                mean: 11.0,
+            },
+        ];
+        let quads = build_envelope_quads(&buckets, 1_000, 500, 800);
+        assert_eq!(quads.len(), 2);
+        assert_eq!(quads[0][0], [0.0, 10.0]);
+        assert_eq!(quads[0][2], [0.1, 15.0]);
+        assert_eq!(quads[1][0], [4.0, 8.0]);
+        assert_eq!(quads[1][2], [4.1, 13.0]);
+    }
+
+    #[test]
+    fn multi_channel_scope_renders_multi_unit_axes_and_distance_modes() {
+        let t0 = daqcore::time::Time::from_unix_millis(1_794_500_000_000);
+        let router = daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
+        let mut scope = Scope::new_multi(
+            1,
+            "Scope: Battery Overview",
+            vec![
+                (
+                    "pack_stats.pack_voltage".to_owned(),
+                    "Pack Voltage".to_owned(),
+                    "V".to_owned(),
+                ),
+                (
+                    "pack_stats.pack_current".to_owned(),
+                    "Pack Current".to_owned(),
+                    "A".to_owned(),
+                ),
+                (
+                    "battery.power_kw".to_owned(),
+                    "Pack Power".to_owned(),
+                    "kW".to_owned(),
+                ),
+            ],
+        );
+        assert_eq!(scope.channels().len(), 3);
+
+        let ctx = eframe::egui::Context::default();
+        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
+
+        for mode in [
+            ScopeXAxisMode::UtcTime,
+            ScopeXAxisMode::ElapsedTime,
+            ScopeXAxisMode::TrackDistance,
+        ] {
+            scope.x_axis_mode = mode;
+            let view = workspace_view::WorkspaceDataView::with_hover(
+                &router,
+                Some(t0.unix_millis() - 5_000),
+                Some(50.0),
+            );
+            let raw_input = eframe::egui::RawInput {
+                screen_rect: Some(eframe::egui::Rect::from_min_size(
+                    eframe::egui::Pos2::ZERO,
+                    eframe::egui::vec2(900.0, 500.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run(raw_input, |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    let _ = scope.show(ui, None, &view);
+                });
             });
-            (mean_pts, min_max)
         }
     }
 }
