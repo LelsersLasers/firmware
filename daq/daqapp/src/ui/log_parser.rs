@@ -1,4 +1,4 @@
-use crate::{action, app, settings, telemetry};
+use crate::{action, app, settings, workspace_view};
 use std::{path, sync::mpsc, thread};
 
 type ImportChannelMsg = Result<(path::PathBuf, daqcore::log_parse::ImportProgress), String>;
@@ -162,7 +162,7 @@ impl LogParser {
         &mut self,
         ui: &mut eframe::egui::Ui,
         sidebar_database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
         action_queue: &mut Vec<action::AppAction>,
     ) -> egui_tiles::UiResponse {
         if self.output_dir.is_none()

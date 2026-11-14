@@ -1,4 +1,4 @@
-use crate::{action, app, telemetry, ui, widget_constructor};
+use crate::{action, app, ui, widget_constructor, workspace_view};
 use std::sync::mpsc;
 
 pub enum Widget {
@@ -19,8 +19,8 @@ pub enum Widget {
 }
 
 pub struct WidgetContext<'a> {
-    pub view: &'a telemetry::TelemetryView<'a>,
-    pub bus_load: &'a [telemetry::BusLoadSample],
+    pub view: &'a workspace_view::WorkspaceDataView<'a>,
+    pub bus_load: &'a [workspace_view::BusLoadSample],
     pub action_queue: &'a mut Vec<action::AppAction>,
     pub database: Option<&'a app::DatabaseSelection>,
     pub ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,

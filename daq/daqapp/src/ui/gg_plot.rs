@@ -1,4 +1,4 @@
-use crate::{telemetry, ui};
+use crate::{ui, workspace_view};
 
 const AXIS_LIMIT_G: f32 = 2.0;
 fn vehicle_accel_to_plot_xy(ax_g: f32, ay_g: f32) -> [f64; 2] {
@@ -34,10 +34,10 @@ impl GgPlot {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let mut points: Vec<_> = view
-            .setpoint_frames
+            .live_frames_to_setpoint()
             .iter()
             .filter_map(|f| {
                 let d = f.decoded.as_ref()?;

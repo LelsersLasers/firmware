@@ -1,4 +1,4 @@
-use crate::{telemetry, ui};
+use crate::{ui, workspace_view};
 
 const STALE_TIMEOUT_SECONDS: u64 = 1;
 const WHEELBASE_M: f32 = 1.530; // Standard Formula Student wheelbase
@@ -25,9 +25,9 @@ impl Dynamics {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
-        let mut values = dynamics_values(view.setpoint_frames);
+        let mut values = dynamics_values(view.live_frames_to_setpoint());
         if values.last_update.is_none() {
             let mut latest_ms: Option<i64> = None;
             if let Some((t, ax)) = view.latest_signal_value_at_setpoint("IMU_acceleration.X_axis") {

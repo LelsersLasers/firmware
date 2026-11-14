@@ -1,4 +1,4 @@
-use crate::{action, app, telemetry, ui, widgets};
+use crate::{action, app, ui, widgets, workspace_view};
 use std::sync::mpsc;
 
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
@@ -10,7 +10,11 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         .partition_point(|s| s.timestamp < start);
     app.bus_load_samples.drain(..removed);
     let selection_pending = app.selection_pending();
-    let view = telemetry::TelemetryView::new(&app.router);
+    let view = workspace_view::WorkspaceDataView::with_hover(
+        &app.router,
+        app.hover_utc_ms,
+        app.hover_distance_m,
+    );
     eframe::egui::CentralPanel::default().show(ctx, |ui| {
         if app.tile_tree.is_empty() {
             ui.vertical_centered(|ui| {
@@ -57,11 +61,29 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
             }
         }
     });
+
+    let hover_touched = view.hover_touched();
+    let next_hover_ms = view.hover_utc_ms();
+    let next_hover_dist = view.hover_distance_m();
+    let requested_setpoint_ms = view.requested_setpoint_utc_ms();
+
+    if hover_touched {
+        app.hover_utc_ms = next_hover_ms;
+        app.hover_distance_m = next_hover_dist;
+    } else {
+        app.hover_utc_ms = None;
+        app.hover_distance_m = None;
+    }
+    if let Some(setpoint_ms) = requested_setpoint_ms {
+        app.router
+            .timeline_mut()
+            .set_setpoint(daqcore::time::Time::from_unix_millis(setpoint_ms));
+    }
 }
 
 struct WorkspaceTileBehavior<'a> {
-    view: &'a telemetry::TelemetryView<'a>,
-    bus_load: &'a [telemetry::BusLoadSample],
+    view: &'a workspace_view::WorkspaceDataView<'a>,
+    bus_load: &'a [workspace_view::BusLoadSample],
     action_queue: &'a mut Vec<action::AppAction>,
     database: Option<&'a app::DatabaseSelection>,
     ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
@@ -205,7 +227,7 @@ mod tests {
             }
         }
 
-        let bus_load = vec![telemetry::BusLoadSample {
+        let bus_load = vec![workspace_view::BusLoadSample {
             timestamp: t0.offset(500),
             buses: vec![daqcore::can::bus_load::BusLoadReading {
                 bus_id: 0,
@@ -245,7 +267,7 @@ mod tests {
                         ..Default::default()
                     };
                     raw_input.viewport_id = eframe::egui::ViewportId::ROOT;
-                    let view = telemetry::TelemetryView::new(&router);
+                    let view = workspace_view::WorkspaceDataView::new(&router);
                     let mut action_queue = Vec::new();
                     let full_output = ctx.run(raw_input, |ctx| {
                         eframe::egui::CentralPanel::default()
@@ -307,7 +329,7 @@ mod tests {
                 screen_rect: Some(screen_rect),
                 ..Default::default()
             };
-            let view = telemetry::TelemetryView::new(&router);
+            let view = workspace_view::WorkspaceDataView::new(&router);
             let mut action_queue = Vec::new();
             let _ = ctx.run(raw_input, |ctx| {
                 eframe::egui::CentralPanel::default()

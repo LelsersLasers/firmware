@@ -1,4 +1,4 @@
-use crate::{app, telemetry, ui};
+use crate::{app, ui, workspace_view};
 use std::{fs, mem};
 
 // Makes invalid combinations of id/name/signal name unrepresentable
@@ -273,7 +273,7 @@ impl Scope {
         &mut self,
         ui: &mut eframe::egui::Ui,
         database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
         if let Some(payload) =
@@ -427,7 +427,7 @@ impl Scope {
                     view.router
                         .query_signal(&signal_id, ann_start_ms..=ann_end_ms, ann_res);
                 let (pts, _) = series_to_points(&ann_data, ann_start_ms, max_gap_ms);
-                let decimated = telemetry::decimate(&pts, pixels);
+                let decimated = workspace_view::decimate(&pts, pixels);
                 let color = palette[idx % palette.len()];
                 overlay_series.push((
                     format!("{} ({:.1}s)", ann.name, ann_dur_s),
@@ -462,7 +462,7 @@ impl Scope {
             ui.label("No retained samples in the selected interval.");
         }
 
-        let points = telemetry::decimate(&points, pixels);
+        let points = workspace_view::decimate(&points, pixels);
 
         let trace_color = eframe::egui::Color32::from_rgb(80, 190, 255);
         let envelope_color = eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 90);
@@ -483,8 +483,8 @@ impl Scope {
             .show(ui, |plot| {
                 plot.set_plot_bounds_x(0.0..=duration);
                 if let Some((min_pts, max_pts)) = envelope_min_max {
-                    let min_pts = telemetry::decimate(&min_pts, pixels);
-                    let max_pts = telemetry::decimate(&max_pts, pixels);
+                    let min_pts = workspace_view::decimate(&min_pts, pixels);
+                    let max_pts = workspace_view::decimate(&max_pts, pixels);
                     plot.line(
                         egui_plot::Line::new(
                             format!("{signal} (bucket max)"),
@@ -525,7 +525,7 @@ fn series_to_points(
             timestamps_ms,
             values,
         } => {
-            let pts = telemetry::points_with_gap_breaks(
+            let pts = workspace_view::points_with_gap_breaks(
                 timestamps_ms.iter().copied().zip(values.iter().copied()),
                 start_ms,
                 max_gap_ms,
@@ -533,19 +533,19 @@ fn series_to_points(
             (pts, None)
         }
         daqcore::router::SignalSeries::Envelope(buckets) => {
-            let mean_pts = telemetry::points_with_gap_breaks(
+            let mean_pts = workspace_view::points_with_gap_breaks(
                 buckets.iter().map(|b| (b.utc_ms, b.mean)),
                 start_ms,
                 max_gap_ms,
             );
             let has_spread = buckets.iter().any(|b| (b.max - b.min).abs() > 1e-9);
             let min_max = has_spread.then(|| {
-                let min_pts = telemetry::points_with_gap_breaks(
+                let min_pts = workspace_view::points_with_gap_breaks(
                     buckets.iter().map(|b| (b.utc_ms, b.min)),
                     start_ms,
                     max_gap_ms,
                 );
-                let max_pts = telemetry::points_with_gap_breaks(
+                let max_pts = workspace_view::points_with_gap_breaks(
                     buckets.iter().map(|b| (b.utc_ms, b.max)),
                     start_ms,
                     max_gap_ms,

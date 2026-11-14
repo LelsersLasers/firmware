@@ -1,4 +1,4 @@
-use crate::{telemetry, ui, util};
+use crate::{ui, util, workspace_view};
 
 const T_MIN: f64 = 15.0;
 const T_MAX: f64 = 45.0;
@@ -51,9 +51,9 @@ impl BatteryTemps {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
-        let (modules, last_update) = thermistor_temperatures(view.setpoint_frames);
+        let (modules, last_update) = thermistor_temperatures(view.live_frames_to_setpoint());
         let (stale, elapsed) = ui::battery::common::sample_age(last_update, view.view_time());
 
         let theme = ui::theme::get_theme(ui.ctx());

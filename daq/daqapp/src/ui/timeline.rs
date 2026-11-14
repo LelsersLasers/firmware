@@ -1,4 +1,4 @@
-use crate::{app, telemetry, ui};
+use crate::{app, ui, workspace_view};
 
 /// Draft state for creating or editing a Track Day [`daqcore::storage::Annotation`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,7 +239,7 @@ pub fn show_timeline_contents(
     ui: &mut eframe::egui::Ui,
     router: &mut daqcore::router::VirtualTimelineRouter,
     timeline_ui: &mut TimelineUiState,
-    bus_load_samples: &mut Vec<telemetry::BusLoadSample>,
+    bus_load_samples: &mut Vec<workspace_view::BusLoadSample>,
     diagnostic: &mut Option<String>,
 ) -> bool {
     let theme = ui::theme::get_theme(ui.ctx());
@@ -1826,7 +1826,7 @@ mod tests {
                 );
             });
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let view = crate::telemetry::TelemetryView::new(&router);
+                let view = crate::workspace_view::WorkspaceDataView::new(&router);
                 let _ = scope.show(ui, Some(&db_sel), &view);
             });
         });

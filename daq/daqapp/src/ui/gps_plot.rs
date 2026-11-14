@@ -1,4 +1,4 @@
-use crate::{telemetry, ui};
+use crate::{ui, workspace_view};
 
 const DEFAULT_CENTER_LAT: f64 = 40.4344;
 const DEFAULT_CENTER_LON: f64 = -86.9183;
@@ -55,7 +55,7 @@ impl GpsPlot {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
         if let Some(payload) =
@@ -79,7 +79,11 @@ impl GpsPlot {
         let res = view
             .timeline
             .resolution_for_width(ui.available_width().max(1.0));
-        let mut samples: Vec<_> = view.setpoint_frames.iter().filter_map(gps_sample).collect();
+        let mut samples: Vec<_> = view
+            .live_frames_to_setpoint()
+            .iter()
+            .filter_map(gps_sample)
+            .collect();
         if samples.is_empty() {
             let lat_series = view.query_signal_to_setpoint("gps_coordinates.latitude", res);
             let lon_series = view.query_signal_to_setpoint("gps_coordinates.longitude", res);

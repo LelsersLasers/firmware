@@ -1,4 +1,4 @@
-use crate::telemetry;
+use crate::workspace_view;
 use std::collections::BTreeMap;
 
 const BUS_COLORS: [eframe::egui::Color32; 6] = [
@@ -14,7 +14,7 @@ fn color_for_bus(bus_id: u8) -> eframe::egui::Color32 {
     BUS_COLORS[usize::from(bus_id) % BUS_COLORS.len()]
 }
 
-fn max_bus_load(samples: &[telemetry::BusLoadSample], bus_id: u8, window_idx: usize) -> f32 {
+fn max_bus_load(samples: &[workspace_view::BusLoadSample], bus_id: u8, window_idx: usize) -> f32 {
     samples
         .iter()
         .flat_map(|sample| &sample.buses)
@@ -25,7 +25,7 @@ fn max_bus_load(samples: &[telemetry::BusLoadSample], bus_id: u8, window_idx: us
 
 fn show_load_row(
     ui: &mut eframe::egui::Ui,
-    samples: &[telemetry::BusLoadSample],
+    samples: &[workspace_view::BusLoadSample],
     reading: &daqcore::can::bus_load::BusLoadReading,
 ) {
     let color = color_for_bus(reading.bus_id);
@@ -51,8 +51,8 @@ impl BusLoad {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        samples: &[telemetry::BusLoadSample],
-        view: &telemetry::TelemetryView<'_>,
+        samples: &[workspace_view::BusLoadSample],
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let start_time = view.timeline.start();
         let end_time = view.timeline.end();
@@ -82,7 +82,7 @@ impl BusLoad {
                 (
                     bus_name,
                     color_for_bus(bus_id),
-                    telemetry::decimate(&points, pixels),
+                    workspace_view::decimate(&points, pixels),
                 )
             })
             .collect();
@@ -143,7 +143,11 @@ impl BusLoad {
         egui_tiles::UiResponse::None
     }
 
-    fn show_load_table(&self, ui: &mut eframe::egui::Ui, samples: &[telemetry::BusLoadSample]) {
+    fn show_load_table(
+        &self,
+        ui: &mut eframe::egui::Ui,
+        samples: &[workspace_view::BusLoadSample],
+    ) {
         let Some(last) = samples.last() else {
             ui.label("No bus-load samples in the selected interval.");
             return;

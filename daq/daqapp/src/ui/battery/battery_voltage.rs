@@ -1,4 +1,4 @@
-use crate::{telemetry, ui, util};
+use crate::{ui, util, workspace_view};
 
 const V_MIN: f64 = 2.7;
 const V_MAX: f64 = 4.2;
@@ -75,10 +75,11 @@ impl BatteryVoltage {
     pub fn show(
         &self,
         ui: &mut eframe::egui::Ui,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
-        let (modules, cell_time) = cell_voltages(view.setpoint_frames);
-        let (charging_telemetry, charging_time) = charging_voltages(view.setpoint_frames);
+        let live_frames = view.live_frames_to_setpoint();
+        let (modules, cell_time) = cell_voltages(live_frames);
+        let (charging_telemetry, charging_time) = charging_voltages(live_frames);
         let (stale, elapsed) =
             ui::battery::common::sample_age(cell_time.max(charging_time), view.view_time());
 

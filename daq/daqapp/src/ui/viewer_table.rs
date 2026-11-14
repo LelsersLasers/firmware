@@ -1,4 +1,4 @@
-use crate::{action, app, telemetry, ui, widget_constructor};
+use crate::{action, app, ui, widget_constructor, workspace_view};
 
 const STALE_BACKGROUND_ALPHA: u8 = 25;
 const STALE_BORDER_WIDTH: f32 = 1.0;
@@ -26,8 +26,10 @@ impl ViewerTable {
         actions: &mut Vec<action::AppAction>,
         formatter: &Option<daqcore::formatter::Formatter>,
         database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
+        let live_frames = view.live_frames_to_setpoint();
+        let latest_live_frames = view.latest_live_frames_to_setpoint();
         ui.heading(&self.title);
         ui.horizontal_wrapped(|ui| {
             ui.label("Search:");
@@ -35,8 +37,7 @@ impl ViewerTable {
             ui.add(
                 eframe::egui::TextEdit::singleline(&mut self.search).desired_width(search_width),
             );
-            let mut nodes: Vec<_> = view
-                .latest_setpoint_frames
+            let mut nodes: Vec<_> = latest_live_frames
                 .values()
                 .filter_map(|f| f.decoded.as_ref().map(|d| d.tx_node().to_owned()))
                 .collect();
@@ -57,7 +58,7 @@ impl ViewerTable {
                     }
                 });
         });
-        if view.setpoint_frames.is_empty() && view.router.partitions().is_empty() {
+        if live_frames.is_empty() && view.router.partitions().is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
 
@@ -65,7 +66,7 @@ impl ViewerTable {
         eframe::egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if view.latest_setpoint_frames.is_empty()
+                if latest_live_frames.is_empty()
                     && let Some(db) = database
                 {
                     for message in db.database.messages() {
@@ -139,7 +140,7 @@ impl ViewerTable {
                     return;
                 }
 
-                for frame in view.latest_setpoint_frames.values() {
+                for frame in latest_live_frames.values() {
                     let decoded = frame.decoded.as_ref();
                     let name = decoded.map_or("Error: Unknown", |d| d.name());
                     let node = decoded.map_or("Unparsed", |d| d.tx_node());

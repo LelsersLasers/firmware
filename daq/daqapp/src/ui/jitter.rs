@@ -1,4 +1,4 @@
-use crate::{app, telemetry, ui};
+use crate::{app, ui, workspace_view};
 
 pub struct Jitter {
     pub title: String,
@@ -26,7 +26,7 @@ impl Jitter {
         &mut self,
         ui: &mut eframe::egui::Ui,
         database: Option<&app::DatabaseSelection>,
-        view: &telemetry::TelemetryView<'_>,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let Some(database) = database else {
             ui::message_picker::no_database_placeholder(ui);
@@ -78,7 +78,8 @@ impl Jitter {
             return egui_tiles::UiResponse::None;
         }
 
-        let mut deviations = interval_deviations(view.setpoint_frames, key, self.period_ms);
+        let mut deviations =
+            interval_deviations(view.live_frames_to_setpoint(), key, self.period_ms);
         if deviations.is_empty()
             && let Some(first_sig) = msg.signals().first()
         {
