@@ -15,8 +15,8 @@ pub fn select_database(app: &mut app::DAQApp) {
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
-        .default_width(310.0)
-        .width_range(220.0..=520.0)
+        .default_width(250.0)
+        .width_range(190.0..=480.0)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
             let panel_width = ui.available_width();
             ui.set_max_width(panel_width);

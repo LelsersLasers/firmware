@@ -15,7 +15,11 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         app.hover_utc_ms,
         app.hover_distance_m,
     );
-    eframe::egui::CentralPanel::default().show(ctx, |ui| {
+    let central_frame = eframe::egui::Frame::central_panel(&ctx.style())
+        .inner_margin(eframe::egui::Margin::same(2));
+    eframe::egui::CentralPanel::default()
+        .frame(central_frame)
+        .show(ctx, |ui| {
         if app.tile_tree.is_empty() {
             ui.vertical_centered(|ui| {
                 ui.label("No widgets in workspace yet.");
@@ -118,7 +122,7 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
     ) -> egui_tiles::UiResponse {
         ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
         eframe::egui::Frame::NONE
-            .inner_margin(eframe::egui::Margin::same(6))
+            .inner_margin(eframe::egui::Margin::symmetric(3, 2))
             .show(ui, |ui| {
                 ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                 widget.show(
@@ -134,6 +138,14 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
                 )
             })
             .inner
+    }
+
+    fn tab_bar_height(&self, _style: &eframe::egui::Style) -> f32 {
+        20.0
+    }
+
+    fn gap_width(&self, _style: &eframe::egui::Style) -> f32 {
+        2.0
     }
 
     fn tab_title_for_pane(&mut self, widget: &widgets::Widget) -> eframe::egui::WidgetText {
@@ -548,7 +560,11 @@ mod tests {
                 ..Default::default()
             };
             let _ = ctx.run(raw_input, |ctx| {
-                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let central_frame = eframe::egui::Frame::central_panel(&ctx.style())
+        .inner_margin(eframe::egui::Margin::same(2));
+    eframe::egui::CentralPanel::default()
+        .frame(central_frame)
+        .show(ctx, |ui| {
                     let _ = scope.show(ui, Some(&db), &view);
                 });
             });

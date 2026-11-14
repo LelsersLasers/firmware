@@ -97,10 +97,9 @@ impl GpsPlot {
         }
 
         // Toolbar for Color-by-Signal selection & outlier filter radius
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
         ui.horizontal_wrapped(|ui| {
-            ui.strong(&self.title);
-            ui.separator();
-            ui.label("Color by:");
+            ui.label("Color:");
             for &(short_lbl, sig_id, unit) in QUICK_COLOR_CHANNELS {
                 let is_sel = self
                     .overlay_signal
@@ -229,25 +228,34 @@ impl GpsPlot {
                 } else {
                     resolved_unit.as_str()
                 };
+                let short_sig = sig_id.rsplit('.').next().unwrap_or(sig_id);
                 if let Some((min_v, max_v)) = overlay_min_max {
                     ui.colored_label(
                         ui::xy_scatter::scalar_to_color(0.0),
-                        format!("■ {min_v:.1}{unit_str}"),
+                        eframe::egui::RichText::new(format!("■ {min_v:.1}{unit_str}")).small(),
                     );
                     if let Some(cur_v) = cursor_overlay_val {
-                        ui.label(format!(".. {sig_id} ({cur_v:.2}{unit_str}) .."));
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "{short_sig}: {cur_v:.1}{unit_str}"
+                            ))
+                            .small(),
+                        )
+                        .on_hover_text(sig_id);
                     } else {
-                        ui.label(format!(".. {sig_id} .."));
+                        ui.label(eframe::egui::RichText::new(short_sig).small())
+                            .on_hover_text(sig_id);
                     }
                     ui.colored_label(
                         ui::xy_scatter::scalar_to_color(1.0),
-                        format!("■ {max_v:.1}{unit_str}"),
+                        eframe::egui::RichText::new(format!("■ {max_v:.1}{unit_str}")).small(),
                     );
                 } else {
                     ui.colored_label(
                         eframe::egui::Color32::from_rgb(80, 190, 255),
-                        format!("Color: {sig_id}"),
-                    );
+                        eframe::egui::RichText::new(format!("Color: {short_sig}")).small(),
+                    )
+                    .on_hover_text(sig_id);
                 }
             }
         });

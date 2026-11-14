@@ -212,15 +212,19 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     }
 
     let mut span_changed = false;
-    eframe::egui::TopBottomPanel::top("shared_timeline").show(ctx, |ui| {
-        span_changed = show_timeline_contents(
-            ui,
-            &mut app.router,
-            &mut app.timeline_ui,
-            &mut app.bus_load_samples,
-            &mut app.diagnostic,
-        );
-    });
+    let top_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
+        .inner_margin(eframe::egui::Margin::symmetric(6, 3));
+    eframe::egui::TopBottomPanel::top("shared_timeline")
+        .frame(top_frame)
+        .show(ctx, |ui| {
+            span_changed = show_timeline_contents(
+                ui,
+                &mut app.router,
+                &mut app.timeline_ui,
+                &mut app.bus_load_samples,
+                &mut app.diagnostic,
+            );
+        });
 
     show_annotation_editor_modal(
         ctx,
@@ -246,6 +250,7 @@ pub fn show_timeline_contents(
     let accent_color =
         parse_hex_color(&theme.accent, eframe::egui::Color32::from_rgb(56, 189, 248));
     let previous_span = router.timeline().window_secs();
+    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
     // -------------------------------------------------------------------------
     // Row 1: Transport, Track Day Selector, Gap Folding, Clock Provenance Badge
@@ -522,8 +527,8 @@ pub fn show_timeline_contents(
         eframe::egui::Frame::NONE
             .fill(prov_color.gamma_multiply(0.18))
             .stroke(eframe::egui::Stroke::new(1.0_f32, prov_color))
-            .corner_radius(4.0)
-            .inner_margin(eframe::egui::Margin::symmetric(6, 2))
+            .corner_radius(3.0)
+            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
             .show(ui, |ui| {
                 ui.label(
                     eframe::egui::RichText::new(&prov_text)
@@ -538,8 +543,8 @@ pub fn show_timeline_contents(
         eframe::egui::Frame::NONE
             .fill(ui.visuals().widgets.noninteractive.bg_fill)
             .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .corner_radius(4.0)
-            .inner_margin(eframe::egui::Margin::symmetric(6, 2))
+            .corner_radius(3.0)
+            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
             .show(ui, |ui| {
                 ui.label(
                     eframe::egui::RichText::new(format!(
@@ -675,7 +680,7 @@ fn show_day_overview_lane(
         .collect();
     let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
 
-    let lane_height = 54.0;
+    let lane_height = 38.0;
     let width = ui.available_width().max(1.0);
     let (rect, lane_response) = ui.allocate_exact_size(
         eframe::egui::vec2(width, lane_height),
@@ -751,8 +756,8 @@ fn show_day_overview_lane(
 
     // 4. Render 1Hz Activity Envelope along the bottom half of the Day Overview lane
     if !activity_1hz.is_empty() {
-        let env_bottom = rect.bottom() - 2.0;
-        let env_max_h = 18.0;
+        let env_bottom = rect.bottom() - 1.5;
+        let env_max_h = 12.0;
         let pixel_cols = (rect.width().ceil() as usize).clamp(1, 2048);
         let mut col_peaks = vec![0.0f32; pixel_cols];
         for &(bucket_ms, intensity) in &activity_1hz {
@@ -897,10 +902,10 @@ fn show_day_overview_lane(
     for (cluster_idx, cluster) in clusters.iter().enumerate() {
         let primary = &cluster.items[0];
         let count = cluster.items.len();
-        let y_top = rect.top() + 3.0 + (cluster.row as f32) * 18.0;
+        let y_top = rect.top() + 2.0 + (cluster.row as f32) * 14.5;
         let pill_rect = eframe::egui::Rect::from_min_max(
             eframe::egui::pos2(cluster.left_x, y_top),
-            eframe::egui::pos2(cluster.right_x, y_top + 15.0),
+            eframe::egui::pos2(cluster.right_x, y_top + 13.5),
         );
 
         let base_color = parse_hex_color(&primary.color, accent_color);
@@ -1184,7 +1189,7 @@ fn show_active_window_scrub_lane(
         .query_annotations_in_range(win_start_ms..=win_end_ms)
         .unwrap_or_default();
 
-    let scrub_height = 46.0;
+    let scrub_height = 24.0;
     let width = ui.available_width().max(1.0);
     let (rect, background) = ui.allocate_exact_size(
         eframe::egui::vec2(width, scrub_height),
@@ -1197,7 +1202,7 @@ fn show_active_window_scrub_lane(
 
     let pad_x = (rect.width() * 0.03).clamp(6.0, 32.0);
     let area = rect.shrink2(eframe::egui::vec2(pad_x, 0.0));
-    let axis_y = area.bottom() - 15.0;
+    let axis_y = area.bottom() - 12.0;
 
     let time_to_x = |utc_ms: i64| -> f32 {
         let frac = ((utc_ms - win_start_ms) as f64 / win_span_ms).clamp(0.0, 1.0) as f32;
@@ -1293,10 +1298,10 @@ fn show_active_window_scrub_lane(
     ];
 
     for (idx, (name, val_ms, px, color)) in handles.into_iter().enumerate() {
-        let y = area.top() + 12.0;
+        let y = area.top() + 8.0;
         let handle_rect = eframe::egui::Rect::from_center_size(
             eframe::egui::pos2(px, y),
-            eframe::egui::vec2(18.0, 18.0),
+            eframe::egui::vec2(16.0, 16.0),
         );
         let resp = ui
             .interact(

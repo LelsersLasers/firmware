@@ -488,19 +488,19 @@ impl Scope {
             };
         let is_comparison = comparison_annotations.len() >= 2;
 
-        // Top toolbar: title, X-axis mode selector, add/clear channel buttons, CSV export.
+        // Top toolbar: X-axis mode selector, add/clear channel buttons, CSV export.
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
         let mut open_picker = false;
         let mut clear_all = false;
         let mut export_csv = false;
         ui.horizontal_wrapped(|ui| {
-            ui.strong(&self.title);
             if is_comparison {
                 ui.colored_label(
                     eframe::egui::Color32::from_rgb(255, 190, 60),
                     format!("[Overlay: {} laps/events]", comparison_annotations.len()),
                 );
+                ui.separator();
             }
-            ui.separator();
             ui.label("X:");
             for mode in [
                 ScopeXAxisMode::UtcTime,
@@ -889,6 +889,7 @@ impl Scope {
             })
             .collect();
 
+        let multi_unit = unit_groups.len() > 1;
         let y_axes: Vec<egui_plot::AxisHints<'static>> = unit_groups
             .iter()
             .enumerate()
@@ -898,38 +899,23 @@ impl Scope {
                 } else {
                     egui_plot::HPlacement::Right
                 };
-                let axis_label = if unit_name.is_empty() {
-                    if self.channels.len() == 1 {
-                        self.channels[0].label.clone()
-                    } else {
-                        "Value".to_owned()
-                    }
-                } else {
-                    unit_name.clone()
-                };
                 let tf = unit_transforms[u_idx];
-                let unit_clone = unit_name.clone();
-                egui_plot::AxisHints::new_y()
-                    .label(axis_label)
+                let mut hints = egui_plot::AxisHints::new_y()
                     .placement(placement)
                     .formatter(move |mark, _range| {
                         let phys = tf.plot_to_phys(mark.value);
-                        if unit_clone.is_empty() {
-                            format!("{phys:.2}")
-                        } else {
-                            format!("{phys:.2} {unit_clone}")
-                        }
-                    })
+                        let phys_step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
+                        let decimals = (-phys_step.log10().floor() as isize).clamp(0, 3) as usize;
+                        eframe::egui::emath::format_with_decimals_in_range(phys, decimals..=decimals)
+                    });
+                if multi_unit && !unit_name.is_empty() {
+                    hints = hints.label(unit_name.clone());
+                }
+                hints
             })
             .collect();
 
         let x_axis_mode = self.x_axis_mode;
-        let x_label = match (is_comparison, x_axis_mode) {
-            (_, ScopeXAxisMode::TrackDistance) => "Track Distance (m)",
-            (true, _) => "Elapsed Event Time (s)",
-            (false, ScopeXAxisMode::ElapsedTime) => "Elapsed Time (s)",
-            (false, ScopeXAxisMode::UtcTime) => "UTC Time",
-        };
 
         // Compute playhead X and linked hover X in the current X-axis coordinate system.
         let playhead_x: Option<f64> = if is_comparison {
@@ -972,8 +958,7 @@ impl Scope {
             is_comparison,
             x_axis_mode as u8,
         );
-        egui_plot::Plot::new(plot_id)
-            .legend(egui_plot::Legend::default())
+        let mut plot = egui_plot::Plot::new(plot_id)
             .custom_y_axes(y_axes)
             .width(plot_width)
             .height(plot_height)
@@ -989,9 +974,11 @@ impl Scope {
                     let offset_ms = (mark.value * 1000.0).round() as i64;
                     start.offset(offset_ms).label()
                 }
-            })
-            .x_axis_label(x_label)
-            .show(ui, |plot_ui| {
+            });
+        if self.channels.len() > 1 || is_comparison {
+            plot = plot.legend(egui_plot::Legend::default());
+        }
+        plot.show(ui, |plot_ui| {
                 if !is_comparison {
                     plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
                     plot_ui.set_plot_bounds_y(primary_min..=primary_max);

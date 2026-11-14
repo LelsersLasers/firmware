@@ -190,12 +190,11 @@ impl StateLane {
             }
         }
 
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
         let mut load_std = false;
         let mut load_bms = false;
         let mut clear_all = false;
         ui.horizontal_wrapped(|ui| {
-            ui.strong(&self.title);
-            ui.separator();
             if ui
                 .small_button(if self.show_picker {
                     "⬅ Back to Lanes"
@@ -263,8 +262,8 @@ impl StateLane {
 
         let mut remove_idx: Option<usize> = None;
         let avail_w = ui.available_width().max(80.0);
-        let label_col_w = (avail_w * 0.28).clamp(90.0, 210.0);
-        let row_h = 26.0_f32;
+        let label_col_w = (avail_w * 0.24).clamp(80.0, 175.0);
+        let row_h = 22.0_f32;
 
         eframe::egui::ScrollArea::vertical()
             .id_salt(("state_lane_scroll", self.instance_num))

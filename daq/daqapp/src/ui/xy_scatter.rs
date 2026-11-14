@@ -166,10 +166,9 @@ impl XYScatter {
             }
         }
 
-        // Top toolbar: title + presets + options
+        // Top toolbar: presets + options
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
         ui.horizontal_wrapped(|ui| {
-            ui.strong(&self.title);
-            ui.separator();
             ui.label("Presets:");
             if ui.small_button("G-G Diagram").clicked() {
                 *self = Self::preset_gg_diagram(self.instance_num);
@@ -363,17 +362,6 @@ impl XYScatter {
         let setpoint_ms = view.timeline.setpoint_utc_ms();
         let hover_ms = view.hover_utc_ms();
 
-        let x_axis_label = if x_unit.is_empty() {
-            self.x_signal.clone()
-        } else {
-            format!("{} ({x_unit})", self.x_signal)
-        };
-        let y_axis_label = if y_unit.is_empty() {
-            self.y_signal.clone()
-        } else {
-            format!("{} ({y_unit})", self.y_signal)
-        };
-
         let text_color = ui.visuals().text_color();
         let plot_width = ui.available_width().max(60.0);
         let plot_height = ui.available_height().max(60.0);
@@ -382,9 +370,7 @@ impl XYScatter {
             .width(plot_width)
             .height(plot_height)
             .allow_boxed_zoom(false)
-            .allow_scroll(false)
-            .x_axis_label(x_axis_label)
-            .y_axis_label(y_axis_label);
+            .allow_scroll(false);
         if self.equal_aspect {
             plot = plot.data_aspect(1.0);
         }
