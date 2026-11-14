@@ -318,9 +318,9 @@ impl ExportModalState {
                         .strong(),
                     );
                     let toggle_label = if self.show_signal_checklist {
-                        "▴ Hide Signal Checklist"
+                        "Hide Signal Checklist"
                     } else {
-                        "▾ Customize Signal Checklist"
+                        "Customize Signal Checklist..."
                     };
                     if ui.small_button(toggle_label).clicked() {
                         self.show_signal_checklist = !self.show_signal_checklist;
@@ -471,13 +471,13 @@ impl ExportModalState {
                         Ok(msg) => {
                             ui.colored_label(
                                 eframe::egui::Color32::from_rgb(34, 197, 94),
-                                format!("✔ {msg}"),
+                                format!("OK: {msg}"),
                             );
                         }
                         Err(err) => {
                             ui.colored_label(
                                 eframe::egui::Color32::from_rgb(239, 68, 68),
-                                format!("✖ {err}"),
+                                format!("Error: {err}"),
                             );
                         }
                     }

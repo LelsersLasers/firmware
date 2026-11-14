@@ -170,7 +170,7 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         .collect();
     for (preset_id, preset_name, preset_desc) in preset_summaries {
         if ui
-            .button(format!("📐 {preset_name}"))
+            .button(format!("📁 {preset_name}"))
             .on_hover_text(preset_desc)
             .clicked()
         {
@@ -209,7 +209,7 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     ui.heading("Shared Views & Export");
 
     if ui
-        .button("🗂 Save / Import View (.daqview.json)...")
+        .button("📁 Save / Import View (.daqview.json)...")
         .on_hover_text(
             "Save or load a .daqview.json workspace layout or paste a daqview1:... share string",
         )

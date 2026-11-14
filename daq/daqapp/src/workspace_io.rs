@@ -1139,7 +1139,7 @@ impl WorkspaceViewModalState {
         let mut do_copy_share = false;
         let mut do_import_with_context: Option<bool> = None;
 
-        eframe::egui::Window::new("🗂 Workspace Views (.daqview.json & Share Strings)")
+        eframe::egui::Window::new("📁 Workspace Views (.daqview.json & Share Strings)")
             .open(&mut keep_open)
             .collapsible(false)
             .resizable(true)
@@ -1263,7 +1263,7 @@ impl WorkspaceViewModalState {
                     if ui
                         .add_enabled(
                             has_payload,
-                            eframe::egui::Button::new("📐 Load Layout Only (Keep Timeline)"),
+                            eframe::egui::Button::new("📁 Load Layout Only (Keep Timeline)"),
                         )
                         .clicked()
                     {
@@ -1277,13 +1277,13 @@ impl WorkspaceViewModalState {
                         Ok(msg) => {
                             ui.colored_label(
                                 eframe::egui::Color32::from_rgb(34, 197, 94),
-                                format!("✔ {msg}"),
+                                format!("OK: {msg}"),
                             );
                         }
                         Err(err) => {
                             ui.colored_label(
                                 eframe::egui::Color32::from_rgb(239, 68, 68),
-                                format!("✖ {err}"),
+                                format!("Error: {err}"),
                             );
                         }
                     }
