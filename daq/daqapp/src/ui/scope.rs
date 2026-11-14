@@ -237,7 +237,7 @@ impl Scope {
                         },
                         true,
                     )
-                } else if ui.button("← Back to message search").clicked() {
+                } else if ui.button("⬅ Back to message search").clicked() {
                     (
                         ScopeState::PickingMessage {
                             picker: ui::message_picker::MessagePickerState::default(),

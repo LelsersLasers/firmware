@@ -218,9 +218,9 @@ pub fn show_signal_browser(
     ui.set_max_width(ui.available_width());
 
     ui.horizontal_wrapped(|ui| {
-        ui.strong("🔎 Signal & Formula Browser");
+        ui.strong("Signal & Formula Browser");
         if ui
-            .small_button("➕ New Formula")
+            .small_button("+ New Formula")
             .on_hover_text("Define a new vectorized derived formula channel")
             .clicked()
         {
@@ -240,7 +240,7 @@ pub fn show_signal_browser(
             if ui
                 .add_enabled(
                     !state.search_query.is_empty(),
-                    eframe::egui::Button::new("✕").small(),
+                    eframe::egui::Button::new("×").small(),
                 )
                 .on_hover_text("Clear search filter")
                 .clicked()
@@ -394,7 +394,7 @@ pub fn show_signal_browser(
     ui.add(
         eframe::egui::Label::new(
             eframe::egui::RichText::new(
-                "💡 Drag any signal/formula onto a Scope or GPS Plot, or click 📈",
+                "Drag any signal/formula onto a Scope or GPS Plot, or click Plot",
             )
             .small()
             .weak(),
@@ -429,7 +429,7 @@ pub fn show_signal_browser(
 
         eframe::egui::CollapsingHeader::new(
             eframe::egui::RichText::new(format!(
-                "📐 Derived Signals (Formulas) ({})",
+                "Derived Signals (Formulas) ({})",
                 matching_formulas.len()
             ))
             .strong(),
@@ -455,7 +455,7 @@ pub fn show_signal_browser(
 
                 ui.horizontal(|ui| {
                     if ui
-                        .small_button("📈")
+                        .small_button("Plot")
                         .on_hover_text("Open formula in a new Scope")
                         .clicked()
                     {
@@ -464,7 +464,7 @@ pub fn show_signal_browser(
                         ));
                     }
                     if ui
-                        .small_button("✏")
+                        .small_button("Edit")
                         .on_hover_text("Edit formula expression")
                         .clicked()
                     {
@@ -487,7 +487,7 @@ pub fn show_signal_browser(
                         },
                     );
                     let row_resp = dnd_resp.response.on_hover_text(format!(
-                        "Formula: {}\nExpression: {}\nDependencies: {}\nDrag onto a Scope/GpsPlot or click 📈",
+                        "Formula: {}\nExpression: {}\nDependencies: {}\nDrag onto a Scope/GpsPlot or click Plot",
                         def.id,
                         def.expression,
                         if compiled.dependencies.is_empty() {
@@ -558,7 +558,7 @@ pub fn show_signal_browser(
 
         eframe::egui::CollapsingHeader::new(
             eframe::egui::RichText::new(format!(
-                "📡 CAN Messages & Signals ({visible_msg_count} msgs, {visible_sig_count} sigs)"
+                "CAN Messages & Signals ({visible_msg_count} msgs, {visible_sig_count} sigs)"
             ))
             .strong(),
         )
@@ -612,7 +612,7 @@ pub fn show_signal_browser(
 
                         ui.horizontal(|ui| {
                             if ui
-                                .small_button("📈")
+                                .small_button("Plot")
                                 .on_hover_text(format!("Open {canonical_id} in a new Scope"))
                                 .clicked()
                             {
@@ -637,7 +637,7 @@ pub fn show_signal_browser(
                                 },
                             );
                             let row_resp = dnd_resp.response.on_hover_text(format!(
-                                "Signal ID: {}\nUnit: {}\n{}\nDrag onto a Scope/GpsPlot or click 📈",
+                                "Signal ID: {}\nUnit: {}\n{}\nDrag onto a Scope/GpsPlot or click Plot",
                                 canonical_id,
                                 if sig.unit.is_empty() {
                                     "(unitless)"
@@ -684,9 +684,9 @@ pub fn show_formula_editor_modal(
 
     let validation = draft.validate(router.formula_engine());
     let title = if draft.is_editing_existing {
-        "✏ Edit Derived Formula Channel"
+        "Edit Derived Formula Channel"
     } else {
-        "➕ New Derived Formula Channel"
+        "New Derived Formula Channel"
     };
 
     eframe::egui::Window::new(title)
@@ -720,7 +720,7 @@ pub fn show_formula_editor_modal(
                     ui.colored_label(
                         eframe::egui::Color32::from_rgb(34, 197, 94),
                         format!(
-                            "✓ Valid expression · Referenced signals ({}): {}",
+                            "✔ Valid expression · Referenced signals ({}): {}",
                             deps.len(),
                             if deps.is_empty() {
                                 "(constant)".to_owned()
@@ -742,7 +742,7 @@ pub fn show_formula_editor_modal(
             ui.horizontal(|ui| {
                 let is_valid = validation.is_ok();
                 if ui
-                    .add_enabled(is_valid, eframe::egui::Button::new("💾 Save Formula"))
+                    .add_enabled(is_valid, eframe::egui::Button::new("Save Formula"))
                     .clicked()
                 {
                     save_clicked = true;
@@ -750,7 +750,7 @@ pub fn show_formula_editor_modal(
                 if ui
                     .add_enabled(
                         is_valid,
-                        eframe::egui::Button::new("📈 Save & Open in Scope"),
+                        eframe::egui::Button::new("Save & Open in Scope"),
                     )
                     .clicked()
                 {
@@ -1022,5 +1022,67 @@ mod tests {
             (last_w - first_w).abs() < 1.0,
             "Sidebar width crept from {first_w} to {last_w} across 40 frames: {widths:?}"
         );
+    }
+
+    #[test]
+    fn ui_symbols_have_real_font_glyphs_not_replacement_squares() {
+        fn collect_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        collect_rs_files(&path, out);
+                    } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                        out.push(path);
+                    }
+                }
+            }
+        }
+
+        let src_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect_rs_files(&src_dir, &mut files);
+
+        let mut non_ascii_chars = std::collections::BTreeSet::new();
+        for file in files {
+            let content = std::fs::read_to_string(&file).expect("read source file");
+            for line in content.lines() {
+                let code_part = line.split("//").next().unwrap_or("");
+                for ch in code_part.chars() {
+                    if !ch.is_ascii() && ch != '\u{FFFF}' {
+                        non_ascii_chars.insert(ch);
+                    }
+                }
+            }
+        }
+
+        let ctx = eframe::egui::Context::default();
+        let font_id = eframe::egui::FontId::proportional(14.0);
+        let _ = ctx.run(eframe::egui::RawInput::default(), |ctx| {
+            ctx.fonts_mut(|f| {
+                let tofu_galley = f.layout_no_wrap(
+                    "\u{FFFF}".to_owned(),
+                    font_id.clone(),
+                    eframe::egui::Color32::WHITE,
+                );
+                let tofu_uv = tofu_galley.rows[0].glyphs[0].uv_rect;
+
+                for ch in &non_ascii_chars {
+                    let g = f.layout_no_wrap(
+                        ch.to_string(),
+                        font_id.clone(),
+                        eframe::egui::Color32::WHITE,
+                    );
+                    let uv = g.rows[0].glyphs[0].uv_rect;
+                    assert_ne!(
+                        uv,
+                        tofu_uv,
+                        "Character {:?} (U+{:04X}) has no glyph in egui's default font and renders as a tofu square",
+                        ch,
+                        *ch as u32
+                    );
+                }
+            });
+        });
     }
 }

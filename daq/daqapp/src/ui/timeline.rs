@@ -294,7 +294,7 @@ pub fn show_timeline_contents(
         // LIVE Follow toggle
         let is_live = timeline.is_live();
         let live_btn = eframe::egui::Button::new(
-            eframe::egui::RichText::new(if is_live { "🔴 LIVE" } else { "⚪ LIVE" }).color(
+            eframe::egui::RichText::new(if is_live { "🔴 LIVE" } else { "• LIVE" }).color(
                 if is_live {
                     eframe::egui::Color32::WHITE
                 } else {
@@ -408,14 +408,14 @@ pub fn show_timeline_contents(
             }
         }
         if ui
-            .small_button("🔍+")
+            .small_button("Zoom +")
             .on_hover_text("Zoom in 2x around playhead")
             .clicked()
         {
             timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
         }
         if ui
-            .small_button("🔍-")
+            .small_button("Zoom -")
             .on_hover_text("Zoom out 2x around playhead")
             .clicked()
         {
@@ -570,9 +570,9 @@ pub fn show_timeline_contents(
                 .map(|a| a.name)
                 .collect();
             let compare_label = if names.is_empty() {
-                format!("⚖ Comparing {} Events", selected_ids.len())
+                format!("Comparing {} Events", selected_ids.len())
             } else {
-                format!("⚖ Comparing: {}", names.join(" vs "))
+                format!("Comparing: {}", names.join(" vs "))
             };
             let compare_color = eframe::egui::Color32::from_rgb(168, 85, 247);
             eframe::egui::Frame::NONE
@@ -588,7 +588,11 @@ pub fn show_timeline_contents(
                                 .small()
                                 .strong(),
                         );
-                        if ui.small_button("✕").on_hover_text("Exit Comparison Mode").clicked() {
+                        if ui
+                            .small_button("× Clear")
+                            .on_hover_text("Exit Comparison Mode")
+                            .clicked()
+                        {
                             clear_comparison = true;
                         }
                     });
@@ -930,7 +934,7 @@ fn show_day_overview_lane(
         } else if cluster.row == 1 {
             format!("⚠ {count} Faults ({short_primary})")
         } else {
-            format!("🏁 {count} Events ({short_primary})")
+            format!("{count} Events ({short_primary})")
         };
 
         let text_clip = pill_rect
@@ -1008,30 +1012,27 @@ fn show_day_overview_lane(
             if count == 1 {
                 ui.label(eframe::egui::RichText::new(&primary.name).strong());
                 ui.separator();
-                if ui.button("🔍 Snap Viewport to Event").clicked() {
+                if ui.button("Snap Viewport to Event").clicked() {
                     pending_single_click =
                         Some((primary.id.clone(), primary.start_utc_ms, primary.end_utc_ms));
                     ui.close();
                 }
-                if ui
-                    .button("⚖ Toggle Comparison Mode (Shift+Click)")
-                    .clicked()
-                {
+                if ui.button("Toggle Comparison Mode (Shift+Click)").clicked() {
                     pending_shift_click =
                         Some((primary.id.clone(), primary.start_utc_ms, primary.end_utc_ms));
                     ui.close();
                 }
-                if ui.button("✏ Edit Event…").clicked() {
+                if ui.button("Edit Event…").clicked() {
                     pending_edit = Some(primary.clone());
                     ui.close();
                 }
-                if ui.button("🗑 Delete Event").clicked() {
+                if ui.button("Delete Event").clicked() {
                     pending_delete_id = Some(primary.id.clone());
                     ui.close();
                 }
             } else {
                 ui.label(eframe::egui::RichText::new(format!("Cluster ({count} Events)")).strong());
-                if ui.button("🔍 Snap Viewport to Full Cluster Span").clicked() {
+                if ui.button("Snap Viewport to Full Cluster Span").clicked() {
                     pending_single_click =
                         Some((primary.id.clone(), cluster.min_start_ms, cluster_end_opt));
                     ui.close();
@@ -1042,21 +1043,21 @@ fn show_day_overview_lane(
                     .show(ui, |ui| {
                         for item in &cluster.items {
                             ui.menu_button(&item.name, |ui| {
-                                if ui.button("🔍 Snap Viewport").clicked() {
+                                if ui.button("Snap Viewport").clicked() {
                                     pending_single_click =
                                         Some((item.id.clone(), item.start_utc_ms, item.end_utc_ms));
                                     ui.close();
                                 }
-                                if ui.button("⚖ Toggle Comparison").clicked() {
+                                if ui.button("Toggle Comparison").clicked() {
                                     pending_shift_click =
                                         Some((item.id.clone(), item.start_utc_ms, item.end_utc_ms));
                                     ui.close();
                                 }
-                                if ui.button("✏ Edit…").clicked() {
+                                if ui.button("Edit…").clicked() {
                                     pending_edit = Some(item.clone());
                                     ui.close();
                                 }
-                                if ui.button("🗑 Delete").clicked() {
+                                if ui.button("Delete").clicked() {
                                     pending_delete_id = Some(item.id.clone());
                                     ui.close();
                                 }
@@ -1387,9 +1388,9 @@ pub fn show_annotation_editor_modal(
     let mut delete_clicked = false;
 
     let title = if draft.is_new {
-        "➕ Add Track Day Event Annotation"
+        "Add Track Day Event Annotation"
     } else {
-        "✏ Edit Track Day Event Annotation"
+        "Edit Track Day Event Annotation"
     };
 
     eframe::egui::Window::new(title)
@@ -1426,7 +1427,7 @@ pub fn show_annotation_editor_modal(
                 ] {
                     let c = parse_hex_color(preset_hex, eframe::egui::Color32::WHITE);
                     let btn = eframe::egui::Button::new(if draft.color == preset_hex {
-                        "✓"
+                        "✔"
                     } else {
                         "  "
                     })
@@ -1473,10 +1474,10 @@ pub fn show_annotation_editor_modal(
 
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("💾 Save Annotation").clicked() {
+                if ui.button("Save Annotation").clicked() {
                     save_clicked = true;
                 }
-                if !draft.is_new && ui.button("🗑 Delete").clicked() {
+                if !draft.is_new && ui.button("Delete").clicked() {
                     delete_clicked = true;
                 }
                 if ui.button("Cancel").clicked() {

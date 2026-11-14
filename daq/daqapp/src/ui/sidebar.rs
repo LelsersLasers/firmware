@@ -280,10 +280,10 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         // Connection status indicator
         let (status_icon, status_color) = match &app.connection_status {
             app::ConnectionStatus::Disconnected => {
-                ("⚪ Disconnected".to_string(), eframe::egui::Color32::GRAY)
+                ("■ Disconnected".to_string(), eframe::egui::Color32::GRAY)
             }
             app::ConnectionStatus::Connected => {
-                ("🟢 Connected".to_string(), eframe::egui::Color32::GREEN)
+                ("✔ Connected".to_string(), eframe::egui::Color32::GREEN)
             }
             app::ConnectionStatus::Error(e) => {
                 (format!("🔴 Error: {}", e), eframe::egui::Color32::RED)
