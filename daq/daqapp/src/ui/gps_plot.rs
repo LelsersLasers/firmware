@@ -1,4 +1,4 @@
-use crate::{ui, workspace_view};
+use crate::{app, ui, workspace_view};
 use std::{cell::Cell, rc::Rc};
 
 const DEFAULT_CENTER_LAT: f64 = 40.4344;
@@ -49,6 +49,8 @@ pub struct GpsPlot {
     map_memory: walkers::MapMemory,
     overlay_signal: Option<(String, String)>,
     max_distance_meters: f64,
+    show_picker: bool,
+    search_query: String,
 }
 
 impl GpsPlot {
@@ -60,11 +62,14 @@ impl GpsPlot {
             map_memory: walkers::MapMemory::default(),
             overlay_signal: Some(("gps_speed_heading.gps_speed".to_owned(), "m/s".to_owned())),
             max_distance_meters: DEFAULT_MAX_DISTANCE_METERS,
+            show_picker: false,
+            search_query: String::new(),
         }
     }
 
     pub fn set_overlay_signal(&mut self, signal_id: String, unit: String) {
         self.overlay_signal = Some((signal_id, unit));
+        self.show_picker = false;
     }
 
     #[cfg(test)]
@@ -75,6 +80,7 @@ impl GpsPlot {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
+        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
@@ -111,6 +117,7 @@ impl GpsPlot {
                     .clicked()
                 {
                     self.overlay_signal = Some((sig_id.to_owned(), unit.to_owned()));
+                    self.show_picker = false;
                 }
             }
             if ui
@@ -118,6 +125,14 @@ impl GpsPlot {
                 .clicked()
             {
                 self.overlay_signal = None;
+                self.show_picker = false;
+            }
+            if ui
+                .selectable_label(self.show_picker, "+ Signal")
+                .on_hover_text("Pick any msg.signal or derived formula to color the GPS trajectory")
+                .clicked()
+            {
+                self.show_picker = !self.show_picker;
             }
             ui.separator();
             ui.label("Radius:");
@@ -137,6 +152,28 @@ impl GpsPlot {
                 self.map_memory.follow_my_position();
             }
         });
+
+        if self.show_picker {
+            match ui::message_picker::show_signal_picker(
+                ui,
+                ("gps_signal_picker", self.instance_num),
+                "Select color signal:",
+                true,
+                false,
+                &mut self.search_query,
+                database,
+                view,
+            ) {
+                ui::message_picker::SignalPickerAction::None => {}
+                ui::message_picker::SignalPickerAction::Cancelled => {
+                    self.show_picker = false;
+                }
+                ui::message_picker::SignalPickerAction::Picked(picked) => {
+                    self.set_overlay_signal(picked.signal_id, picked.unit);
+                }
+            }
+            return egui_tiles::UiResponse::None;
+        }
 
         let width_px = ui.available_width().max(60.0);
         let res = view.timeline.resolution_for_width(width_px);
@@ -667,7 +704,7 @@ mod tests {
         };
         let _ = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = gps.show(ui, &view);
+                let _ = gps.show(ui, None, &view);
             });
         });
     }

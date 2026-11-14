@@ -526,64 +526,25 @@ impl XYScatter {
         database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) {
-        ui.horizontal(|ui| {
-            if ui.button("⬅ Cancel").clicked() {
+        let prompt = format!("Select signal for {}:", slot.label());
+        match ui::message_picker::show_signal_picker(
+            ui,
+            ("xy_scatter_picker", self.instance_num),
+            &prompt,
+            true,
+            false,
+            &mut self.search_query,
+            database,
+            view,
+        ) {
+            ui::message_picker::SignalPickerAction::None => {}
+            ui::message_picker::SignalPickerAction::Cancelled => {
                 self.picker_slot = None;
-                return;
             }
-            ui.label(format!("Select signal for {}:", slot.label()));
-            ui.text_edit_singleline(&mut self.search_query);
-        });
-        let query = self.search_query.trim().to_lowercase();
-
-        let mut candidates: Vec<String> = Vec::new();
-        for compiled in view.router.formula_engine().definitions() {
-            if query.is_empty()
-                || compiled.def.id.to_lowercase().contains(&query)
-                || compiled.def.label.to_lowercase().contains(&query)
-            {
-                candidates.push(compiled.def.id.clone());
+            ui::message_picker::SignalPickerAction::Picked(picked) => {
+                self.set_axis_signal(slot, picked.signal_id);
+                self.picker_slot = None;
             }
-        }
-        if let Some(db) = database {
-            for msg in db.database.messages() {
-                for sig in msg.signals() {
-                    let sig_id = daqcore::storage::format_signal_id(msg.name(), sig.name());
-                    if query.is_empty() || sig_id.to_lowercase().contains(&query) {
-                        candidates.push(sig_id);
-                    }
-                }
-            }
-        }
-        for part in view.router.partitions() {
-            for col in &part.manifest.signals {
-                if (query.is_empty() || col.signal_id.to_lowercase().contains(&query))
-                    && !candidates.contains(&col.signal_id)
-                {
-                    candidates.push(col.signal_id.clone());
-                }
-            }
-        }
-
-        let mut picked: Option<String> = None;
-        eframe::egui::ScrollArea::vertical()
-            .id_salt(("xy_scatter_picker", self.instance_num))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for sig_id in candidates.into_iter().take(150) {
-                    if ui
-                        .add(eframe::egui::Button::new(&sig_id).wrap())
-                        .clicked()
-                    {
-                        picked = Some(sig_id);
-                        break;
-                    }
-                }
-            });
-
-        if let Some(sig_id) = picked {
-            self.set_axis_signal(slot, sig_id);
-            self.picker_slot = None;
         }
     }
 }

@@ -83,7 +83,7 @@ impl Widget {
             }
             Widget::SendUi(w) => w.show(ui, context.database, context.formatter),
             Widget::BusLoad(w) => w.show(ui, context.bus_load, context.view),
-            Widget::GpsPlot(w) => w.show(ui, context.view),
+            Widget::GpsPlot(w) => w.show(ui, context.database, context.view),
             Widget::Jitter(w) => w.show(ui, context.database, context.view),
             Widget::Hil(w) => w.show(ui),
         }

@@ -531,64 +531,24 @@ impl StateLane {
         database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) {
-        ui.horizontal(|ui| {
-            ui.label("Search state / fault signal:");
-            ui.text_edit_singleline(&mut self.search_query);
-        });
-        let query = self.search_query.trim().to_lowercase();
-
-        let mut candidates: Vec<(String, String)> = Vec::new();
-        if let Some(db) = database {
-            for msg in db.database.messages() {
-                for sig in msg.signals() {
-                    let is_disc = sig.choices().next().is_some()
-                        || sig.bit_length() == 1
-                        || is_likely_fault_signal(&format!("{}.{}", msg.name(), sig.name()));
-                    if !is_disc && query.is_empty() {
-                        continue;
-                    }
-                    let sig_id = daqcore::storage::format_signal_id(msg.name(), sig.name());
-                    if !query.is_empty() && !sig_id.to_lowercase().contains(&query) {
-                        continue;
-                    }
-                    candidates.push((sig_id, format!("{}.{}", msg.name(), sig.name())));
-                }
+        let allow_cancel = !self.lanes.is_empty();
+        match ui::message_picker::show_signal_picker(
+            ui,
+            ("state_lane_picker_scroll", self.instance_num),
+            "Search state / fault signal:",
+            allow_cancel,
+            true,
+            &mut self.search_query,
+            database,
+            view,
+        ) {
+            ui::message_picker::SignalPickerAction::None => {}
+            ui::message_picker::SignalPickerAction::Cancelled => {
+                self.show_picker = false;
             }
-        }
-        for part in view.router.partitions() {
-            for col in &part.manifest.signals {
-                if !col.is_discrete && !is_likely_fault_signal(&col.signal_id) && query.is_empty() {
-                    continue;
-                }
-                if !query.is_empty() && !col.signal_id.to_lowercase().contains(&query) {
-                    continue;
-                }
-                if !candidates.iter().any(|(id, _)| id == &col.signal_id) {
-                    candidates.push((col.signal_id.clone(), col.signal_id.clone()));
-                }
+            ui::message_picker::SignalPickerAction::Picked(picked) => {
+                self.add_lane(picked.signal_id.clone(), picked.signal_id);
             }
-        }
-
-        candidates.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let mut picked: Option<(String, String)> = None;
-        eframe::egui::ScrollArea::vertical()
-            .id_salt(("state_lane_picker_scroll", self.instance_num))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for (sig_id, label) in candidates.into_iter().take(150) {
-                    if ui
-                        .add(eframe::egui::Button::new(&sig_id).wrap())
-                        .clicked()
-                    {
-                        picked = Some((sig_id, label));
-                        break;
-                    }
-                }
-            });
-
-        if let Some((sig_id, label)) = picked {
-            self.add_lane(sig_id, label);
         }
     }
 }

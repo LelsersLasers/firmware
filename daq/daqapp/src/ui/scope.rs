@@ -1,5 +1,5 @@
 use crate::{app, ui, workspace_view};
-use std::{fs, mem};
+use std::fs;
 
 pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
     eframe::egui::Color32::from_rgb(80, 190, 255),  // Sky Blue
@@ -100,14 +100,10 @@ impl UnitAxisTransform {
     }
 }
 
-enum PickerMode {
-    Closed,
-    PickingMessage {
-        picker: ui::message_picker::MessagePickerState,
-    },
-    PickingSignal {
-        selected_msg: daqcore::superdbc::message::MessageKey,
-    },
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopePickerTarget {
+    AddChannel,
+    SpeedSignal,
 }
 
 pub struct Scope {
@@ -115,7 +111,8 @@ pub struct Scope {
     instance_num: usize,
     custom_title: bool,
     channels: Vec<ScopeChannel>,
-    picker_mode: PickerMode,
+    picker_target: Option<ScopePickerTarget>,
+    search_query: String,
     pub x_axis_mode: ScopeXAxisMode,
     pub speed_signal_id: String,
 }
@@ -141,7 +138,8 @@ impl Scope {
             instance_num,
             custom_title: false,
             channels: vec![channel],
-            picker_mode: PickerMode::Closed,
+            picker_target: None,
+            search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
         }
@@ -153,9 +151,8 @@ impl Scope {
             instance_num,
             custom_title: false,
             channels: Vec::new(),
-            picker_mode: PickerMode::PickingMessage {
-                picker: ui::message_picker::MessagePickerState::default(),
-            },
+            picker_target: Some(ScopePickerTarget::AddChannel),
+            search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
         }
@@ -181,7 +178,8 @@ impl Scope {
             instance_num,
             custom_title: false,
             channels: vec![channel],
-            picker_mode: PickerMode::Closed,
+            picker_target: None,
+            search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
         }
@@ -208,7 +206,8 @@ impl Scope {
             instance_num,
             custom_title: true,
             channels,
-            picker_mode: PickerMode::Closed,
+            picker_target: None,
+            search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
         }
@@ -228,7 +227,7 @@ impl Scope {
         is_derived: bool,
     ) {
         if self.channels.iter().any(|c| c.signal_id == signal_id) {
-            self.picker_mode = PickerMode::Closed;
+            self.picker_target = None;
             return;
         }
         let color = CHANNEL_PALETTE[self.channels.len() % CHANNEL_PALETTE.len()];
@@ -240,7 +239,7 @@ impl Scope {
             key,
             is_derived,
         });
-        self.picker_mode = PickerMode::Closed;
+        self.picker_target = None;
         self.refresh_title();
     }
 
@@ -252,9 +251,7 @@ impl Scope {
             }
             if self.channels.is_empty() {
                 self.custom_title = false;
-                self.picker_mode = PickerMode::PickingMessage {
-                    picker: ui::message_picker::MessagePickerState::default(),
-                };
+                self.picker_target = Some(ScopePickerTarget::AddChannel);
             }
             self.refresh_title();
         }
@@ -312,128 +309,44 @@ impl Scope {
     fn show_picker(
         &mut self,
         ui: &mut eframe::egui::Ui,
+        target: ScopePickerTarget,
         database: Option<&app::DatabaseSelection>,
-        formula_engine: &daqcore::analysis::FormulaEngine,
+        view: &workspace_view::WorkspaceDataView<'_>,
     ) {
-        eframe::egui::ScrollArea::vertical()
-            .id_salt(("scope_picker", self.instance_num))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if !self.channels.is_empty() && ui.button("⬅ Back to plot").clicked() {
-                    self.picker_mode = PickerMode::Closed;
-                    return;
-                }
-                self.show_picker_inner(ui, database, formula_engine);
-            });
-    }
-
-    fn show_picker_inner(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
-        formula_engine: &daqcore::analysis::FormulaEngine,
-    ) {
-        let mut picked_derived: Option<(String, String, String)> = None;
-        if matches!(self.picker_mode, PickerMode::PickingMessage { .. }) {
-            eframe::egui::CollapsingHeader::new(
-                eframe::egui::RichText::new("Derived Signals (Formulas)").strong(),
-            )
-            .default_open(false)
-            .show(ui, |ui| {
-                for compiled in formula_engine.definitions() {
-                    let def = &compiled.def;
-                    let unit_suffix = if def.unit.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", def.unit)
-                    };
-                    let btn_label = format!("{} — {}{}", def.id, def.label, unit_suffix);
-                    if ui
-                        .add(eframe::egui::Button::new(btn_label).wrap())
-                        .clicked()
-                    {
-                        picked_derived =
-                            Some((def.id.clone(), def.label.clone(), def.unit.clone()));
-                    }
-                }
-            });
-            ui.separator();
-        }
-
-        if let Some((signal_id, label, unit)) = picked_derived {
-            let display = if label.is_empty() {
-                signal_id.clone()
-            } else {
-                label
-            };
-            self.add_channel(signal_id, display, unit, None, true);
-            return;
-        }
-
-        let Some(database) = database else {
-            ui::message_picker::no_database_placeholder(ui);
-            return;
+        let prompt = match target {
+            ScopePickerTarget::AddChannel => "Select signal to plot:",
+            ScopePickerTarget::SpeedSignal => "Select speed signal:",
         };
-
-        let mode = mem::replace(&mut self.picker_mode, PickerMode::Closed);
-        match mode {
-            PickerMode::PickingMessage { mut picker } => {
-                if let Some(msg) = picker.show(ui, database, true) {
-                    self.picker_mode = PickerMode::PickingSignal { selected_msg: msg };
-                } else {
-                    self.picker_mode = PickerMode::PickingMessage { picker };
-                }
+        let allow_cancel = !self.channels.is_empty();
+        match ui::message_picker::show_signal_picker(
+            ui,
+            ("scope_signal_picker", self.instance_num),
+            prompt,
+            allow_cancel,
+            false,
+            &mut self.search_query,
+            database,
+            view,
+        ) {
+            ui::message_picker::SignalPickerAction::None => {}
+            ui::message_picker::SignalPickerAction::Cancelled => {
+                self.picker_target = None;
             }
-            PickerMode::PickingSignal { selected_msg } => {
-                let Some(message) = database.database.message_by_key(selected_msg) else {
-                    self.picker_mode = PickerMode::PickingMessage {
-                        picker: ui::message_picker::MessagePickerState::default(),
-                    };
-                    return;
-                };
-                let bus_name = database.bus_name(selected_msg.bus_id);
-                let identity = message.identity();
-
-                ui.separator();
-                ui.add(
-                    eframe::egui::Label::new(
-                        eframe::egui::RichText::new(format!(
-                            "Selected Message: [{bus_name}] {} (0x{identity:03X}) — pick a signal:",
-                            message.name()
-                        ))
-                        .strong(),
-                    )
-                    .wrap(),
-                );
-
-                let mut picked_signal: Option<(String, String)> = None;
-                for sig in message.signals() {
-                    let sig_label = if sig.unit().is_empty() {
-                        sig.name().to_owned()
-                    } else {
-                        format!("{} ({})", sig.name(), sig.unit())
-                    };
-                    if ui
-                        .add(eframe::egui::Button::new(sig_label).wrap())
-                        .clicked()
-                    {
-                        picked_signal = Some((sig.name().to_owned(), sig.unit().to_owned()));
-                        break;
-                    }
+            ui::message_picker::SignalPickerAction::Picked(picked) => match target {
+                ScopePickerTarget::AddChannel => {
+                    self.add_channel(
+                        picked.signal_id,
+                        picked.signal_name,
+                        picked.unit,
+                        picked.key,
+                        picked.is_derived,
+                    );
                 }
-
-                if let Some((signal_name, unit)) = picked_signal {
-                    let sig_id = daqcore::storage::format_signal_id(message.name(), &signal_name);
-                    self.add_channel(sig_id, signal_name, unit, Some(selected_msg), false);
-                } else if ui.button("⬅ Back to message search").clicked() {
-                    self.picker_mode = PickerMode::PickingMessage {
-                        picker: ui::message_picker::MessagePickerState::default(),
-                    };
-                } else {
-                    self.picker_mode = PickerMode::PickingSignal { selected_msg };
+                ScopePickerTarget::SpeedSignal => {
+                    self.speed_signal_id = picked.signal_id;
+                    self.picker_target = None;
                 }
-            }
-            PickerMode::Closed => {}
+            },
         }
     }
 
@@ -462,8 +375,11 @@ impl Scope {
             }
         }
 
-        if self.channels.is_empty() || !matches!(self.picker_mode, PickerMode::Closed) {
-            self.show_picker(ui, database, view.router.formula_engine());
+        if self.channels.is_empty() || self.picker_target.is_some() {
+            let target = self
+                .picker_target
+                .unwrap_or(ScopePickerTarget::AddChannel);
+            self.show_picker(ui, target, database, view);
             return egui_tiles::UiResponse::None;
         }
 
@@ -490,7 +406,7 @@ impl Scope {
 
         // Top toolbar: X-axis mode selector, add/clear channel buttons, CSV export.
         ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-        let mut open_picker = false;
+        let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
         ui.horizontal_wrapped(|ui| {
@@ -518,18 +434,21 @@ impl Scope {
                 }
             }
             if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
-                eframe::egui::ComboBox::from_id_salt(("scope_spd_sig", self.instance_num))
-                    .selected_text(&self.speed_signal_id)
-                    .width(155.0)
-                    .show_ui(ui, |ui| {
-                        for cand in [
-                            "gps_speed_heading.gps_speed",
-                            "wheel_speeds.front_left",
-                            "wheel_speeds.front_right",
-                        ] {
-                            ui.selectable_value(&mut self.speed_signal_id, cand.to_owned(), cand);
-                        }
-                    });
+                let short_spd = self
+                    .speed_signal_id
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&self.speed_signal_id);
+                if ui
+                    .small_button(format!("Speed: {short_spd}"))
+                    .on_hover_text(format!(
+                        "Speed signal for distance integration: {}\nClick to pick another msg.signal",
+                        self.speed_signal_id
+                    ))
+                    .clicked()
+                {
+                    open_picker = Some(ScopePickerTarget::SpeedSignal);
+                }
             }
             ui.separator();
             if ui
@@ -537,7 +456,7 @@ impl Scope {
                 .on_hover_text("Add another signal or derived formula to this Scope")
                 .clicked()
             {
-                open_picker = true;
+                open_picker = Some(ScopePickerTarget::AddChannel);
             }
             if self.channels.len() > 1 && ui.small_button("Clear").clicked() {
                 clear_all = true;
@@ -547,19 +466,15 @@ impl Scope {
             }
         });
 
-        if open_picker {
-            self.picker_mode = PickerMode::PickingMessage {
-                picker: ui::message_picker::MessagePickerState::default(),
-            };
+        if let Some(target) = open_picker {
+            self.picker_target = Some(target);
             return egui_tiles::UiResponse::None;
         }
         if clear_all {
             self.channels.clear();
             self.custom_title = false;
             self.refresh_title();
-            self.picker_mode = PickerMode::PickingMessage {
-                picker: ui::message_picker::MessagePickerState::default(),
-            };
+            self.picker_target = Some(ScopePickerTarget::AddChannel);
             return egui_tiles::UiResponse::None;
         }
 
