@@ -1,6 +1,7 @@
 pub mod bootloader;
 pub mod bus_load;
 pub mod command_palette;
+pub mod export_modal;
 pub mod gps_plot;
 pub mod hil;
 pub mod jitter;

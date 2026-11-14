@@ -57,10 +57,7 @@ pub fn show_signal_picker(
     }
 
     let query = search_query.trim().to_lowercase();
-    let tokens: Vec<&str> = query
-        .split_whitespace()
-        .filter(|tok| *tok != "*")
-        .collect();
+    let tokens: Vec<&str> = query.split_whitespace().filter(|tok| *tok != "*").collect();
     let matches_query = |text: &str| -> bool {
         if tokens.is_empty() {
             return true;

@@ -110,13 +110,19 @@ impl WidgetConstructor {
         let id = widget_ids.next(kind);
         match self {
             WidgetConstructor::ViewerTable => {
-                vec![widgets::Widget::ViewerTable(ui::viewer_table::ViewerTable::new(id))]
+                vec![widgets::Widget::ViewerTable(
+                    ui::viewer_table::ViewerTable::new(id),
+                )]
             }
             WidgetConstructor::ViewerList => {
-                vec![widgets::Widget::ViewerList(ui::viewer_list::ViewerList::new(id))]
+                vec![widgets::Widget::ViewerList(
+                    ui::viewer_list::ViewerList::new(id),
+                )]
             }
             WidgetConstructor::Bootloader => {
-                vec![widgets::Widget::Bootloader(ui::bootloader::Bootloader::new(id))]
+                vec![widgets::Widget::Bootloader(
+                    ui::bootloader::Bootloader::new(id),
+                )]
             }
             WidgetConstructor::Scope {
                 key,
@@ -139,7 +145,9 @@ impl WidgetConstructor {
                 vec![widgets::Widget::Scope(ui::scope::Scope::new_empty(id))]
             }
             WidgetConstructor::StateLane => {
-                vec![widgets::Widget::StateLane(ui::state_lane::StateLane::new(id))]
+                vec![widgets::Widget::StateLane(ui::state_lane::StateLane::new(
+                    id,
+                ))]
             }
             WidgetConstructor::StateLaneSingle { signal_id, label } => {
                 vec![widgets::Widget::StateLane(
@@ -147,7 +155,9 @@ impl WidgetConstructor {
                 )]
             }
             WidgetConstructor::XYScatter => {
-                vec![widgets::Widget::XYScatter(ui::xy_scatter::XYScatter::new(id))]
+                vec![widgets::Widget::XYScatter(ui::xy_scatter::XYScatter::new(
+                    id,
+                ))]
             }
             WidgetConstructor::PresetGgDiagram => {
                 vec![widgets::Widget::XYScatter(
@@ -155,9 +165,8 @@ impl WidgetConstructor {
                 )]
             }
             WidgetConstructor::PresetHandlingUndersteer => {
-                let scatter = widgets::Widget::XYScatter(
-                    ui::xy_scatter::XYScatter::preset_understeer(id),
-                );
+                let scatter =
+                    widgets::Widget::XYScatter(ui::xy_scatter::XYScatter::preset_understeer(id));
                 let scope_id = widget_ids.next(WidgetKind::Scope);
                 let scope = widgets::Widget::Scope(ui::scope::Scope::new_multi(
                     scope_id,
@@ -230,10 +239,15 @@ impl WidgetConstructor {
                 vec![scope, scatter, lanes]
             }
             WidgetConstructor::LogParser => {
-                vec![widgets::Widget::LogParser(ui::log_parser::LogParser::new(id))]
+                vec![widgets::Widget::LogParser(ui::log_parser::LogParser::new(
+                    id,
+                ))]
             }
             WidgetConstructor::SendUi => {
-                vec![widgets::Widget::SendUi(ui::send::SendUi::new(id, ui_to_can_tx))]
+                vec![widgets::Widget::SendUi(ui::send::SendUi::new(
+                    id,
+                    ui_to_can_tx,
+                ))]
             }
             WidgetConstructor::BusLoad => {
                 vec![widgets::Widget::BusLoad(ui::bus_load::BusLoad::new(id))]

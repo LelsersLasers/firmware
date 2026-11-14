@@ -149,24 +149,94 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     }
 
     ui.separator();
-    ui.heading("Subteam Presets");
+    ui.heading("Subteam Workspaces & Presets");
 
-    if ui.button("Preset: G-G Diagram").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetGgDiagram,
-        ));
+    ui.checkbox(
+        &mut app.workspace_view_modal.jump_to_saved_time_range,
+        "Jump to saved time range on load",
+    );
+
+    let preset_summaries: Vec<(String, String, String)> = app
+        .workspace_presets
+        .presets()
+        .iter()
+        .map(|p| {
+            (
+                p.id.clone().unwrap_or_else(|| p.name.clone()),
+                p.name.clone(),
+                p.description.clone(),
+            )
+        })
+        .collect();
+    for (preset_id, preset_name, preset_desc) in preset_summaries {
+        if ui
+            .button(format!("📐 {preset_name}"))
+            .on_hover_text(preset_desc)
+            .clicked()
+        {
+            app.action_queue
+                .push(action::AppAction::LoadWorkspacePreset {
+                    preset_id,
+                    apply_time_context: app.workspace_view_modal.jump_to_saved_time_range,
+                });
+        }
     }
 
-    if ui.button("Preset: Handling Understeer").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
-        ));
+    eframe::egui::CollapsingHeader::new("Quick Single-Pane Presets")
+        .id_salt("sidebar_single_pane_presets")
+        .default_open(false)
+        .show(ui, |ui| {
+            if ui.button("Preset: G-G Diagram").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetGgDiagram,
+                ));
+            }
+
+            if ui.button("Preset: Handling Understeer").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+                ));
+            }
+
+            if ui.button("Preset: Battery Pack Overview").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetBatteryOverview,
+                ));
+            }
+        });
+
+    ui.separator();
+    ui.heading("Shared Views & Export");
+
+    if ui
+        .button("🗂 Save / Import View (.daqview.json)...")
+        .on_hover_text(
+            "Save or load a .daqview.json workspace layout or paste a daqview1:... share string",
+        )
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::OpenWorkspaceViewModal);
     }
 
-    if ui.button("Preset: Battery Pack Overview").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetBatteryOverview,
-        ));
+    if ui
+        .button("📋 Copy Share String (daqview1:...)")
+        .on_hover_text(
+            "Encode current workspace layout, custom formulas, and time range to clipboard",
+        )
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::CopyWorkspaceShareString);
+    }
+
+    if ui
+        .button("📤 Export Dataset (Parquet / CSV / .mat)...")
+        .on_hover_text("Export physical signals and derived formulas for MATLAB or Python")
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::OpenExportDataModal);
     }
 
     ui.separator();

@@ -746,7 +746,10 @@ pub fn show_timeline_contents(
     if let Some(fault_ms) = menu_jump_fault_ms {
         let tl = router.timeline_mut();
         let half_win = (tl.window_ms() / 2).clamp(2_500, 10_000);
-        tl.snap_to_range_ms(fault_ms.saturating_sub(half_win), fault_ms.saturating_add(half_win));
+        tl.snap_to_range_ms(
+            fault_ms.saturating_sub(half_win),
+            fault_ms.saturating_add(half_win),
+        );
         tl.set_setpoint(daqcore::time::Time::from_unix_millis(fault_ms));
     }
 
@@ -1125,10 +1128,7 @@ fn show_day_overview_lane(
             let x1 = time_to_x(ann_end_ms).clamp(rect.left(), rect.right());
             let is_point = ann.end_utc_ms.is_none() || ann_end_ms <= ann.start_utc_ms;
             let (pill_left, pill_right) = if is_point {
-                (
-                    (x0 - 4.0).max(rect.left()),
-                    (x0 + 4.0).min(rect.right()),
-                )
+                ((x0 - 4.0).max(rect.left()), (x0 + 4.0).min(rect.right()))
             } else {
                 (x0, x1.max(x0 + 5.0).min(rect.right()))
             };
@@ -1190,11 +1190,9 @@ fn show_day_overview_lane(
                 interacted_with_overlay = true;
                 let shift = ui.input(|i| i.modifiers.shift);
                 if shift {
-                    pending_shift_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                    pending_shift_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                 } else {
-                    pending_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                    pending_single_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                 }
             }
 
@@ -1202,13 +1200,11 @@ fn show_day_overview_lane(
                 ui.label(eframe::egui::RichText::new(&ann.name).strong());
                 ui.separator();
                 if ui.button("Snap Viewport to Stint/Event").clicked() {
-                    pending_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                    pending_single_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                     ui.close();
                 }
                 if ui.button("Toggle Comparison Mode (Shift+Click)").clicked() {
-                    pending_shift_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                    pending_shift_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
                     ui.close();
                 }
                 if ui.button("Edit Event…").clicked() {
@@ -1306,8 +1302,8 @@ fn show_day_overview_lane(
     {
         interacted_with_overlay = true;
         let tl = router.timeline_mut();
-        let new_start = x_to_time(pointer.x)
-            .min(tl.end_utc_ms() - daqcore::timeline::MIN_WINDOW_MS);
+        let new_start =
+            x_to_time(pointer.x).min(tl.end_utc_ms() - daqcore::timeline::MIN_WINDOW_MS);
         tl.set_start(daqcore::time::Time::from_unix_millis(new_start));
         let _ = tl.set_window_secs(tl.end().secs(tl.start()));
     } else if right_grip_resp.dragged()
@@ -1315,8 +1311,8 @@ fn show_day_overview_lane(
     {
         interacted_with_overlay = true;
         let tl = router.timeline_mut();
-        let new_end = x_to_time(pointer.x)
-            .max(tl.start_utc_ms() + daqcore::timeline::MIN_WINDOW_MS);
+        let new_end =
+            x_to_time(pointer.x).max(tl.start_utc_ms() + daqcore::timeline::MIN_WINDOW_MS);
         tl.set_end(daqcore::time::Time::from_unix_millis(new_end));
         let _ = tl.set_window_secs(tl.end().secs(tl.start()));
     }
@@ -1371,8 +1367,7 @@ fn show_day_overview_lane(
         let mut nearby_faults: Vec<&daqcore::storage::Annotation> = annotations
             .iter()
             .filter(|a| {
-                a.category == "fault"
-                    && (time_to_x(a.start_utc_ms) - hover_pos.x).abs() <= 5.0
+                a.category == "fault" && (time_to_x(a.start_utc_ms) - hover_pos.x).abs() <= 5.0
             })
             .collect();
         nearby_faults.sort_by_key(|a| a.start_utc_ms);
@@ -1389,14 +1384,20 @@ fn show_day_overview_lane(
                 "⚠ {} fault transition(s) near {}:\n• {}\n(Click tick to jump playhead · Use '⚠ Faults' menu above to browse all faults)",
                 nearby_faults.len(),
                 daqcore::time::Time::from_unix_millis(first_ms).label(),
-                unique_names.into_iter().take(6).collect::<Vec<_>>().join("\n• "),
+                unique_names
+                    .into_iter()
+                    .take(6)
+                    .collect::<Vec<_>>()
+                    .join("\n• "),
             );
             lane_response.clone().on_hover_text(tip);
             if !interacted_with_overlay && lane_response.clicked() {
                 interacted_with_overlay = true;
                 let span_ms =
                     (router.timeline().end_utc_ms() - router.timeline().start_utc_ms()).max(100);
-                router.timeline_mut().pan_to_start_ms(first_ms - span_ms / 2);
+                router
+                    .timeline_mut()
+                    .pan_to_start_ms(first_ms - span_ms / 2);
                 router
                     .timeline_mut()
                     .set_setpoint(daqcore::time::Time::from_unix_millis(first_ms));
@@ -1491,7 +1492,10 @@ fn show_active_window_scrub_lane(
 
     // Stint strip (top 3px) and Fault onset ticks (2px vertical ticks) inside the active window
     if timeline_ui.show_stints {
-        for ann in overlapping_annotations.iter().filter(|a| a.category != "fault") {
+        for ann in overlapping_annotations
+            .iter()
+            .filter(|a| a.category != "fault")
+        {
             let ann_end = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
             let x0 = time_to_x(ann.start_utc_ms.max(win_start_ms));
             let x1 = time_to_x(ann_end.min(win_end_ms)).max(x0 + 3.0);
@@ -1506,7 +1510,10 @@ fn show_active_window_scrub_lane(
     if timeline_ui.show_faults {
         let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
         let mut last_tick_px: Option<i32> = None;
-        for ann in overlapping_annotations.iter().filter(|a| a.category == "fault") {
+        for ann in overlapping_annotations
+            .iter()
+            .filter(|a| a.category == "fault")
+        {
             if ann.start_utc_ms < win_start_ms || ann.start_utc_ms > win_end_ms {
                 continue;
             }
@@ -1808,9 +1815,7 @@ pub fn show_chunk_navigator_contents(
     ui.separator();
 
     let query = timeline_ui.chunk_search_query.trim().to_lowercase();
-    let matches = |text: &str| -> bool {
-        query.is_empty() || text.to_lowercase().contains(&query)
-    };
+    let matches = |text: &str| -> bool { query.is_empty() || text.to_lowercase().contains(&query) };
 
     // Collect all Track Days, SD Partitions, and Annotations across the entire store
     let track_days = router.list_track_days().unwrap_or_default();

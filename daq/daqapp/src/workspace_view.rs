@@ -245,7 +245,11 @@ impl<'a> WorkspaceDataView<'a> {
         signal_id: &str,
         database: Option<&crate::app::DatabaseSelection>,
     ) -> String {
-        let raw_id = signal_id.trim().strip_prefix('-').unwrap_or(signal_id).trim();
+        let raw_id = signal_id
+            .trim()
+            .strip_prefix('-')
+            .unwrap_or(signal_id)
+            .trim();
         if let Some(compiled) = self.router.formula_engine().get(raw_id)
             && !compiled.def.unit.is_empty()
         {
@@ -260,11 +264,7 @@ impl<'a> WorkspaceDataView<'a> {
             return sig.unit().to_owned();
         }
         for part in self.router.partitions() {
-            if let Some(col) = part
-                .manifest
-                .signals
-                .iter()
-                .find(|s| s.signal_id == raw_id)
+            if let Some(col) = part.manifest.signals.iter().find(|s| s.signal_id == raw_id)
                 && !col.unit.is_empty()
             {
                 return col.unit.clone();
@@ -452,17 +452,20 @@ mod tests {
         assert_eq!(view.active_cursor_utc_ms(), t0.unix_millis() - 5_000);
 
         view.request_setpoint_utc_ms(t0.unix_millis() - 2_500);
-        assert_eq!(view.requested_setpoint_utc_ms(), Some(t0.unix_millis() - 2_500));
-
         assert_eq!(
-            view.resolve_signal_unit("battery.power_kw", None),
-            "kW"
+            view.requested_setpoint_utc_ms(),
+            Some(t0.unix_millis() - 2_500)
         );
+
+        assert_eq!(view.resolve_signal_unit("battery.power_kw", None), "kW");
         assert_eq!(
             view.resolve_default_speed_signal(None),
             "gps_speed_heading.gps_speed"
         );
-        assert!(view.latest_signal_value_at_cursor("battery.power_kw").is_none());
+        assert!(
+            view.latest_signal_value_at_cursor("battery.power_kw")
+                .is_none()
+        );
         let dist = view.query_signal_vs_distance(
             "-IMU_acceleration.Y_axis",
             "gps_speed_heading.gps_speed",

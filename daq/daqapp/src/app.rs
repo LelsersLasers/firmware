@@ -1,5 +1,6 @@
 use crate::{
-    action, paths, settings, shortcuts, ui, util, widget_ids, widgets, workspace, workspace_view,
+    action, paths, settings, shortcuts, ui, util, widget_ids, widgets, workspace, workspace_io,
+    workspace_view,
 };
 use std::{error, mem, path, sync::mpsc};
 
@@ -70,6 +71,9 @@ pub struct DAQApp {
     pub log_folder: Option<path::PathBuf>,
     pub timeline_ui: ui::timeline::TimelineUiState,
     pub signal_browser: ui::signal_browser::SignalBrowserState,
+    pub workspace_presets: workspace_io::WorkspacePresetRegistry,
+    pub workspace_view_modal: workspace_io::WorkspaceViewModalState,
+    pub export_modal: ui::export_modal::ExportModalState,
 }
 
 impl DAQApp {
@@ -176,6 +180,9 @@ impl DAQApp {
             log_folder: settings.log_folder,
             timeline_ui: ui::timeline::TimelineUiState::default(),
             signal_browser: ui::signal_browser::SignalBrowserState::default(),
+            workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
+            workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
+            export_modal: ui::export_modal::ExportModalState::default(),
         };
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;
@@ -402,6 +409,52 @@ impl DAQApp {
             action::AppAction::OpenAnnotationModal => {
                 self.timeline_ui.open_new_at_playhead(&self.router, true);
             }
+            action::AppAction::LoadWorkspacePreset {
+                preset_id,
+                apply_time_context,
+            } => {
+                if let Some(preset) = self.workspace_presets.get(&preset_id).cloned() {
+                    if let Err(err) = preset.apply_to_workspace(
+                        &mut self.tile_tree,
+                        &mut self.widget_ids,
+                        &mut self.router,
+                        self.ui_to_can_tx.clone(),
+                        apply_time_context,
+                    ) {
+                        self.diagnostic = Some(format!(
+                            "Failed to apply workspace preset '{preset_id}': {err}"
+                        ));
+                    }
+                } else {
+                    self.diagnostic = Some(format!("Unknown workspace preset: {preset_id}"));
+                }
+            }
+            action::AppAction::OpenWorkspaceViewModal => {
+                self.workspace_view_modal.open();
+            }
+            action::AppAction::CopyWorkspaceShareString => {
+                match workspace_io::WorkspaceView::capture_from_workspace(
+                    &self.tile_tree,
+                    &self.router,
+                    &self.workspace_view_modal.view_name,
+                    &self.workspace_view_modal.view_description,
+                    self.workspace_view_modal.include_time_context,
+                )
+                .and_then(|view| view.to_share_string())
+                {
+                    Ok(share) => {
+                        ctx.copy_text(share.clone());
+                        self.workspace_view_modal.generated_share_string = share;
+                    }
+                    Err(err) => {
+                        self.diagnostic =
+                            Some(format!("Failed to copy workspace share string: {err}"));
+                    }
+                }
+            }
+            action::AppAction::OpenExportDataModal => {
+                self.export_modal.open(&self.router, self.database.as_ref());
+            }
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
             }
@@ -519,6 +572,15 @@ impl eframe::App for DAQApp {
         // Render the most recent state of the UI
         ui::sidebar::show(self, ctx);
         workspace::show(self, ctx);
+        self.workspace_view_modal.show(
+            ctx,
+            &mut self.tile_tree,
+            &mut self.widget_ids,
+            &mut self.router,
+            self.ui_to_can_tx.clone(),
+        );
+        self.export_modal
+            .show(ctx, &mut self.router, self.database.as_ref());
         ctx.request_repaint();
     }
 }

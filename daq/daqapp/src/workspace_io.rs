@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{app, ui, widget_constructor, widget_ids, widgets};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use daqcore::{analysis::DerivedSignalDef, can_thread::CanThreadCommand, time::Time};
@@ -1090,6 +1088,287 @@ fn instantiate_pane_spec(
     }
 }
 
+pub struct WorkspaceViewModalState {
+    pub is_open: bool,
+    pub view_name: String,
+    pub view_description: String,
+    pub include_time_context: bool,
+    pub jump_to_saved_time_range: bool,
+    pub save_file_path: String,
+    pub import_payload: String,
+    pub generated_share_string: String,
+    pub status_banner: Option<Result<String, String>>,
+}
+
+impl Default for WorkspaceViewModalState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            view_name: "Custom Analysis View".to_owned(),
+            view_description: "Saved from PER DAQApp workspace".to_owned(),
+            include_time_context: true,
+            jump_to_saved_time_range: true,
+            save_file_path: "/tmp/custom_view.daqview.json".to_owned(),
+            import_payload: String::new(),
+            generated_share_string: String::new(),
+            status_banner: None,
+        }
+    }
+}
+
+impl WorkspaceViewModalState {
+    pub fn open(&mut self) {
+        self.is_open = true;
+        self.status_banner = None;
+    }
+
+    pub fn show(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        tile_tree: &mut egui_tiles::Tree<widgets::Widget>,
+        widget_ids: &mut widget_ids::WidgetIds,
+        router: &mut daqcore::router::VirtualTimelineRouter,
+        ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
+    ) {
+        if !self.is_open {
+            return;
+        }
+
+        let mut keep_open = self.is_open;
+        let mut do_save_file = false;
+        let mut do_copy_share = false;
+        let mut do_import_with_context: Option<bool> = None;
+
+        eframe::egui::Window::new("🗂 Workspace Views (.daqview.json & Share Strings)")
+            .open(&mut keep_open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(540.0)
+            .show(ctx, |ui| {
+                ui.heading("Export / Share Current Workspace");
+                ui.horizontal(|ui| {
+                    ui.label("View Name:");
+                    ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.view_name)
+                            .desired_width(340.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Description:");
+                    ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.view_description)
+                            .desired_width(340.0),
+                    );
+                });
+                ui.checkbox(
+                    &mut self.include_time_context,
+                    "Include timeline window, playhead timestamp & comparison stints",
+                );
+
+                ui.horizontal(|ui| {
+                    ui.label("File Path:");
+                    ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.save_file_path)
+                            .desired_width(270.0),
+                    );
+                    if ui.button("Browse...").clicked()
+                        && let Some(picked) = rfd::FileDialog::new()
+                            .add_filter("DAQ Workspace View (.daqview.json)", &["json"])
+                            .set_file_name("view.daqview.json")
+                            .save_file()
+                    {
+                        self.save_file_path = picked.to_string_lossy().into_owned();
+                    }
+                    if ui.button("💾 Save .daqview.json").clicked() {
+                        do_save_file = true;
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("📋 Generate & Copy Slack/Discord Share String")
+                        .clicked()
+                    {
+                        do_copy_share = true;
+                    }
+                });
+
+                if !self.generated_share_string.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label("Share String:");
+                        let mut preview = self.generated_share_string.clone();
+                        ui.add(
+                            eframe::egui::TextEdit::singleline(&mut preview)
+                                .desired_width(380.0),
+                        );
+                    });
+                }
+
+                ui.separator();
+                ui.heading("Import Workspace View (.daqview.json or daqview1:... String)");
+                ui.horizontal(|ui| {
+                    if ui.button("📂 Load .daqview.json File...").clicked()
+                        && let Some(picked) = rfd::FileDialog::new()
+                            .add_filter("DAQ Workspace View", &["json"])
+                            .pick_file()
+                    {
+                        match WorkspaceView::load_from_file(&picked)
+                            .and_then(|v| v.to_json_pretty().map(|s| (v.name, s)))
+                        {
+                            Ok((name, contents)) => {
+                                self.import_payload = contents;
+                                self.status_banner = Some(Ok(format!(
+                                    "Loaded '{name}' from {} — choose import mode below.",
+                                    picked.display()
+                                )));
+                            }
+                            Err(err) => {
+                                self.status_banner = Some(Err(format!(
+                                    "Failed to load {}: {err}",
+                                    picked.display()
+                                )));
+                            }
+                        }
+                    }
+                    if ui.button("Clear Input").clicked() {
+                        self.import_payload.clear();
+                    }
+                });
+
+                ui.add(
+                    eframe::egui::TextEdit::multiline(&mut self.import_payload)
+                        .hint_text(
+                            "Paste a `daqview1:...` share string or `.daqview.json` contents here...",
+                        )
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                );
+
+                let has_payload = !self.import_payload.trim().is_empty();
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(
+                            has_payload,
+                            eframe::egui::Button::new(
+                                eframe::egui::RichText::new(
+                                    "🚀 Load Layout + Jump to Saved Time Range",
+                                )
+                                .strong(),
+                            ),
+                        )
+                        .clicked()
+                    {
+                        do_import_with_context = Some(true);
+                    }
+                    if ui
+                        .add_enabled(
+                            has_payload,
+                            eframe::egui::Button::new("📐 Load Layout Only (Keep Timeline)"),
+                        )
+                        .clicked()
+                    {
+                        do_import_with_context = Some(false);
+                    }
+                });
+
+                if let Some(status) = &self.status_banner {
+                    ui.add_space(4.0);
+                    match status {
+                        Ok(msg) => {
+                            ui.colored_label(
+                                eframe::egui::Color32::from_rgb(34, 197, 94),
+                                format!("✔ {msg}"),
+                            );
+                        }
+                        Err(err) => {
+                            ui.colored_label(
+                                eframe::egui::Color32::from_rgb(239, 68, 68),
+                                format!("✖ {err}"),
+                            );
+                        }
+                    }
+                }
+            });
+
+        if !keep_open {
+            self.is_open = false;
+        }
+
+        if do_save_file {
+            match WorkspaceView::capture_from_workspace(
+                tile_tree,
+                router,
+                self.view_name.trim(),
+                self.view_description.trim(),
+                self.include_time_context,
+            )
+            .and_then(|view| view.save_to_file(self.save_file_path.trim()))
+            {
+                Ok(()) => {
+                    self.status_banner = Some(Ok(format!(
+                        "Saved workspace view to {}",
+                        self.save_file_path.trim()
+                    )));
+                }
+                Err(err) => {
+                    self.status_banner = Some(Err(err.to_string()));
+                }
+            }
+        }
+
+        if do_copy_share {
+            match WorkspaceView::capture_from_workspace(
+                tile_tree,
+                router,
+                self.view_name.trim(),
+                self.view_description.trim(),
+                self.include_time_context,
+            )
+            .and_then(|view| view.to_share_string())
+            {
+                Ok(share) => {
+                    ctx.copy_text(share.clone());
+                    self.generated_share_string = share;
+                    self.status_banner = Some(Ok(
+                        "Copied `daqview1:...` share string to clipboard.".to_owned(),
+                    ));
+                }
+                Err(err) => {
+                    self.status_banner = Some(Err(err.to_string()));
+                }
+            }
+        }
+
+        if let Some(apply_time_context) = do_import_with_context {
+            match WorkspaceView::from_str_flexible(self.import_payload.trim()).and_then(|view| {
+                let name = view.name.clone();
+                view.apply_to_workspace(
+                    tile_tree,
+                    widget_ids,
+                    router,
+                    ui_to_can_tx,
+                    apply_time_context,
+                )
+                .map(|()| name)
+            }) {
+                Ok(name) => {
+                    self.status_banner = Some(Ok(format!(
+                        "Loaded workspace view '{name}' ({}).",
+                        if apply_time_context {
+                            "layout + saved time range"
+                        } else {
+                            "layout only"
+                        }
+                    )));
+                }
+                Err(err) => {
+                    self.status_banner = Some(Err(err.to_string()));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1275,5 +1554,185 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn per26_m7_workspace_presets_daqview_share_strings_and_export_modal_e2e() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
+        let log_1 = manifest_dir
+            .join("../../PER26/2026-09-06/1_no_cooling/raw/log-2026-09-06--18-36-02.log");
+        let log_2 =
+            manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-16-37.log");
+        if !dbc_path.is_file() || !log_1.is_file() || !log_2.is_file() {
+            return;
+        }
+
+        let database =
+            daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26 database");
+        let selection = daqcore::can_thread::BusSelection::default_single(&database)
+            .expect("default bus selection");
+        let db_sel = app::DatabaseSelection {
+            database,
+            selection,
+        };
+
+        let tmp_raw = tempfile::tempdir().expect("temp raw dir");
+        std::fs::copy(&log_1, tmp_raw.path().join("log-2026-09-06--18-36-02.log"))
+            .expect("copy log 1");
+        std::fs::copy(&log_2, tmp_raw.path().join("log-2026-09-06--20-16-37.log"))
+            .expect("copy log 2");
+
+        let tmp_store = tempfile::tempdir().expect("temp store dir");
+        let summary = daqcore::log_parse::import_logs_to_store(
+            tmp_raw.path(),
+            tmp_store.path(),
+            &db_sel.database,
+        )
+        .expect("import PER26 logs");
+        assert!(summary.partitions_written >= 2);
+        let m1 = &summary.manifests[0];
+        let m2 = &summary.manifests[1];
+
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            Time::from_unix_millis(m2.end_utc_ms),
+            30.0,
+        )
+        .expect("live router");
+        router
+            .attach_store(tmp_store.path())
+            .expect("attach PER26 store");
+        router
+            .timeline_mut()
+            .snap_to_range_ms(m1.start_utc_ms, m1.start_utc_ms + 15_000);
+        router
+            .timeline_mut()
+            .set_setpoint(Time::from_unix_millis(m1.start_utc_ms + 7_500));
+
+        // 1. Apply and render all 6 subteam workspace presets against real PER26 data
+        let registry = WorkspacePresetRegistry::with_builtin();
+        let mut ids = widget_ids::WidgetIds::new();
+        let (tx, _rx) = mpsc::channel();
+        let mut tree = egui_tiles::Tree::empty("per26_m7_tree");
+        let ctx = eframe::egui::Context::default();
+        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
+
+        for preset in registry.presets() {
+            preset
+                .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
+                .expect("apply subteam preset");
+            let pane_count = tree
+                .tiles
+                .tiles()
+                .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
+                .count();
+            assert!(pane_count >= 4);
+        }
+
+        // 2. Load VD preset, add custom formula, capture .daqview.json & share string,
+        //    and test both "Load Layout Only" and "Load Layout + Jump to Saved Time Range"
+        let vd_preset = registry
+            .get("vd_handling_suspension")
+            .expect("vd preset")
+            .clone();
+        vd_preset
+            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
+            .expect("apply vd preset");
+        router
+            .formula_engine_mut()
+            .merge_defs(&[DerivedSignalDef {
+                id: "vd.custom_shock_avg_mm".to_owned(),
+                label: "Custom Shock Avg".to_owned(),
+                expression: "0.25 * (front_shockpots.left + front_shockpots.right + rear_shockpots.left + rear_shockpots.right)".to_owned(),
+                unit: "mm".to_owned(),
+            }])
+            .expect("register custom formula");
+
+        let saved_start = m1.start_utc_ms + 1_000;
+        let saved_end = m1.start_utc_ms + 11_000;
+        let saved_sp = m1.start_utc_ms + 5_500;
+        router
+            .timeline_mut()
+            .snap_to_range_ms(saved_start, saved_end);
+        router
+            .timeline_mut()
+            .set_setpoint(Time::from_unix_millis(saved_sp));
+
+        let captured = WorkspaceView::capture_from_workspace(
+            &tree,
+            &router,
+            "PER26 Stint 1 VD Analysis",
+            "Saved during M7 E2E verification",
+            true,
+        )
+        .expect("capture workspace");
+        let share_str = captured.to_share_string().expect("encode share string");
+
+        // Move timeline elsewhere and clear tree
+        router
+            .timeline_mut()
+            .snap_to_range_ms(m2.start_utc_ms, m2.start_utc_ms + 20_000);
+        tree = egui_tiles::Tree::empty("cleared");
+
+        // Re-import with apply_time_context = false ("Load Layout Only")
+        let decoded = WorkspaceView::from_str_flexible(&share_str).expect("decode share string");
+        decoded
+            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
+            .expect("apply layout only");
+        assert_eq!(router.timeline().start_utc_ms(), m2.start_utc_ms);
+        assert!(
+            tree.tiles
+                .tiles()
+                .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
+                .count()
+                >= 5
+        );
+
+        // Re-import with apply_time_context = true ("Load Layout + Jump to Saved Time Range")
+        decoded
+            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), true)
+            .expect("apply layout and time context");
+        assert_eq!(router.timeline().start_utc_ms(), saved_start);
+        assert_eq!(router.timeline().end_utc_ms(), saved_end);
+        assert_eq!(router.timeline().setpoint_utc_ms(), saved_sp);
+
+        // 3. Verify 3-click ExportModalState UI & export across Parquet, CSV, and MATLAB .mat
+        let mut export_modal = ui::export_modal::ExportModalState::default();
+        export_modal.open(&router, Some(&db_sel));
+        export_modal.apply_preset("vd", &router, Some(&db_sel));
+        export_modal.range_mode = ui::export_modal::UiExportRangeMode::CurrentViewport;
+
+        let mut view_modal = WorkspaceViewModalState::default();
+        view_modal.open();
+
+        // Render one frame with both modals open to verify zero UI panics
+        let screen_rect = eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            eframe::egui::vec2(1400.0, 900.0),
+        );
+        let raw_input = eframe::egui::RawInput {
+            screen_rect: Some(screen_rect),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_input, |ctx| {
+            export_modal.show(ctx, &mut router, Some(&db_sel));
+            view_modal.show(ctx, &mut tree, &mut ids, &mut router, tx.clone());
+        });
+
+        let export_dir = tempfile::tempdir().expect("export tempdir");
+        for (fmt, ext) in [
+            (daqcore::export::ExportFormat::Parquet, "parquet"),
+            (daqcore::export::ExportFormat::Csv, "csv"),
+            (daqcore::export::ExportFormat::MatlabMat, "mat"),
+        ] {
+            export_modal.set_format(fmt);
+            let out_path = export_dir.path().join(format!("per26_vd.{ext}"));
+            export_modal.output_path = out_path.to_string_lossy().into_owned();
+            let summary = export_modal
+                .execute_export(&mut router, Some(&db_sel))
+                .expect("execute modal export");
+            assert!(summary.row_count > 500);
+            assert!(out_path.is_file());
+        }
     }
 }
