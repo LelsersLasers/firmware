@@ -4,7 +4,7 @@ pub mod schema;
 
 pub use partition_writer::{
     ImportError, ImportSummary, PartitionManifest, SignalManifestEntry,
-    write_correlated_epochs_to_store,
+    write_correlated_epochs_to_store, write_correlated_epochs_to_store_with_progress,
 };
 pub use registry::{
     Annotation, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, Registry,

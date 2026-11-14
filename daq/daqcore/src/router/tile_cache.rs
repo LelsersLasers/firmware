@@ -2,7 +2,9 @@ use crate::{
     router::types::{EnvelopePoint, Resolution, SignalSeries, StateInterval},
     storage::{self, RegisteredPartition, SignalId},
 };
-use arrow::array::{Array as _, DictionaryArray, Float64Array, Int64Array, StringArray};
+use arrow::array::{
+    Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array,
+};
 use arrow::datatypes::Int32Type;
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
 use std::{
@@ -217,6 +219,7 @@ struct TileCacheDynamic {
 ///   worker thread and cached in a byte-bounded LRU map (`DEFAULT_TILE_CACHE_BYTES`).
 pub struct TileCache {
     resident_1hz: HashMap<String, HashMap<SignalId, Arc<SignalSeries>>>,
+    resident_activity_1hz: HashMap<String, Arc<Vec<(i64, u32)>>>,
     resident_states: HashMap<String, HashMap<SignalId, Arc<Vec<StateInterval>>>>,
     partition_dirs: HashMap<String, path::PathBuf>,
     partition_signals: HashMap<String, HashSet<SignalId>>,
@@ -276,6 +279,7 @@ impl TileCache {
 
         Self {
             resident_1hz: HashMap::new(),
+            resident_activity_1hz: HashMap::new(),
             resident_states: HashMap::new(),
             partition_dirs: HashMap::new(),
             partition_signals: HashMap::new(),
@@ -324,6 +328,7 @@ impl TileCache {
     pub fn clear(&mut self) {
         self.poll_completed();
         self.resident_1hz.clear();
+        self.resident_activity_1hz.clear();
         self.resident_states.clear();
         self.partition_dirs.clear();
         self.partition_signals.clear();
@@ -331,6 +336,13 @@ impl TileCache {
             dyn_guard.lru.clear();
             dyn_guard.in_flight.clear();
         }
+    }
+
+    /// Return the preloaded 1Hz sample-count activity buckets `(bucket_utc_ms, count)` for a partition.
+    pub fn partition_activity_1hz(&self, partition_id: &str) -> Option<&[(i64, u32)]> {
+        self.resident_activity_1hz
+            .get(partition_id)
+            .map(|v| v.as_slice())
     }
 
     /// Preload `overview_1hz.parquet` and `states.parquet` for a single partition into resident RAM.
@@ -350,7 +362,8 @@ impl TileCache {
         let overview_1hz_path = partition_dir.join("overview_1hz.parquet");
         let states_path = partition_dir.join("states.parquet");
 
-        let overview_map = read_all_signals_overview(&overview_1hz_path)?;
+        let (overview_map, activity_1hz) =
+            read_all_signals_overview_with_activity(&overview_1hz_path)?;
         let states_map = if states_path.exists() {
             read_all_signals_states(&states_path)?
         } else {
@@ -371,6 +384,8 @@ impl TileCache {
             .insert(partition_id.to_owned(), signal_set);
         self.resident_1hz
             .insert(partition_id.to_owned(), overview_map);
+        self.resident_activity_1hz
+            .insert(partition_id.to_owned(), Arc::new(activity_1hz));
         self.resident_states
             .insert(partition_id.to_owned(), states_map);
 
@@ -686,12 +701,22 @@ fn find_dictionary_key(
 pub fn read_all_signals_overview(
     path: &path::Path,
 ) -> Result<HashMap<SignalId, Arc<SignalSeries>>, RouterError> {
+    read_all_signals_overview_with_activity(path).map(|(signals, _)| signals)
+}
+
+pub type OverviewWithActivity = (HashMap<SignalId, Arc<SignalSeries>>, Vec<(i64, u32)>);
+
+/// Read all signals plus aggregated per-bucket sample counts from an overview Parquet file.
+pub fn read_all_signals_overview_with_activity(
+    path: &path::Path,
+) -> Result<OverviewWithActivity, RouterError> {
     let file = fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-    let mask = ProjectionMask::roots(builder.parquet_schema(), [0, 1, 2, 3, 4]);
+    let mask = ProjectionMask::roots(builder.parquet_schema(), [0, 1, 2, 3, 4, 5]);
     let reader = builder.with_projection(mask).build()?;
 
     let mut map: HashMap<SignalId, Vec<EnvelopePoint>> = HashMap::new();
+    let mut activity: BTreeMap<i64, u32> = BTreeMap::new();
 
     for batch_result in reader {
         let batch = batch_result?;
@@ -729,6 +754,7 @@ pub fn read_all_signals_overview(
             .as_any()
             .downcast_ref::<Float64Array>()
             .ok_or(RouterError::InvalidColumn("mean_val must be Float64"))?;
+        let count_col = batch.column(5).as_any().downcast_ref::<UInt32Array>();
 
         let keys = sig_col.keys().values();
         let buckets = bucket_col.values();
@@ -741,6 +767,11 @@ pub fn read_all_signals_overview(
 
         for row in 0..batch.num_rows() {
             let key = keys[row];
+            let bucket_ms = buckets[row];
+            let sample_count = count_col.map_or(1, |c| c.value(row));
+            let act_entry = activity.entry(bucket_ms).or_insert(0);
+            *act_entry = act_entry.saturating_add(sample_count);
+
             if current_key != Some(key) {
                 let sig_name = dict_values.value(key as usize);
                 current_key = Some(key);
@@ -748,7 +779,7 @@ pub fn read_all_signals_overview(
             }
             if let Some(target_vec) = current_vec.as_mut() {
                 target_vec.push(EnvelopePoint {
-                    utc_ms: buckets[row],
+                    utc_ms: bucket_ms,
                     min: mins[row],
                     max: maxs[row],
                     mean: means[row],
@@ -757,10 +788,12 @@ pub fn read_all_signals_overview(
         }
     }
 
-    Ok(map
+    let series_map = map
         .into_iter()
         .map(|(k, pts)| (k, Arc::new(SignalSeries::Envelope(pts))))
-        .collect())
+        .collect();
+    let activity_vec: Vec<(i64, u32)> = activity.into_iter().collect();
+    Ok((series_map, activity_vec))
 }
 
 /// Read a single signal from an overview Parquet file (`overview_10hz.parquet` or `overview_1hz.parquet`).

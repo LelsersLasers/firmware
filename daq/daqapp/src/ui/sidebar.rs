@@ -1,4 +1,4 @@
-use crate::{action, app, assets, settings, util, widget_constructor};
+use crate::{action, app, assets, settings, ui, util, widget_constructor};
 use std::path;
 
 pub fn select_database(app: &mut app::DAQApp) {
@@ -15,10 +15,15 @@ pub fn select_database(app: &mut app::DAQApp) {
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
+        .default_width(310.0)
+        .width_range(220.0..=520.0)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
+            let panel_width = ui.available_width();
+            ui.set_max_width(panel_width);
             eframe::egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
                     show_sidebar_contents(ui, app);
                 });
         });
@@ -43,6 +48,18 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     }
 
     ui.separator();
+
+    ui::signal_browser::show_signal_browser(
+        ui,
+        &mut app.signal_browser,
+        app.database.as_ref(),
+        &mut app.router,
+        &mut app.action_queue,
+        &mut app.diagnostic,
+    );
+
+    ui.separator();
+    ui.heading("Widgets");
 
     if ui.button("Add CAN Viewer Table").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
@@ -263,10 +280,10 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         // Connection status indicator
         let (status_icon, status_color) = match &app.connection_status {
             app::ConnectionStatus::Disconnected => {
-                ("⚪ Disconnected".to_string(), eframe::egui::Color32::GRAY)
+                ("■ Disconnected".to_string(), eframe::egui::Color32::GRAY)
             }
             app::ConnectionStatus::Connected => {
-                ("🟢 Connected".to_string(), eframe::egui::Color32::GREEN)
+                ("✔ Connected".to_string(), eframe::egui::Color32::GREEN)
             }
             app::ConnectionStatus::Error(e) => {
                 (format!("🔴 Error: {}", e), eframe::egui::Color32::RED)

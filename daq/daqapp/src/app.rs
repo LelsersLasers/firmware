@@ -66,6 +66,8 @@ pub struct DAQApp {
     active_source: Option<daqcore::connection::ConnectionSource>,
     pub diagnostic: Option<String>,
     pub log_folder: Option<path::PathBuf>,
+    pub timeline_ui: ui::timeline::TimelineUiState,
+    pub signal_browser: ui::signal_browser::SignalBrowserState,
 }
 
 impl DAQApp {
@@ -168,6 +170,8 @@ impl DAQApp {
             active_source: None,
             diagnostic: None,
             log_folder: settings.log_folder,
+            timeline_ui: ui::timeline::TimelineUiState::default(),
+            signal_browser: ui::signal_browser::SignalBrowserState::default(),
         };
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;
@@ -373,6 +377,8 @@ impl DAQApp {
             action::AppAction::AttachStore(store_dir) => {
                 match self.router.attach_store(&store_dir) {
                     Ok(_) => {
+                        self.log_folder = Some(store_dir);
+                        self.save_settings();
                         if self.connection_status != ConnectionStatus::Connected
                             && let Some((day_min, day_max)) = self.router.timeline().day_bounds_ms()
                         {
@@ -388,6 +394,9 @@ impl DAQApp {
                         ));
                     }
                 }
+            }
+            action::AppAction::OpenAnnotationModal => {
+                self.timeline_ui.open_new_at_playhead(&self.router, true);
             }
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;

@@ -130,6 +130,17 @@ pub fn parse_log_files(
     in_folder: &path::Path,
     database: &superdbc::database::Database,
 ) -> io::Result<ParsedLogSet> {
+    parse_log_files_with_progress(in_folder, database, |_, _, _| {})
+}
+
+pub fn parse_log_files_with_progress<F>(
+    in_folder: &path::Path,
+    database: &superdbc::database::Database,
+    mut on_file: F,
+) -> io::Result<ParsedLogSet>
+where
+    F: FnMut(usize, usize, &str),
+{
     let mut files = Vec::new();
     let mut messages = Vec::new();
 
@@ -144,9 +155,15 @@ pub fn parse_log_files(
         .collect::<Vec<_>>();
     file_paths.sort();
 
+    let total_files = file_paths.len();
     for path in file_paths {
         log::info!("Parsing log file: {}", path.display());
         let file_idx = files.len();
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown.log");
+        on_file(file_idx, total_files, file_name);
         let (file_meta, parsed) = parse_log_file(&path, file_idx, database)?;
         files.push(file_meta);
         messages.extend(parsed);

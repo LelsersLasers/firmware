@@ -9,7 +9,7 @@ use crate::{
     time::Time,
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     ops,
 };
 
@@ -27,6 +27,7 @@ pub const DEFAULT_MAX_INSPECTOR_FRAMES: usize = 60_000;
 pub struct LiveColumnBuffer {
     signal_columns: HashMap<SignalId, VecDeque<(i64, f64)>>,
     state_columns: HashMap<SignalId, VecDeque<StateInterval>>,
+    activity_1hz: BTreeMap<i64, u32>,
     latest_frames: HashMap<MessageKey, ParsedFrame>,
     inspector_frames: Vec<ParsedFrame>,
     first_inspector_index: usize,
@@ -48,6 +49,7 @@ impl LiveColumnBuffer {
         Self {
             signal_columns: HashMap::new(),
             state_columns: HashMap::new(),
+            activity_1hz: BTreeMap::new(),
             latest_frames: HashMap::new(),
             inspector_frames: Vec::new(),
             first_inspector_index: 0,
@@ -62,6 +64,7 @@ impl LiveColumnBuffer {
     pub fn clear(&mut self) {
         self.signal_columns.clear();
         self.state_columns.clear();
+        self.activity_1hz.clear();
         self.latest_frames.clear();
         self.inspector_frames.clear();
         self.first_inspector_index = 0;
@@ -116,6 +119,11 @@ impl LiveColumnBuffer {
         self.max_utc_ms = Some(self.max_utc_ms.map_or(utc_ms, |prev| prev.max(utc_ms)));
 
         if let Some(decoded) = &frame.decoded {
+            let bucket_ms = utc_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+            let sig_count = (decoded.iter().count() as u32).max(1);
+            let entry = self.activity_1hz.entry(bucket_ms).or_insert(0);
+            *entry = entry.saturating_add(sig_count);
+
             let msg_name = decoded.name();
             for (sig_name, sig_value) in decoded.iter() {
                 let signal_id = storage::format_signal_id(msg_name, sig_name);
@@ -252,12 +260,39 @@ impl LiveColumnBuffer {
             let ft = first_frame.timestamp.unix_millis();
             new_min = Some(new_min.map_or(ft, |m| m.min(ft)));
         }
+        let floor_bucket_ms = floor_utc_ms.div_euclid(BUCKET_1HZ_MS) * BUCKET_1HZ_MS;
+        self.activity_1hz = self.activity_1hz.split_off(&floor_bucket_ms);
         self.min_utc_ms = new_min;
         if self.min_utc_ms.is_none() {
             self.max_utc_ms = None;
+            self.activity_1hz.clear();
         }
 
         evicted_samples
+    }
+
+    /// Return sorted `(bucket_utc_ms, sample_count)` 1Hz activity buckets overlapping `range`.
+    pub fn activity_1hz_in_range(&self, range: ops::RangeInclusive<i64>) -> Vec<(i64, u32)> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let lo_bucket = range
+            .start()
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
+        let hi_bucket = range
+            .end()
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
+        self.activity_1hz
+            .range(lo_bucket..=hi_bucket)
+            .map(|(&b, &c)| (b, c))
+            .collect()
+    }
+
+    /// Iterate over all signal IDs currently retained in the live buffer.
+    pub fn signal_ids(&self) -> impl Iterator<Item = &SignalId> {
+        self.signal_columns.keys()
     }
 
     fn compact_inspector_if_needed(&mut self) {

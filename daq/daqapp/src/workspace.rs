@@ -17,6 +17,7 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                 ui.label("No widgets in workspace yet.");
                 ui.label("CMD+S to toggle the sidebar.");
                 ui.label("CMD+P to toggle the command palette.");
+                ui.label("Drag any signal from the Signal Browser to open a Scope.");
             });
         } else {
             let mut behavior = WorkspaceTileBehavior {
@@ -30,6 +31,30 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
             ui.add_enabled_ui(!selection_pending, |ui| {
                 app.tile_tree.ui(&mut behavior, ui);
             });
+        }
+
+        let workspace_rect = ui.max_rect();
+        if eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ctx).is_some()
+            && ui.rect_contains_pointer(workspace_rect)
+        {
+            ui.painter().rect_stroke(
+                workspace_rect.shrink(1.0),
+                4.0,
+                eframe::egui::Stroke::new(
+                    1.5_f32,
+                    eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 160),
+                ),
+                eframe::egui::StrokeKind::Inside,
+            );
+            if ui.input(|i| i.pointer.any_released())
+                && let Some(payload) = eframe::egui::DragAndDrop::take_payload::<
+                    ui::signal_browser::DraggedSignal,
+                >(ctx)
+            {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    payload.to_widget_constructor(),
+                ));
+            }
         }
     });
 }
