@@ -79,6 +79,12 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
         ));
     }
 
+    if ui.button("Add State Lanes").clicked() {
+        app.action_queue.push(action::AppAction::SpawnWidget(
+            widget_constructor::WidgetConstructor::StateLane,
+        ));
+    }
+
     if ui.button("Add Bootloader").clicked() {
         app.action_queue.push(action::AppAction::SpawnWidget(
             widget_constructor::WidgetConstructor::Bootloader,

@@ -13,6 +13,7 @@ pub mod scope;
 pub mod send;
 pub mod sidebar;
 pub mod signal_browser;
+pub mod state_lane;
 pub mod theme;
 pub mod viewer_list;
 pub mod viewer_table;

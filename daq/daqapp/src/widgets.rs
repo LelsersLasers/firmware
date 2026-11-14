@@ -6,6 +6,7 @@ pub enum Widget {
     ViewerList(ui::viewer_list::ViewerList),
     Bootloader(ui::bootloader::Bootloader),
     Scope(ui::scope::Scope),
+    StateLane(ui::state_lane::StateLane),
     LogParser(ui::log_parser::LogParser),
     SendUi(ui::send::SendUi),
     BusLoad(ui::bus_load::BusLoad),
@@ -34,6 +35,7 @@ impl Widget {
             Widget::ViewerList(w) => &w.title,
             Widget::Bootloader(w) => &w.title,
             Widget::Scope(w) => &w.title,
+            Widget::StateLane(w) => &w.title,
             Widget::LogParser(w) => &w.title,
             Widget::SendUi(w) => &w.title,
             Widget::BusLoad(w) => &w.title,
@@ -53,6 +55,7 @@ impl Widget {
             Widget::ViewerList(_) => widget_constructor::WidgetKind::ViewerList,
             Widget::Bootloader(_) => widget_constructor::WidgetKind::Bootloader,
             Widget::Scope(_) => widget_constructor::WidgetKind::Scope,
+            Widget::StateLane(_) => widget_constructor::WidgetKind::StateLane,
             Widget::LogParser(_) => widget_constructor::WidgetKind::LogParser,
             Widget::SendUi(_) => widget_constructor::WidgetKind::SendUi,
             Widget::BusLoad(_) => widget_constructor::WidgetKind::BusLoad,
@@ -82,6 +85,7 @@ impl Widget {
             Widget::ViewerList(w) => w.show(ui, context.formatter, context.database, context.view),
             Widget::Bootloader(w) => w.show(ui, &context.ui_to_can_tx),
             Widget::Scope(w) => w.show(ui, context.database, context.view),
+            Widget::StateLane(w) => w.show(ui, context.database, context.view),
             Widget::LogParser(w) => {
                 w.show(ui, context.database, context.view, context.action_queue)
             }
@@ -102,6 +106,7 @@ impl Widget {
             Widget::SendUi(widget) => widget.reset_database(),
             Widget::Bootloader(widget) => widget.reset_database(),
             Widget::Scope(widget) => widget.reset_database(),
+            Widget::StateLane(widget) => widget.reset_database(),
             Widget::Jitter(widget) => widget.reset_database(),
             _ => {}
         }

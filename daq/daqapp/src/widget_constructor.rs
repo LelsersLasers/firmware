@@ -7,6 +7,7 @@ pub enum WidgetKind {
     ViewerList,
     Bootloader,
     Scope,
+    StateLane,
     LogParser,
     SendUi,
     BusLoad,
@@ -44,6 +45,11 @@ pub enum WidgetConstructor {
         unit: String,
     },
     ScopeEmpty,
+    StateLane,
+    StateLaneSingle {
+        signal_id: String,
+        label: String,
+    },
     LogParser,
     SendUi,
     BusLoad,
@@ -66,6 +72,9 @@ impl WidgetConstructor {
             WidgetConstructor::Scope { .. }
             | WidgetConstructor::ScopeChannel { .. }
             | WidgetConstructor::ScopeEmpty => WidgetKind::Scope,
+            WidgetConstructor::StateLane | WidgetConstructor::StateLaneSingle { .. } => {
+                WidgetKind::StateLane
+            }
             WidgetConstructor::LogParser => WidgetKind::LogParser,
             WidgetConstructor::SendUi => WidgetKind::SendUi,
             WidgetConstructor::BusLoad => WidgetKind::BusLoad,
@@ -113,6 +122,14 @@ impl WidgetConstructor {
             } => widgets::Widget::Scope(ui::scope::Scope::new_channel(id, signal_id, label, unit)),
             WidgetConstructor::ScopeEmpty => {
                 widgets::Widget::Scope(ui::scope::Scope::new_empty(id))
+            }
+            WidgetConstructor::StateLane => {
+                widgets::Widget::StateLane(ui::state_lane::StateLane::new(id))
+            }
+            WidgetConstructor::StateLaneSingle { signal_id, label } => {
+                widgets::Widget::StateLane(ui::state_lane::StateLane::new_single(
+                    id, signal_id, label,
+                ))
             }
             WidgetConstructor::LogParser => {
                 widgets::Widget::LogParser(ui::log_parser::LogParser::new(id))

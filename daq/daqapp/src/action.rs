@@ -28,6 +28,10 @@ impl AppAction {
                 widget_constructor::WidgetConstructor::ScopeEmpty,
             ),
             (
+                "Spawn State Lanes",
+                widget_constructor::WidgetConstructor::StateLane,
+            ),
+            (
                 "Spawn Bootloader",
                 widget_constructor::WidgetConstructor::Bootloader,
             ),
