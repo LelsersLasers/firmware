@@ -32,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -41,14 +44,14 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Regenerate schema from migrations and verify checked-in schema
-        working-directory: daq/daqcloud
+        working-directory: daq/daqcore
         shell: bash
         run: |
           database_dir="$(mktemp -d)"
           trap 'rm -rf "$database_dir"' EXIT
-          export DATABASE_URL="$database_dir/daqcloud.db"
+          export DATABASE_URL="$database_dir/registry.db"
           diesel migration run
-          git diff --exit-code -- src/db/schema.rs
+          git diff --exit-code -- src/storage/schema.rs
 
   superdbc_models:
     name: Check generated SuperDBC models
@@ -57,6 +60,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -82,6 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -113,6 +122,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -129,6 +141,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout

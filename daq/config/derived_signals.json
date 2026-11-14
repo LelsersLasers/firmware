@@ -1,0 +1,130 @@
+{
+  "derived_signals": [
+    {
+      "id": "battery.voltage_v",
+      "label": "Battery pack voltage (vbatt_adc scaled)",
+      "expression": "pack_stats.vbatt_adc * 0.14659808276",
+      "unit": "V"
+    },
+    {
+      "id": "battery.power_w",
+      "label": "Battery power (I * V, vbatt source)",
+      "expression": "battery.voltage_v * pack_stats.pack_current",
+      "unit": "W"
+    },
+    {
+      "id": "battery.power_kw",
+      "label": "Battery power (kW, vbatt source)",
+      "expression": "battery.power_w / 1000.0",
+      "unit": "kW"
+    },
+    {
+      "id": "battery.pack_power_w",
+      "label": "Battery pack power (pack_voltage * pack_current)",
+      "expression": "pack_stats.pack_voltage * pack_stats.pack_current",
+      "unit": "W"
+    },
+    {
+      "id": "battery.energy_wh",
+      "label": "Cumulative battery energy (Wh)",
+      "expression": "integral(battery.power_w) / 3600.0",
+      "unit": "Wh"
+    },
+    {
+      "id": "vd.wheel_speed_avg_rpm",
+      "label": "Average wheel speed",
+      "expression": "(wheel_speeds.front_left + wheel_speeds.front_right + wheel_speeds.rear_left + wheel_speeds.rear_right) / 4.0",
+      "unit": "rpm"
+    },
+    {
+      "id": "vd.front_heave_mm",
+      "label": "Front heave displacement",
+      "expression": "(front_shockpots.left + front_shockpots.right) / 2.0",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.rear_heave_mm",
+      "label": "Rear heave displacement",
+      "expression": "(rear_shockpots.left + rear_shockpots.right) / 2.0",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.front_roll_displacement_mm",
+      "label": "Front roll displacement (FL - FR)",
+      "expression": "front_shockpots.left - front_shockpots.right",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.rear_roll_displacement_mm",
+      "label": "Rear roll displacement (RL - RR)",
+      "expression": "rear_shockpots.left - rear_shockpots.right",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.fl_damper_vel_mms",
+      "label": "Front left damper velocity",
+      "expression": "derivative(front_shockpots.left, 50)",
+      "unit": "mm/s"
+    },
+    {
+      "id": "vd.fr_damper_vel_mms",
+      "label": "Front right damper velocity",
+      "expression": "derivative(front_shockpots.right, 50)",
+      "unit": "mm/s"
+    },
+    {
+      "id": "vd.rl_damper_vel_mms",
+      "label": "Rear left damper velocity",
+      "expression": "derivative(rear_shockpots.left, 50)",
+      "unit": "mm/s"
+    },
+    {
+      "id": "vd.rr_damper_vel_mms",
+      "label": "Rear right damper velocity",
+      "expression": "derivative(rear_shockpots.right, 50)",
+      "unit": "mm/s"
+    },
+    {
+      "id": "vd.total_accel_g",
+      "label": "Total horizontal acceleration",
+      "expression": "hypot(IMU_acceleration.X_axis, IMU_acceleration.Y_axis)",
+      "unit": "g"
+    },
+    {
+      "id": "vd.understeer_gradient",
+      "label": "Understeer gradient",
+      "expression": "LWS_Standard.LWS_ANGLE / 4.5 - (1.53 * IMU_angular_rate.Z_axis / max(gps_speed_heading.gps_speed, 2.0))",
+      "unit": "deg"
+    },
+    {
+      "id": "powertrain.total_torque_request",
+      "label": "Total VCU requested torque",
+      "expression": "vcu_torque_request.front_left + vcu_torque_request.front_right + vcu_torque_request.rear_left + vcu_torque_request.rear_right",
+      "unit": "%"
+    },
+    {
+      "id": "powertrain.total_actual_torque",
+      "label": "Total AMK actual torque",
+      "expression": "INVA_CRIT.AMK_ActualTorque + INVB_CRIT.AMK_ActualTorque + INVC_CRIT.AMK_ActualTorque + INVD_CRIT.AMK_ActualTorque",
+      "unit": "%"
+    },
+    {
+      "id": "thermals.max_igbt_temp_c",
+      "label": "Max inverter IGBT temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_IGBTTemp, INVB_TEMPS.AMK_IGBTTemp), max(INVC_TEMPS.AMK_IGBTTemp, INVD_TEMPS.AMK_IGBTTemp))",
+      "unit": "C"
+    },
+    {
+      "id": "thermals.max_motor_temp_c",
+      "label": "Max motor temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_MotorTemp, INVB_TEMPS.AMK_MotorTemp), max(INVC_TEMPS.AMK_MotorTemp, INVD_TEMPS.AMK_MotorTemp))",
+      "unit": "C"
+    },
+    {
+      "id": "thermals.max_inverter_temp_c",
+      "label": "Max inverter cold plate temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_InverterTemp, INVB_TEMPS.AMK_InverterTemp), max(INVC_TEMPS.AMK_InverterTemp, INVD_TEMPS.AMK_InverterTemp))",
+      "unit": "C"
+    }
+  ]
+}

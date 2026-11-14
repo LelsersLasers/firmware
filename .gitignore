@@ -55,8 +55,14 @@ venv
 !/plot_factory/data/README.md
 /plot_factory/output/
 
-# daqcloud db
+# SQLite registry files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 daq/daqcloud/daqcloud.db
 daq/daqcloud/daqcloud.db-shm
 daq/daqcloud/daqcloud.db-wal
-daq/daqcloud/migrations/.diesel_lock
+daq/daqcore/migrations/.diesel_lock
+
+# Local PER26 historical test-day raw & parsed data
+/PER26/

@@ -29,14 +29,22 @@ impl ViewerTable {
         view: &telemetry::TelemetryView<'_>,
     ) -> egui_tiles::UiResponse {
         ui.heading(&self.title);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Search:");
-            ui.text_edit_singleline(&mut self.search);
+            let search_width = (ui.available_width() - 150.0).clamp(80.0, 260.0);
+            ui.add(
+                eframe::egui::TextEdit::singleline(&mut self.search).desired_width(search_width),
+            );
             let mut nodes: Vec<_> = view
                 .latest_setpoint_frames
                 .values()
                 .filter_map(|f| f.decoded.as_ref().map(|d| d.tx_node().to_owned()))
                 .collect();
+            if nodes.is_empty()
+                && let Some(db) = database
+            {
+                nodes.extend(db.database.messages().map(|m| m.transmitter().to_owned()));
+            }
             nodes.sort();
             nodes.dedup();
             eframe::egui::ComboBox::from_id_salt(("tx_node", &self.title))
@@ -49,87 +57,163 @@ impl ViewerTable {
                     }
                 });
         });
-        if view.setpoint_frames.is_empty() {
+        if view.setpoint_frames.is_empty() && view.router.partitions().is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
 
         let search = self.search.to_lowercase();
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-            for frame in view.latest_setpoint_frames.values() {
-                let decoded = frame.decoded.as_ref();
-                let name = decoded.map_or("Error: Unknown", |d| d.name());
-                let node = decoded.map_or("Unparsed", |d| d.tx_node());
-                let bus_name = database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
-                if self.tx_node != "Any" && self.tx_node != node {
-                    continue;
-                }
-
-                let definition = decoded.and_then(|decoded| {
-                    let key = decoded.key();
-                    database?.database.message_by_key(key)
-                });
-                let stale = definition
-                    .is_some_and(|message| message.is_stale(frame.timestamp, view.view_time()));
-
-                if !search.is_empty()
-                    && !name.to_lowercase().contains(&search)
-                    && !node.to_lowercase().contains(&search)
-                    && !bus_name.to_lowercase().contains(&search)
-                    && !(stale && "stale".contains(&search))
-                    && !format!("{:03X}", frame.identity)
-                        .to_lowercase()
-                        .contains(&search)
-                    && !decoded.is_some_and(|d| {
-                        d.iter()
-                            .any(|(name, _)| name.to_lowercase().contains(&search))
-                    })
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if view.latest_setpoint_frames.is_empty()
+                    && let Some(db) = database
                 {
-                    continue;
+                    for message in db.database.messages() {
+                        let key = message.key();
+                        let name = message.name();
+                        let node = message.transmitter();
+                        let bus_name = db.bus_name(key.bus_id);
+                        if self.tx_node != "Any" && self.tx_node != node {
+                            continue;
+                        }
+                        if !search.is_empty()
+                            && !name.to_lowercase().contains(&search)
+                            && !node.to_lowercase().contains(&search)
+                            && !bus_name.to_lowercase().contains(&search)
+                            && !format!("{:03X}", key.identity)
+                                .to_lowercase()
+                                .contains(&search)
+                            && !message
+                                .signals()
+                                .iter()
+                                .any(|s| s.name().to_lowercase().contains(&search))
+                        {
+                            continue;
+                        }
+
+                        let mut latest_msg_ms: Option<i64> = None;
+                        let mut signals = Vec::with_capacity(message.signals().len());
+                        for sig_def in message.signals() {
+                            let signal_id =
+                                daqcore::storage::format_signal_id(name, sig_def.name());
+                            let formatted = match view.latest_signal_value_at_setpoint(&signal_id) {
+                                Some((utc_ms, val)) => {
+                                    latest_msg_ms =
+                                        Some(latest_msg_ms.map_or(utc_ms, |m| m.max(utc_ms)));
+                                    format_partition_signal_value(sig_def, val)
+                                }
+                                None => "—".to_owned(),
+                            };
+                            signals.push((sig_def.name(), formatted));
+                        }
+
+                        let timestamp_label = latest_msg_ms
+                            .map(|ms| daqcore::time::Time::from_unix_millis(ms).label())
+                            .unwrap_or_else(|| "SD Store".to_owned());
+                        // Resident 1Hz overview buckets are quantized to 1,000 ms boundaries,
+                        // so include a 1,000 ms bucket window before marking an SD message stale.
+                        let stale = latest_msg_ms.is_some_and(|ms| {
+                            let Some(timeout_ms) = message.stale_timeout_ms() else {
+                                return false;
+                            };
+                            let elapsed_ms = view.view_time().unix_millis().saturating_sub(ms);
+                            elapsed_ms > timeout_ms.saturating_add(1_000)
+                        });
+
+                        actions.extend(
+                            MessageCard {
+                                msg_name: name,
+                                bus_name,
+                                key,
+                                tx_node: node,
+                                raw_bytes: "",
+                                timestamp: &timestamp_label,
+                                stale,
+                                signals,
+                                search: &self.search,
+                            }
+                            .ui(ui),
+                        );
+                        ui.add_space(8.0);
+                    }
+                    return;
                 }
 
-                let signals = decoded
-                    .map(|d| {
-                        d.iter()
-                            .map(|(name, sig)| {
-                                let def = definition.and_then(|message| message.signal(name));
-                                (
-                                    name,
-                                    daqcore::formatter::try_format(
-                                        formatter,
-                                        d.name(),
-                                        name,
-                                        def,
-                                        None,
-                                        sig,
-                                    ),
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let bytes = frame
-                    .raw_bytes
-                    .iter()
-                    .map(|b| format!("{b:02X}"))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                actions.extend(
-                    MessageCard {
-                        msg_name: name,
-                        bus_name,
-                        key: frame.key(),
-                        tx_node: node,
-                        raw_bytes: &bytes,
-                        timestamp: &frame.timestamp.label(),
-                        stale,
-                        signals,
-                        search: &self.search,
+                for frame in view.latest_setpoint_frames.values() {
+                    let decoded = frame.decoded.as_ref();
+                    let name = decoded.map_or("Error: Unknown", |d| d.name());
+                    let node = decoded.map_or("Unparsed", |d| d.tx_node());
+                    let bus_name = database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
+                    if self.tx_node != "Any" && self.tx_node != node {
+                        continue;
                     }
-                    .ui(ui),
-                );
-                ui.add_space(8.0);
-            }
-        });
+
+                    let definition = decoded.and_then(|decoded| {
+                        let key = decoded.key();
+                        database?.database.message_by_key(key)
+                    });
+                    let stale = definition
+                        .is_some_and(|message| message.is_stale(frame.timestamp, view.view_time()));
+
+                    if !search.is_empty()
+                        && !name.to_lowercase().contains(&search)
+                        && !node.to_lowercase().contains(&search)
+                        && !bus_name.to_lowercase().contains(&search)
+                        && !(stale && "stale".contains(&search))
+                        && !format!("{:03X}", frame.identity)
+                            .to_lowercase()
+                            .contains(&search)
+                        && !decoded.is_some_and(|d| {
+                            d.iter()
+                                .any(|(name, _)| name.to_lowercase().contains(&search))
+                        })
+                    {
+                        continue;
+                    }
+
+                    let signals = decoded
+                        .map(|d| {
+                            d.iter()
+                                .map(|(name, sig)| {
+                                    let def = definition.and_then(|message| message.signal(name));
+                                    (
+                                        name,
+                                        daqcore::formatter::try_format(
+                                            formatter,
+                                            d.name(),
+                                            name,
+                                            def,
+                                            None,
+                                            sig,
+                                        ),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let bytes = frame
+                        .raw_bytes
+                        .iter()
+                        .map(|b| format!("{b:02X}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    actions.extend(
+                        MessageCard {
+                            msg_name: name,
+                            bus_name,
+                            key: frame.key(),
+                            tx_node: node,
+                            raw_bytes: &bytes,
+                            timestamp: &frame.timestamp.label(),
+                            stale,
+                            signals,
+                            search: &self.search,
+                        }
+                        .ui(ui),
+                    );
+                    ui.add_space(8.0);
+                }
+            });
         egui_tiles::UiResponse::None
     }
 }
@@ -153,7 +237,7 @@ impl MessageCard<'_> {
         let error_color = theme.error_color();
 
         // Header (outside card)
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let search = self.search.to_lowercase();
             let matches_name = search.is_empty()
                 || self.msg_name.to_lowercase().contains(&search)
@@ -202,17 +286,13 @@ impl MessageCard<'_> {
                         .color(error_color),
                 );
             }
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    ui.label(
-                        eframe::egui::RichText::new(self.raw_bytes)
-                            .monospace()
-                            .color(ui.visuals().text_color()),
-                    );
-                    ui.add_space(2.0);
-                },
-            );
+            if !self.raw_bytes.is_empty() {
+                ui.label(
+                    eframe::egui::RichText::new(self.raw_bytes)
+                        .monospace()
+                        .color(ui.visuals().text_color()),
+                );
+            }
         });
 
         ui.add_space(4.0);
@@ -248,9 +328,10 @@ impl MessageCard<'_> {
             .corner_radius(eframe::egui::CornerRadius::same(8))
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.vertical(|ui| {
                     for (i, (sig_name, value)) in self.signals.iter().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             let search = self.search.to_lowercase();
                             let matches_signal =
                                 search.is_empty() || sig_name.to_lowercase().contains(&search);
@@ -260,27 +341,30 @@ impl MessageCard<'_> {
                                 ui.visuals().weak_text_color()
                             };
 
+                            if ui
+                                .small_button("📊")
+                                .on_hover_text("Open in Scope")
+                                .clicked()
+                            {
+                                action_queue.push(action::AppAction::SpawnWidget(
+                                    widget_constructor::WidgetConstructor::Scope {
+                                        key: self.key,
+                                        msg_name: self.msg_name.to_string(),
+                                        signal_name: sig_name.to_string(),
+                                    },
+                                ));
+                            }
                             ui.label(
                                 eframe::egui::RichText::new(*sig_name)
                                     .monospace()
                                     .color(signal_color),
                             );
-                            ui.with_layout(
-                                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                                |ui| {
-                                    if ui.small_button("📊").clicked() {
-                                        action_queue.push(action::AppAction::SpawnWidget(
-                                            widget_constructor::WidgetConstructor::Scope {
-                                                key: self.key,
-                                                msg_name: self.msg_name.to_string(),
-                                                signal_name: sig_name.to_string(),
-                                            },
-                                        ));
-                                    }
-                                    ui.add_space(8.0);
-                                    ui.label(eframe::egui::RichText::new(value).monospace());
-                                },
+                            ui.label(
+                                eframe::egui::RichText::new("=")
+                                    .monospace()
+                                    .color(ui.visuals().weak_text_color()),
                             );
+                            ui.label(eframe::egui::RichText::new(value).monospace());
                         });
                         if i < self.signals.len() - 1 {
                             ui.separator();
@@ -290,5 +374,36 @@ impl MessageCard<'_> {
             });
 
         action_queue
+    }
+}
+
+fn format_partition_signal_value(
+    sig_def: &daqcore::superdbc::message::SignalDefinition,
+    val: f64,
+) -> String {
+    if sig_def.scale().abs() > f64::EPSILON {
+        let raw_approx = ((val - sig_def.offset()) / sig_def.scale()).round() as i128;
+        if let Some(label) = sig_def.choice_label(raw_approx) {
+            return format!("{label} ({val:.0})");
+        }
+    }
+    let unit = sig_def.unit();
+    let formatted_num = match sig_def.display_format() {
+        Some(daqcore::superdbc::message::DisplayFormat::Integer) => format!("{val:.0}"),
+        Some(daqcore::superdbc::message::DisplayFormat::Decimal(prec)) => {
+            format!("{val:.*}", usize::from(prec))
+        }
+        _ => {
+            if (val - val.round()).abs() < 1e-6 {
+                format!("{val:.0}")
+            } else {
+                format!("{val:.3}")
+            }
+        }
+    };
+    if unit.is_empty() {
+        formatted_num
+    } else {
+        format!("{formatted_num} {unit}")
     }
 }

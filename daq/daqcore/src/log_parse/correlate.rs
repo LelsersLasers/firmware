@@ -1,5 +1,4 @@
-use crate::{log_parse, superdbc};
-use chrono::Datelike as _;
+use crate::{log_parse, superdbc, time};
 use chrono::TimeZone as _;
 
 // In that case we use this fallback slope value. It is generally safe to assume a
@@ -7,19 +6,36 @@ use chrono::TimeZone as _;
 // is no reason not to run a proper linear regression when multiple GPS points exist.
 const REGRESSION_FALLBACK_SLOPE: f64 = 1.0;
 
-pub struct CorrelationFunction {
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ClockConfidence {
+    GpsSynced {
+        rms_error_ms: f64,
+        point_count: usize,
+    },
+    RtcEstimated,
+    FileMtimeEstimated,
+    ManualOffset,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ClockMapping {
     /// real_time ~= slope * log_time_ms + intercept_ms
     ///
     /// Stored as:
-    /// unix_ms = slope * log_ts_ms + intercept_ms
-    slope: f64,
-    intercept_ms: f64,
+    /// utc_ms = round(slope * ticks_ms + intercept_ms)
+    pub slope: f64,
+    pub intercept_ms: f64,
+    pub confidence: ClockConfidence,
 }
 
-impl CorrelationFunction {
+impl ClockMapping {
+    pub fn ticks_to_utc_ms(&self, ticks_ms: u32) -> i64 {
+        (self.slope * f64::from(ticks_ms) + self.intercept_ms).round() as i64
+    }
+
     pub fn correlate(&self, log_ts: u32) -> Option<chrono::DateTime<chrono::Utc>> {
-        let unix_ms = self.slope * log_ts as f64 + self.intercept_ms;
-        match chrono::DateTime::from_timestamp_millis(unix_ms.round() as i64) {
+        let unix_ms = self.ticks_to_utc_ms(log_ts);
+        match chrono::DateTime::from_timestamp_millis(unix_ms) {
             Some(dt) => Some(dt),
             None => {
                 log::error!(
@@ -33,48 +49,54 @@ impl CorrelationFunction {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct CorrelationChunkResult {
     pub parsed_msgs: Vec<log_parse::parse::ParsedMessage>,
-    pub correlation_fn: Option<CorrelationFunction>,
+    pub clock_mapping: ClockMapping,
 }
 
 pub fn time_correlate_chunks(
     chunks: Vec<Vec<log_parse::parse::ParsedMessage>>,
+    files: &[log_parse::parse::SourceLogFile],
 ) -> Vec<CorrelationChunkResult> {
-    chunks.into_iter().map(time_correlate_chunk).collect()
-}
+    let mut results = Vec::with_capacity(chunks.len());
+    let mut prev_tier3_end_utc_ms: Option<i64> = None;
 
-impl CorrelationChunkResult {
-    pub fn uncorrelated_new(chunk: Vec<log_parse::parse::ParsedMessage>) -> Self {
-        Self {
-            parsed_msgs: chunk,
-            correlation_fn: None,
+    for chunk in chunks {
+        let mut res = time_correlate_chunk(chunk, files);
+        if res.clock_mapping.confidence == ClockConfidence::FileMtimeEstimated
+            && let (Some(first_msg), Some(last_msg)) =
+                (res.parsed_msgs.first(), res.parsed_msgs.last())
+        {
+            let start_utc = res.clock_mapping.ticks_to_utc_ms(first_msg.timestamp);
+            if let Some(prev_end) = prev_tier3_end_utc_ms
+                && start_utc <= prev_end
+            {
+                let adjusted_start = prev_end + 1_000;
+                res.clock_mapping.intercept_ms =
+                    (adjusted_start as f64) - f64::from(first_msg.timestamp);
+            }
+            let new_end = res.clock_mapping.ticks_to_utc_ms(last_msg.timestamp);
+            prev_tier3_end_utc_ms = Some(new_end);
         }
+        results.push(res);
     }
 
-    pub fn correlated_new(
-        chunk: Vec<log_parse::parse::ParsedMessage>,
-        correlation_fn: CorrelationFunction,
-    ) -> Self {
-        Self {
-            parsed_msgs: chunk,
-            correlation_fn: Some(correlation_fn),
-        }
-    }
+    results
 }
 
 pub fn physical_to_u64(dsv: &superdbc::decode::DecodedSignalValue) -> u64 {
     dsv.physical().round() as u64
 }
 
-pub fn time_correlate_chunk(chunk: Vec<log_parse::parse::ParsedMessage>) -> CorrelationChunkResult {
-    // Idea: in the chunk, look for GPS messages which have both a timestamp and a corresponding real time
-    // Use those to create a mapping from the log's timestamps to real time, and use that mapping to convert
-    // all messages in the chunk to have real timestamps.
-    // If the correlation is successful, we return the orginal messages along with a correlation function.
-    // If we can't find any GPS messages, or if the correlation fails, return just the original messages.
+pub fn time_correlate_chunk(
+    chunk: Vec<log_parse::parse::ParsedMessage>,
+    files: &[log_parse::parse::SourceLogFile],
+) -> CorrelationChunkResult {
+    // Tier 1: Look for valid GPS messages (`gps_time`) in the chunk and fit a linear regression.
+    // Tier 2: If no valid GPS messages exist, anchor to the STM32 RTC filename timestamp.
+    // Tier 3: Otherwise, anchor to the source file's filesystem modification timestamp (mtime).
 
-    // First, find all GPS messages and extract their timestamps and real times
     let mut gps_points = Vec::new();
     for msg in &chunk {
         if msg.decoded.name() == "gps_time" {
@@ -90,107 +112,182 @@ pub fn time_correlate_chunk(chunk: Vec<log_parse::parse::ParsedMessage>) -> Corr
                 (millisecond, second, minute, hour, day, month, year)
             {
                 let full_year = if y < 100 { 2000 + y as i32 } else { y as i32 };
-                // Construct a chrono::DateTime from the extracted values
+                if !(2020..=2100).contains(&full_year) {
+                    log::debug!(
+                        "GPS message at {} ms has uninitialized or out-of-range year {}, skipping",
+                        msg.timestamp,
+                        full_year
+                    );
+                    continue;
+                }
+
                 if let Some(dt) = chrono::NaiveDate::from_ymd_opt(full_year, mon as u32, d as u32)
                     .and_then(|date| {
                         date.and_hms_milli_opt(h as u32, min as u32, s as u32, ms as u32)
                     })
                 {
                     let dt_utc = chrono::Utc.from_utc_datetime(&dt);
-
-                    let current_year = chrono::Utc::now().year();
-                    if dt_utc.year() < current_year - 2 || dt_utc.year() > current_year + 2 {
-                        log::warn!(
-                            "GPS message at {} ms has suspicious year value {}, skipping",
-                            msg.timestamp,
-                            dt_utc.year()
-                        );
-                        continue;
-                    }
-
                     gps_points.push((msg.timestamp, dt_utc));
                 } else {
                     log::error!(
                         "GPS message at {} ms has invalid date/time values, skipping",
                         msg.timestamp
                     );
-                    continue;
                 }
             } else {
                 log::error!(
                     "GPS message at {} ms is missing some time signals, skipping",
                     msg.timestamp
                 );
-                continue;
             }
         }
     }
 
-    if gps_points.is_empty() {
-        // No GPS points found, can't correlate
-        log::warn!("No GPS points found in chunk, cannot correlate timestamps");
-        return CorrelationChunkResult::uncorrelated_new(chunk);
-    }
+    if !gps_points.is_empty() {
+        let mut points: Vec<Point> = gps_points
+            .iter()
+            .map(|(log_ts, real_ts)| Point {
+                x: *log_ts as f64,
+                y: real_ts.timestamp_millis() as f64,
+            })
+            .collect();
 
-    // Attempt to fit a line to the GPS points to find the correlation function
-    let points: Vec<Point> = gps_points
-        .iter()
-        .map(|(log_ts, real_ts)| Point {
-            x: *log_ts as f64,
-            y: real_ts.timestamp_millis() as f64,
-        })
-        .collect();
-    let (slope, intercept) = match linear_regression(&points) {
-        Some(v) => v,
-        None => {
-            log::error!(
-                "Failed to refit correlation line. Points count: {}",
+        // Filter out u-blox cold-start dates (e.g., 2022-05-01 before satellite lock in log-0.log)
+        // and single-frame bit-flip outliers using RTC filename anchoring (if available) and
+        // median unit-slope intercept consensus.
+        let rtc_anchor_intercept = chunk.iter().find_map(|msg| {
+            let file_meta = files.get(msg.source_file_idx)?;
+            let rtc_unix_ms = file_meta.rtc_timestamp_ms?;
+            Some((rtc_unix_ms as f64) - f64::from(msg.timestamp))
+        });
+        if let Some(rtc_intercept) = rtc_anchor_intercept {
+            let within_day: Vec<Point> = points
+                .iter()
+                .copied()
+                .filter(|p| ((p.y - p.x) - rtc_intercept).abs() <= 86_400_000.0)
+                .collect();
+            if !within_day.is_empty() {
+                points = within_day;
+            }
+        }
+
+        if points.len() >= 3 {
+            let mut intercepts: Vec<f64> = points.iter().map(|p| p.y - p.x).collect();
+            intercepts.sort_by(|a, b| a.total_cmp(b));
+            let median_intercept = intercepts[intercepts.len() / 2];
+            let inliers: Vec<Point> = points
+                .iter()
+                .copied()
+                .filter(|p| ((p.y - p.x) - median_intercept).abs() <= 10_000.0)
+                .collect();
+            if !inliers.is_empty() {
+                points = inliers;
+            }
+        }
+
+        if let Some((mut slope, mut intercept)) = linear_regression(&points) {
+            if !slope.is_finite() || (slope - REGRESSION_FALLBACK_SLOPE).abs() > 0.1 {
+                log::warn!(
+                    "GPS regression slope ({:.9}) is non-physical; falling back to unit slope 1.0",
+                    slope
+                );
+                slope = REGRESSION_FALLBACK_SLOPE;
+                intercept =
+                    points.iter().map(|p| p.y - slope * p.x).sum::<f64>() / (points.len() as f64);
+            } else if (slope - REGRESSION_FALLBACK_SLOPE).abs() > 0.001 {
+                log::warn!(
+                    "GPS correlation slope ({:.9}) deviates from expected {:.3}.",
+                    slope,
+                    REGRESSION_FALLBACK_SLOPE,
+                );
+            }
+
+            let rms_error_ms = {
+                let mse = points
+                    .iter()
+                    .map(|p| {
+                        let predicted = slope * p.x + intercept;
+                        let error = p.y - predicted;
+                        error * error
+                    })
+                    .sum::<f64>()
+                    / points.len() as f64;
+                mse.sqrt()
+            };
+
+            log::info!(
+                "Tier 1 (GpsSynced) correlation successful: slope={:.9}, intercept_ms={:.3}, rms_error_ms={:.2}, points={}",
+                slope,
+                intercept,
+                rms_error_ms,
                 points.len()
             );
-            return CorrelationChunkResult::uncorrelated_new(chunk);
+
+            return CorrelationChunkResult {
+                parsed_msgs: chunk,
+                clock_mapping: ClockMapping {
+                    slope,
+                    intercept_ms: intercept,
+                    confidence: ClockConfidence::GpsSynced {
+                        rms_error_ms,
+                        point_count: points.len(),
+                    },
+                },
+            };
         }
-    };
-
-    // Print debug info about the correlation quality
-    let rms_error_ms = {
-        let mse = points
-            .iter()
-            .map(|p| {
-                let predicted = slope * p.x + intercept;
-                let error = p.y - predicted;
-                error * error
-            })
-            .sum::<f64>()
-            / points.len() as f64;
-
-        mse.sqrt()
-    };
-    log::info!(
-        "GPS correlation successful: slope={:.9}, intercept_ms={:.3}, rms_error_ms={:.2}, points={}",
-        slope,
-        intercept,
-        rms_error_ms,
-        points.len()
-    );
-
-    // Log error (but continue) if slope is not ~REGRESSION_FALLBACK_SLOPE
-    if (slope - REGRESSION_FALLBACK_SLOPE).abs() > 0.001 {
-        log::error!(
-            "GPS correlation slope ({:.9}) deviates from expected {:.3}.",
-            slope,
-            REGRESSION_FALLBACK_SLOPE,
-        );
     }
 
-    CorrelationChunkResult::correlated_new(
-        chunk,
-        CorrelationFunction {
-            slope,
-            intercept_ms: intercept,
+    // Tier 2: Check for STM32 hardware RTC timestamp in source .log filename
+    for msg in &chunk {
+        if let Some(file_meta) = files.get(msg.source_file_idx)
+            && let Some(rtc_unix_ms) = file_meta.rtc_timestamp_ms
+        {
+            let intercept_ms = (rtc_unix_ms as f64) - f64::from(msg.timestamp);
+            log::info!(
+                "Tier 2 (RtcEstimated) correlation from {}: intercept_ms={:.3}",
+                file_meta.file_name,
+                intercept_ms
+            );
+            return CorrelationChunkResult {
+                parsed_msgs: chunk,
+                clock_mapping: ClockMapping {
+                    slope: REGRESSION_FALLBACK_SLOPE,
+                    intercept_ms,
+                    confidence: ClockConfidence::RtcEstimated,
+                },
+            };
+        }
+    }
+
+    // Tier 3: Fallback to filesystem mtime of the first message's source .log file
+    let (first_ticks, mtime_unix_ms) = chunk
+        .first()
+        .map(|first_msg| {
+            let mtime = files
+                .get(first_msg.source_file_idx)
+                .map(|f| f.mtime_unix_ms)
+                .unwrap_or_else(|| time::Time::now().unix_millis());
+            (first_msg.timestamp, mtime)
+        })
+        .unwrap_or_else(|| (0, time::Time::now().unix_millis()));
+
+    let intercept_ms = (mtime_unix_ms as f64) - f64::from(first_ticks);
+    log::warn!(
+        "No GPS or RTC filename timestamp found in chunk; using Tier 3 (FileMtimeEstimated): intercept_ms={:.3}",
+        intercept_ms
+    );
+
+    CorrelationChunkResult {
+        parsed_msgs: chunk,
+        clock_mapping: ClockMapping {
+            slope: REGRESSION_FALLBACK_SLOPE,
+            intercept_ms,
+            confidence: ClockConfidence::FileMtimeEstimated,
         },
-    )
+    }
 }
 
+#[derive(Clone, Copy)]
 struct Point {
     x: f64, // log timestamp ms
     y: f64, // unix timestamp ms
@@ -198,7 +295,7 @@ struct Point {
 
 /// Least squares linear regression.
 ///
-/// Note: if there is only 1 point, uses REGRESSION_FALLBACK_SLOPE
+/// Note: if there is only 1 point (or all points share identical x), uses REGRESSION_FALLBACK_SLOPE.
 ///
 /// Fits:
 /// y = slope * x + intercept
@@ -207,7 +304,6 @@ fn linear_regression(points: &[Point]) -> Option<(f64, f64)> {
         return None;
     }
 
-    // Fallback for single point: use a default slope and calculate intercept based on that point
     if points.len() == 1 {
         log::warn!(
             "Only one GPS point found, using fallback slope of {}",
@@ -236,7 +332,9 @@ fn linear_regression(points: &[Point]) -> Option<(f64, f64)> {
     let denom = n * sum_x2 - sum_x * sum_x;
 
     if denom.abs() < 1e-9 {
-        return None;
+        let slope = REGRESSION_FALLBACK_SLOPE;
+        let intercept = (sum_y - slope * sum_x) / n;
+        return Some((slope, intercept));
     }
 
     let slope = (n * sum_xy - sum_x * sum_y) / denom;

@@ -13,11 +13,17 @@ edition = "2024"
 [workspace.dependencies]
 daqcore = { path = "daqcore" }
 
+arrow = { version = "54", default-features = false, features = ["ipc"] }
+parquet = { version = "54", default-features = false, features = ["arrow", "zstd"] }
+diesel = { version = "2.3.14", default-features = false, features = ["sqlite", "r2d2"] }
+diesel_migrations = { version = "2.3.2", features = ["sqlite"] }
+libsqlite3-sys = { version = "0.38.2", features = ["bundled"] }
+sha2 = "0.10"
+uuid = { version = "1.11", features = ["v4", "serde"] }
 env_logger = "0.11.10"
 chrono = "0.4.44"
 log = "0.4.29"
 bytemuck = { version = "1.25.0", features = ["derive"] }
-csv = "1.4.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serialport = "4.8.1"

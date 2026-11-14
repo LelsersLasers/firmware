@@ -82,7 +82,9 @@ impl Widget {
             Widget::ViewerList(w) => w.show(ui, context.formatter, context.database, context.view),
             Widget::Bootloader(w) => w.show(ui, &context.ui_to_can_tx),
             Widget::Scope(w) => w.show(ui, context.database, context.view),
-            Widget::LogParser(w) => w.show(ui, context.database),
+            Widget::LogParser(w) => {
+                w.show(ui, context.database, context.view, context.action_queue)
+            }
             Widget::SendUi(w) => w.show(ui, context.database, context.formatter),
             Widget::BusLoad(w) => w.show(ui, context.bus_load, context.view),
             Widget::BatteryVoltage(w) => w.show(ui, context.view),

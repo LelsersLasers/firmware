@@ -1,7 +1,10 @@
 use crate::widget_constructor;
+use std::path;
 
 pub enum AppAction {
     SpawnWidget(widget_constructor::WidgetConstructor),
+    AttachStore(path::PathBuf),
+    OpenAnnotationModal,
     ToggleSidebar,
     ToggleCommandPalette,
     CloseActiveWidget,
