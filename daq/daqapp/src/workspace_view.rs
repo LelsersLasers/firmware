@@ -14,7 +14,6 @@ pub struct WorkspaceDataView<'a> {
     requested_setpoint_utc_ms: Cell<Option<i64>>,
     requested_zoom: Cell<Option<(i64, f64)>>,
     requested_pan_delta_ms: Cell<Option<i64>>,
-    requested_viewport_range_ms: Cell<Option<(i64, i64)>>,
     hover_touched: Cell<bool>,
 }
 
@@ -45,7 +44,6 @@ impl<'a> WorkspaceDataView<'a> {
             requested_setpoint_utc_ms: Cell::new(None),
             requested_zoom: Cell::new(None),
             requested_pan_delta_ms: Cell::new(None),
-            requested_viewport_range_ms: Cell::new(None),
             hover_touched: Cell::new(false),
         }
     }
@@ -116,17 +114,6 @@ impl<'a> WorkspaceDataView<'a> {
     /// Pending timeline pan delta (`ms`) requested during this render pass.
     pub fn requested_pan_delta_ms(&self) -> Option<i64> {
         self.requested_pan_delta_ms.get()
-    }
-
-    /// Request snapping the global Master Timeline `[start, end]` to `[start_utc_ms, end_utc_ms]`.
-    pub fn request_viewport_range_ms(&self, start_utc_ms: i64, end_utc_ms: i64) {
-        self.requested_viewport_range_ms
-            .set(Some((start_utc_ms, end_utc_ms)));
-    }
-
-    /// Pending timeline viewport range `(start_utc_ms, end_utc_ms)` requested during this render pass.
-    pub fn requested_viewport_range_ms(&self) -> Option<(i64, i64)> {
-        self.requested_viewport_range_ms.get()
     }
 
     /// Returns the active inspection cursor (`hover_utc_ms` if hovering, else `setpoint_utc_ms`).

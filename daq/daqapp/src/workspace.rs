@@ -72,7 +72,6 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     let requested_setpoint_ms = view.requested_setpoint_utc_ms();
     let requested_zoom = view.requested_zoom();
     let requested_pan_delta_ms = view.requested_pan_delta_ms();
-    let requested_viewport_range_ms = view.requested_viewport_range_ms();
 
     if hover_touched {
         app.hover_utc_ms = next_hover_ms;
@@ -80,9 +79,6 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     } else {
         app.hover_utc_ms = None;
         app.hover_distance_m = None;
-    }
-    if let Some((start_ms, end_ms)) = requested_viewport_range_ms {
-        app.router.timeline_mut().snap_to_range_ms(start_ms, end_ms);
     }
     if let Some((anchor_ms, zoom_factor)) = requested_zoom {
         app.router

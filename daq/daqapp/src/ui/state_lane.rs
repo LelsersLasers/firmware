@@ -418,12 +418,6 @@ impl StateLane {
                             }
                         }
 
-                        if strip_resp.double_clicked()
-                            && let Some((day_min, day_max)) = view.timeline.day_bounds_ms()
-                        {
-                            view.request_viewport_range_ms(day_min, day_max);
-                        }
-
                         if let Some(pos) = strip_resp.hover_pos() {
                             let frac = ((pos.x - strip_rect.left()) / strip_rect.width().max(1.0))
                                 .clamp(0.0, 1.0) as f64;

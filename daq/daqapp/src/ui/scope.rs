@@ -115,6 +115,7 @@ pub struct Scope {
     search_query: String,
     pub x_axis_mode: ScopeXAxisMode,
     pub speed_signal_id: String,
+    y_bounds_override: Option<(f64, f64)>,
 }
 
 impl Scope {
@@ -142,6 +143,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -155,6 +157,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -182,6 +185,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -210,6 +214,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            y_bounds_override: None,
         }
     }
 
@@ -873,15 +878,19 @@ impl Scope {
             is_comparison,
             x_axis_mode as u8,
         );
+        let (active_y_min, active_y_max) =
+            self.y_bounds_override.unwrap_or((primary_min, primary_max));
+        let mut next_y_override = self.y_bounds_override;
+
         let mut plot = egui_plot::Plot::new(plot_id)
             .custom_y_axes(y_axes)
             .width(plot_width)
             .height(plot_height)
-            .allow_zoom(is_comparison)
-            .allow_drag(is_comparison)
+            .allow_zoom(false)
+            .allow_drag(false)
             .allow_scroll(false)
             .allow_boxed_zoom(false)
-            .allow_double_click_reset(is_comparison)
+            .allow_double_click_reset(false)
             .x_axis_formatter(move |mark, _| match (is_comparison, x_axis_mode) {
                 (_, ScopeXAxisMode::TrackDistance) => format!("{:.0} m", mark.value),
                 (true, _) | (false, ScopeXAxisMode::ElapsedTime) => format!("{:.1}s", mark.value),
@@ -894,10 +903,8 @@ impl Scope {
             plot = plot.legend(egui_plot::Legend::default());
         }
         plot.show(ui, |plot_ui| {
-                if !is_comparison {
-                    plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
-                    plot_ui.set_plot_bounds_y(primary_min..=primary_max);
-                }
+                plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
+                plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
 
                 for trace in raw_traces {
                     let tf = unit_transforms[trace.unit_idx];
@@ -955,9 +962,11 @@ impl Scope {
                 }
 
                 let mut pointer_utc_ms: Option<i64> = None;
+                let mut pointer_plot_y: Option<f64> = None;
                 if plot_ui.response().hovered()
                     && let Some(coord) = plot_ui.pointer_coordinate()
                 {
+                    pointer_plot_y = Some(coord.y);
                     let clamped_x = coord.x.clamp(0.0, max_x_bound);
                     match x_axis_mode {
                         ScopeXAxisMode::TrackDistance => {
@@ -990,23 +999,33 @@ impl Scope {
                     }
                 }
 
-                if is_comparison {
-                    if plot_ui.response().hovered() {
-                        let scroll_y = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-                        if scroll_y.abs() > 0.5 {
-                            let factor = if scroll_y > 0.0 { 1.25_f32 } else { 0.8_f32 };
-                            plot_ui.zoom_bounds_around_hovered(eframe::egui::vec2(factor, 1.0));
-                        }
-                    }
-                } else {
+                // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
+                // selected window; it never changes the MasterTimeline X range.
+                if plot_ui.response().double_clicked() {
+                    next_y_override = None;
+                    plot_ui.set_plot_bounds_y(primary_min..=primary_max);
+                }
+
+                if !is_comparison {
                     let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
                     let anchor_ms =
                         pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
 
                     if plot_ui.response().hovered() {
-                        let (scroll, zoom_delta) =
-                            plot_ui.ctx().input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
-                        if (zoom_delta - 1.0).abs() > 1e-3 {
+                        let (scroll, zoom_delta, shift_held) = plot_ui.ctx().input(|i| {
+                            (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift)
+                        });
+                        if shift_held && scroll.y.abs() > 0.5 {
+                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                            let cur_span = (active_y_max - active_y_min).max(1e-6);
+                            let new_span = (cur_span * factor).clamp(1e-4, 1e9);
+                            let anchor_y = pointer_plot_y
+                                .unwrap_or((active_y_min + active_y_max) * 0.5)
+                                .clamp(active_y_min, active_y_max);
+                            let ratio = (anchor_y - active_y_min) / cur_span;
+                            let new_lo = anchor_y - ratio * new_span;
+                            next_y_override = Some((new_lo, new_lo + new_span));
+                        } else if (zoom_delta - 1.0).abs() > 1e-3 {
                             let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
                             view.request_zoom_around_ms(anchor_ms, factor);
                         } else if scroll.y.abs() > 0.5 {
@@ -1044,14 +1063,9 @@ impl Scope {
                             (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
                         view.request_pan_delta_ms(delta_ms);
                     }
-
-                    if plot_ui.response().double_clicked()
-                        && let Some((day_min, day_max)) = view.timeline.day_bounds_ms()
-                    {
-                        view.request_viewport_range_ms(day_min, day_max);
-                    }
                 }
             });
+        self.y_bounds_override = next_y_override;
 
         egui_tiles::UiResponse::None
     }
