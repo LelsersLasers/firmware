@@ -9,6 +9,9 @@ const MAX_OVERVIEW_BUCKET_SPAN_DEG: f64 = 0.01;
 const MAX_GPS_STEP_SPEED_MPS: f64 = 80.0;
 const MAX_CONTIGUOUS_GAP_MS: i64 = 2_500;
 const MAX_CONTIGUOUS_STEP_METERS: f64 = 50.0;
+const GPS_FULL_RES_THRESHOLD_MS: i64 = 5 * 60 * 1_000;
+const GPS_OVERVIEW_10HZ_THRESHOLD_MS: i64 = 30 * 60 * 1_000;
+const MAX_TRAIL_POINTS: usize = 16_384;
 
 const QUICK_COLOR_CHANNELS: &[(&str, &str, &str)] = &[
     ("Speed", "gps_speed_heading.gps_speed", "m/s"),
@@ -196,8 +199,11 @@ impl GpsPlot {
             return egui_tiles::UiResponse::None;
         }
 
-        let width_px = ui.available_width().max(60.0);
-        let res = view.timeline.resolution_for_width(width_px);
+        let window_ms = view
+            .timeline
+            .end_utc_ms()
+            .saturating_sub(view.timeline.start_utc_ms());
+        let res = gps_resolution_for_span(window_ms);
         let staleness_ms = view.router.formula_engine().max_staleness_ms().max(1_000);
 
         let lat_series = view.query_signal("gps_coordinates.latitude", res);
@@ -327,7 +333,7 @@ impl GpsPlot {
 
         let start_ms = view.timeline.start_utc_ms();
         let span_ms = (setpoint_ms - start_ms).max(1) as f64;
-        let stride = gps_points.len().div_ceil(4096).max(1);
+        let stride = gps_points.len().div_ceil(MAX_TRAIL_POINTS).max(1);
 
         let mut trail: Vec<TrailPoint> = Vec::with_capacity(gps_points.len() / stride + 2);
         let mut prev_trail_fix: Option<(i64, f64, f64)> = None;
@@ -409,6 +415,19 @@ impl GpsPlot {
         }
 
         egui_tiles::UiResponse::None
+    }
+}
+
+/// Choose GPS query resolution from the viewport time span alone (ignoring pane pixel width,
+/// since a 2D map's width does not correspond to time).
+fn gps_resolution_for_span(span_ms: i64) -> daqcore::router::Resolution {
+    let span_ms = span_ms.max(0);
+    if span_ms <= GPS_FULL_RES_THRESHOLD_MS {
+        daqcore::router::Resolution::FullRes
+    } else if span_ms <= GPS_OVERVIEW_10HZ_THRESHOLD_MS {
+        daqcore::router::Resolution::Overview10Hz
+    } else {
+        daqcore::router::Resolution::Overview1Hz
     }
 }
 
@@ -826,6 +845,29 @@ mod tests {
             env_ts,
             vec![2_000, 3_000],
             "Mixed-lock overview bucket at 1000ms must be rejected"
+        );
+    }
+
+    #[test]
+    fn gps_resolution_uses_custom_span_thresholds() {
+        use daqcore::router::Resolution;
+
+        assert_eq!(gps_resolution_for_span(-100), Resolution::FullRes);
+        assert_eq!(gps_resolution_for_span(0), Resolution::FullRes);
+        assert_eq!(gps_resolution_for_span(5 * 60 * 1_000), Resolution::FullRes);
+
+        assert_eq!(
+            gps_resolution_for_span(5 * 60 * 1_000 + 1),
+            Resolution::Overview10Hz
+        );
+        assert_eq!(
+            gps_resolution_for_span(30 * 60 * 1_000),
+            Resolution::Overview10Hz
+        );
+
+        assert_eq!(
+            gps_resolution_for_span(30 * 60 * 1_000 + 1),
+            Resolution::Overview1Hz
         );
     }
 }
