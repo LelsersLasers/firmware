@@ -30,7 +30,6 @@ impl DraggedSignal {
         }
     }
 
-    #[cfg(test)]
     pub fn display_label(&self) -> String {
         match self {
             Self::Raw {
@@ -501,6 +500,23 @@ pub fn show_signal_browser(
                             drag_payload.to_widget_constructor(),
                         ));
                     }
+                    row_resp.context_menu(|ui| {
+                        if ui.button("Open in new Scope").clicked() {
+                            action_queue.push(action::AppAction::SpawnWidget(
+                                drag_payload.to_widget_constructor(),
+                            ));
+                            ui.close();
+                        }
+                        if ui.button("Open in new State Lane").clicked() {
+                            action_queue.push(action::AppAction::SpawnWidget(
+                                widget_constructor::WidgetConstructor::StateLaneSingle {
+                                    signal_id: drag_payload.signal_id(),
+                                    label: drag_payload.display_label(),
+                                },
+                            ));
+                            ui.close();
+                        }
+                    });
                 });
             }
         });
@@ -655,6 +671,23 @@ pub fn show_signal_browser(
                                     drag_payload.to_widget_constructor(),
                                 ));
                             }
+                            row_resp.context_menu(|ui| {
+                                if ui.button("Open in new Scope").clicked() {
+                                    action_queue.push(action::AppAction::SpawnWidget(
+                                        drag_payload.to_widget_constructor(),
+                                    ));
+                                    ui.close();
+                                }
+                                if ui.button("Open in new State Lane").clicked() {
+                                    action_queue.push(action::AppAction::SpawnWidget(
+                                        widget_constructor::WidgetConstructor::StateLaneSingle {
+                                            signal_id: drag_payload.signal_id(),
+                                            label: drag_payload.display_label(),
+                                        },
+                                    ));
+                                    ui.close();
+                                }
+                            });
                         });
                     }
                 });

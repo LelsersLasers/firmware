@@ -95,6 +95,7 @@ impl StateLane {
         }
     }
 
+    #[cfg(test)]
     pub fn lanes(&self) -> &[StateLaneEntry] {
         &self.lanes
     }
@@ -407,13 +408,47 @@ impl StateLane {
                             );
                         }
 
+                        if strip_resp.dragged_by(eframe::egui::PointerButton::Primary) {
+                            let drag_dx = strip_resp.drag_delta().x;
+                            if drag_dx.abs() > 0.0 {
+                                let delta_ms = (-(drag_dx as f64)
+                                    / (strip_rect.width().max(1.0) as f64)
+                                    * span_ms)
+                                    .round() as i64;
+                                view.request_pan_delta_ms(delta_ms);
+                            }
+                        }
+
+                        if strip_resp.double_clicked()
+                            && let Some((day_min, day_max)) = view.timeline.day_bounds_ms()
+                        {
+                            view.request_viewport_range_ms(day_min, day_max);
+                        }
+
                         if let Some(pos) = strip_resp.hover_pos() {
                             let frac = ((pos.x - strip_rect.left()) / strip_rect.width().max(1.0))
                                 .clamp(0.0, 1.0) as f64;
                             let ptr_ms = start_ms + (frac * span_ms).round() as i64;
                             view.set_hover_utc_ms(Some(ptr_ms));
-                            if strip_resp.clicked() || strip_resp.dragged() {
+                            if strip_resp.clicked() {
                                 view.request_setpoint_utc_ms(ptr_ms);
+                            }
+
+                            let (scroll, zoom_delta) =
+                                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+                            if (zoom_delta - 1.0).abs() > 1e-3 {
+                                let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
+                                view.request_zoom_around_ms(ptr_ms, factor);
+                            } else if scroll.y.abs() > 0.5 {
+                                let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                                view.request_zoom_around_ms(ptr_ms, factor);
+                            }
+                            if scroll.x.abs() > 0.5 {
+                                let delta_ms = (-(scroll.x as f64)
+                                    / (strip_rect.width().max(1.0) as f64)
+                                    * span_ms)
+                                    .round() as i64;
+                                view.request_pan_delta_ms(delta_ms);
                             }
 
                             if let Some(iv) = intervals

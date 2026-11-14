@@ -214,6 +214,7 @@ impl Scope {
         }
     }
 
+    #[cfg(test)]
     pub fn channels(&self) -> &[ScopeChannel] {
         &self.channels
     }
@@ -976,9 +977,11 @@ impl Scope {
             .custom_y_axes(y_axes)
             .width(plot_width)
             .height(plot_height)
-            .allow_zoom([false, true])
-            .allow_drag([false, true])
-            .allow_scroll([false, true])
+            .allow_zoom(is_comparison)
+            .allow_drag(is_comparison)
+            .allow_scroll(false)
+            .allow_boxed_zoom(false)
+            .allow_double_click_reset(is_comparison)
             .x_axis_formatter(move |mark, _| match (is_comparison, x_axis_mode) {
                 (_, ScopeXAxisMode::TrackDistance) => format!("{:.0} m", mark.value),
                 (true, _) | (false, ScopeXAxisMode::ElapsedTime) => format!("{:.1}s", mark.value),
@@ -989,7 +992,10 @@ impl Scope {
             })
             .x_axis_label(x_label)
             .show(ui, |plot_ui| {
-                plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
+                if !is_comparison {
+                    plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
+                    plot_ui.set_plot_bounds_y(primary_min..=primary_max);
+                }
 
                 for trace in raw_traces {
                     let tf = unit_transforms[trace.unit_idx];
@@ -1046,6 +1052,7 @@ impl Scope {
                     );
                 }
 
+                let mut pointer_utc_ms: Option<i64> = None;
                 if plot_ui.response().hovered()
                     && let Some(coord) = plot_ui.pointer_coordinate()
                 {
@@ -1057,6 +1064,7 @@ impl Scope {
                                 && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
                             {
                                 view.set_hover_utc_ms(Some(utc_ms));
+                                pointer_utc_ms = Some(utc_ms);
                                 if plot_ui.response().clicked() {
                                     view.request_setpoint_utc_ms(utc_ms);
                                 }
@@ -1072,10 +1080,73 @@ impl Scope {
                             };
                             let utc_ms = ref_start_ms + (clamped_x * 1000.0).round() as i64;
                             view.set_hover_utc_ms(Some(utc_ms));
+                            pointer_utc_ms = Some(utc_ms);
                             if plot_ui.response().clicked() {
                                 view.request_setpoint_utc_ms(utc_ms);
                             }
                         }
+                    }
+                }
+
+                if is_comparison {
+                    if plot_ui.response().hovered() {
+                        let scroll_y = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                        if scroll_y.abs() > 0.5 {
+                            let factor = if scroll_y > 0.0 { 1.25_f32 } else { 0.8_f32 };
+                            plot_ui.zoom_bounds_around_hovered(eframe::egui::vec2(factor, 1.0));
+                        }
+                    }
+                } else {
+                    let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
+                    let anchor_ms =
+                        pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
+
+                    if plot_ui.response().hovered() {
+                        let (scroll, zoom_delta) =
+                            plot_ui.ctx().input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+                        if (zoom_delta - 1.0).abs() > 1e-3 {
+                            let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
+                            view.request_zoom_around_ms(anchor_ms, factor);
+                        } else if scroll.y.abs() > 0.5 {
+                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                            view.request_zoom_around_ms(anchor_ms, factor);
+                        }
+                        if scroll.x.abs() > 0.5 {
+                            let delta_ms = (-(scroll.x as f64) / (plot_width as f64) * span_ms)
+                                .round() as i64;
+                            view.request_pan_delta_ms(delta_ms);
+                        }
+                    }
+
+                    let plot_rect = plot_ui.response().rect;
+                    let drag_dx = if plot_ui
+                        .response()
+                        .dragged_by(eframe::egui::PointerButton::Primary)
+                    {
+                        plot_ui.response().drag_delta().x
+                    } else {
+                        plot_ui.ctx().input(|i| {
+                            if i.pointer.primary_down()
+                                && i.pointer
+                                    .press_origin()
+                                    .is_some_and(|origin| plot_rect.contains(origin))
+                            {
+                                i.pointer.delta().x
+                            } else {
+                                0.0
+                            }
+                        })
+                    };
+                    if drag_dx.abs() > 0.0 {
+                        let delta_ms =
+                            (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
+                        view.request_pan_delta_ms(delta_ms);
+                    }
+
+                    if plot_ui.response().double_clicked()
+                        && let Some((day_min, day_max)) = view.timeline.day_bounds_ms()
+                    {
+                        view.request_viewport_range_ms(day_min, day_max);
                     }
                 }
             });

@@ -188,6 +188,7 @@ impl Jitter {
             .allow_zoom(false)
             .allow_drag(false)
             .allow_scroll(false) // Prevents the mouse wheel from moving the graph
+            .allow_boxed_zoom(false)
             .auto_bounds(true) // Forces the graph to auto-fit the data
             .include_y(0.0)
             .include_y(max_bucket_count * 1.1) // Adds 10% blank space above the tallest bar

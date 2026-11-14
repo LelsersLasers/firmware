@@ -888,11 +888,13 @@ fn rle_intervals_from_series(
             .iter()
             .copied()
             .zip(values.iter().copied())
-            .filter_map(|(t, v)| v.is_finite().then(|| (t, v.round() as i64)))
+            .filter(|&(_, v)| v.is_finite())
+            .map(|(t, v)| (t, v.round() as i64))
             .collect(),
         SignalSeries::Envelope(buckets) => buckets
             .iter()
-            .filter_map(|b| b.mean.is_finite().then(|| (b.utc_ms, b.mean.round() as i64)))
+            .filter(|b| b.mean.is_finite())
+            .map(|b| (b.utc_ms, b.mean.round() as i64))
             .collect(),
     };
     let Some(&(first_t, first_raw)) = pairs.first() else {

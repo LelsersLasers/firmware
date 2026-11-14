@@ -84,6 +84,7 @@ impl WidgetConstructor {
         }
     }
 
+    #[cfg(test)]
     pub fn create(
         self,
         widget_ids: &mut widget_ids::WidgetIds,

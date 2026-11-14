@@ -12,10 +12,14 @@ pub struct WorkspaceDataView<'a> {
     hover_utc_ms: Cell<Option<i64>>,
     hover_distance_m: Cell<Option<f64>>,
     requested_setpoint_utc_ms: Cell<Option<i64>>,
+    requested_zoom: Cell<Option<(i64, f64)>>,
+    requested_pan_delta_ms: Cell<Option<i64>>,
+    requested_viewport_range_ms: Cell<Option<(i64, i64)>>,
     hover_touched: Cell<bool>,
 }
 
 impl<'a> WorkspaceDataView<'a> {
+    #[cfg(test)]
     pub fn new(router: &'a daqcore::router::VirtualTimelineRouter) -> Self {
         Self::with_hover(router, None, None)
     }
@@ -39,6 +43,9 @@ impl<'a> WorkspaceDataView<'a> {
             hover_utc_ms: Cell::new(hover_utc_ms),
             hover_distance_m: Cell::new(hover_distance_m),
             requested_setpoint_utc_ms: Cell::new(None),
+            requested_zoom: Cell::new(None),
+            requested_pan_delta_ms: Cell::new(None),
+            requested_viewport_range_ms: Cell::new(None),
             hover_touched: Cell::new(false),
         }
     }
@@ -86,6 +93,40 @@ impl<'a> WorkspaceDataView<'a> {
     /// Pending playhead (`setpoint`) update requested during this render pass.
     pub fn requested_setpoint_utc_ms(&self) -> Option<i64> {
         self.requested_setpoint_utc_ms.get()
+    }
+
+    /// Request zooming the global Master Timeline `[start, end]` around `anchor_utc_ms` by `zoom_factor`
+    /// (`< 1.0` zooms in, `> 1.0` zooms out).
+    pub fn request_zoom_around_ms(&self, anchor_utc_ms: i64, zoom_factor: f64) {
+        self.requested_zoom.set(Some((anchor_utc_ms, zoom_factor)));
+    }
+
+    /// Pending timeline zoom `(anchor_utc_ms, zoom_factor)` requested during this render pass.
+    pub fn requested_zoom(&self) -> Option<(i64, f64)> {
+        self.requested_zoom.get()
+    }
+
+    /// Request panning the global Master Timeline `[start, end]` by `delta_ms`.
+    pub fn request_pan_delta_ms(&self, delta_ms: i64) {
+        if delta_ms != 0 {
+            self.requested_pan_delta_ms.set(Some(delta_ms));
+        }
+    }
+
+    /// Pending timeline pan delta (`ms`) requested during this render pass.
+    pub fn requested_pan_delta_ms(&self) -> Option<i64> {
+        self.requested_pan_delta_ms.get()
+    }
+
+    /// Request snapping the global Master Timeline `[start, end]` to `[start_utc_ms, end_utc_ms]`.
+    pub fn request_viewport_range_ms(&self, start_utc_ms: i64, end_utc_ms: i64) {
+        self.requested_viewport_range_ms
+            .set(Some((start_utc_ms, end_utc_ms)));
+    }
+
+    /// Pending timeline viewport range `(start_utc_ms, end_utc_ms)` requested during this render pass.
+    pub fn requested_viewport_range_ms(&self) -> Option<(i64, i64)> {
+        self.requested_viewport_range_ms.get()
     }
 
     /// Returns the active inspection cursor (`hover_utc_ms` if hovering, else `setpoint_utc_ms`).

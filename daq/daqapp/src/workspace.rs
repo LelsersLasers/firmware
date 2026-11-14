@@ -66,6 +66,9 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     let next_hover_ms = view.hover_utc_ms();
     let next_hover_dist = view.hover_distance_m();
     let requested_setpoint_ms = view.requested_setpoint_utc_ms();
+    let requested_zoom = view.requested_zoom();
+    let requested_pan_delta_ms = view.requested_pan_delta_ms();
+    let requested_viewport_range_ms = view.requested_viewport_range_ms();
 
     if hover_touched {
         app.hover_utc_ms = next_hover_ms;
@@ -73,6 +76,22 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     } else {
         app.hover_utc_ms = None;
         app.hover_distance_m = None;
+    }
+    if let Some((start_ms, end_ms)) = requested_viewport_range_ms {
+        app.router.timeline_mut().snap_to_range_ms(start_ms, end_ms);
+    }
+    if let Some((anchor_ms, zoom_factor)) = requested_zoom {
+        app.router
+            .timeline_mut()
+            .zoom_around_ms(anchor_ms, zoom_factor);
+    }
+    if let Some(delta_ms) = requested_pan_delta_ms {
+        let next_start_ms = app
+            .router
+            .timeline()
+            .start_utc_ms()
+            .saturating_add(delta_ms);
+        app.router.timeline_mut().pan_to_start_ms(next_start_ms);
     }
     if let Some(setpoint_ms) = requested_setpoint_ms {
         app.router
@@ -593,5 +612,113 @@ mod tests {
                 screen_rect
             );
         }
+
+        // Verify scrolling over the Scope pane zooms the MasterTimeline
+        let initial_span_ms =
+            router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
+        let zoom_view =
+            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let zoom_input = eframe::egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events: vec![
+                eframe::egui::Event::PointerMoved(eframe::egui::pos2(300.0, 220.0)),
+                eframe::egui::Event::MouseWheel {
+                    unit: eframe::egui::MouseWheelUnit::Point,
+                    delta: eframe::egui::vec2(0.0, 24.0),
+                    modifiers: eframe::egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run(zoom_input, |ctx| {
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::NONE)
+                .show(ctx, |ui| {
+                    let mut behavior = WorkspaceTileBehavior {
+                        view: &zoom_view,
+                        bus_load: &bus_load,
+                        action_queue: &mut action_queue,
+                        database: Some(&db),
+                        ui_to_can_tx: tx.clone(),
+                        formatter: &formatter,
+                    };
+                    tree.ui(&mut behavior, ui);
+                });
+        });
+        let (anchor_ms, factor) = zoom_view
+            .requested_zoom()
+            .expect("Scrolling on Scope should request MasterTimeline zoom");
+        assert!(factor < 1.0, "Positive scroll wheel should zoom in");
+        router.timeline_mut().zoom_around_ms(anchor_ms, factor);
+        let zoomed_span_ms =
+            router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
+        assert!(
+            zoomed_span_ms < initial_span_ms,
+            "MasterTimeline span should shrink after zooming on Scope ({zoomed_span_ms} vs {initial_span_ms})"
+        );
+
+        // Verify left-clicking and dragging horizontally on Scope pans the MasterTimeline
+        let press_view =
+            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let press_input = eframe::egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events: vec![
+                eframe::egui::Event::PointerMoved(eframe::egui::pos2(300.0, 220.0)),
+                eframe::egui::Event::PointerButton {
+                    pos: eframe::egui::pos2(300.0, 220.0),
+                    button: eframe::egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run(press_input, |ctx| {
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::NONE)
+                .show(ctx, |ui| {
+                    let mut behavior = WorkspaceTileBehavior {
+                        view: &press_view,
+                        bus_load: &bus_load,
+                        action_queue: &mut action_queue,
+                        database: Some(&db),
+                        ui_to_can_tx: tx.clone(),
+                        formatter: &formatter,
+                    };
+                    tree.ui(&mut behavior, ui);
+                });
+        });
+
+        let pan_view =
+            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let drag_input = eframe::egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events: vec![eframe::egui::Event::PointerMoved(eframe::egui::pos2(
+                240.0, 220.0,
+            ))],
+            ..Default::default()
+        };
+        let _ = ctx.run(drag_input, |ctx| {
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::NONE)
+                .show(ctx, |ui| {
+                    let mut behavior = WorkspaceTileBehavior {
+                        view: &pan_view,
+                        bus_load: &bus_load,
+                        action_queue: &mut action_queue,
+                        database: Some(&db),
+                        ui_to_can_tx: tx.clone(),
+                        formatter: &formatter,
+                    };
+                    tree.ui(&mut behavior, ui);
+                });
+        });
+        let pan_delta_ms = pan_view
+            .requested_pan_delta_ms()
+            .expect("Dragging horizontally on Scope should request MasterTimeline pan");
+        assert!(
+            pan_delta_ms > 0,
+            "Dragging left should shift the timeline window forward in time (got {pan_delta_ms})"
+        );
     }
 }

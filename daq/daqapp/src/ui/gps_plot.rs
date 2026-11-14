@@ -59,6 +59,7 @@ impl GpsPlot {
         self.overlay_signal = Some((signal_id, unit));
     }
 
+    #[cfg(test)]
     pub fn overlay_signal(&self) -> Option<&(String, String)> {
         self.overlay_signal.as_ref()
     }

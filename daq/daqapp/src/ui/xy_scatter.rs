@@ -381,6 +381,8 @@ impl XYScatter {
         let mut plot = egui_plot::Plot::new(("xy_scatter_plot", self.instance_num))
             .width(plot_width)
             .height(plot_height)
+            .allow_boxed_zoom(false)
+            .allow_scroll(false)
             .x_axis_label(x_axis_label)
             .y_axis_label(y_axis_label);
         if self.equal_aspect {
@@ -494,6 +496,14 @@ impl XYScatter {
                     .radius(6.2_f32)
                     .color(eframe::egui::Color32::from_rgb(130, 235, 255)),
                 );
+            }
+
+            if plot_ui.response().hovered() {
+                let scroll_y = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                if scroll_y.abs() > 0.5 {
+                    let factor = if scroll_y > 0.0 { 1.25_f32 } else { 0.8_f32 };
+                    plot_ui.zoom_bounds_around_hovered(eframe::egui::vec2(factor, factor));
+                }
             }
 
             // Interactive hover & click-to-setpoint on nearest point
