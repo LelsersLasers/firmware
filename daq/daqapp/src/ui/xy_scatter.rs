@@ -110,6 +110,14 @@ impl XYScatter {
         )
     }
 
+    pub fn is_custom_title(&self) -> bool {
+        self.custom_title
+    }
+
+    pub fn set_custom_title(&mut self, custom_title: bool) {
+        self.custom_title = custom_title;
+    }
+
     pub fn set_axis_signal(&mut self, slot: ScatterAxisSlot, signal_id: String) {
         match slot {
             ScatterAxisSlot::X => self.x_signal = signal_id,
@@ -278,7 +286,8 @@ impl XYScatter {
                 y_vals = aligned_xyz.y_values;
                 z_vals = Some(aligned_xyz.z_values);
             } else {
-                let aligned_xy = daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
+                let aligned_xy =
+                    daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
                 timestamps_ms = aligned_xy.timestamps_ms;
                 x_vals = aligned_xy.x_values;
                 y_vals = aligned_xy.y_values;
@@ -359,15 +368,9 @@ impl XYScatter {
                 } else {
                     z_unit.as_str()
                 };
-                ui.colored_label(
-                    scalar_to_color(0.0),
-                    format!("■ {z_min:.1}{z_u}"),
-                );
+                ui.colored_label(scalar_to_color(0.0), format!("■ {z_min:.1}{z_u}"));
                 ui.label(format!(".. {z_sig} .."));
-                ui.colored_label(
-                    scalar_to_color(1.0),
-                    format!("■ {z_max:.1}{z_u}"),
-                );
+                ui.colored_label(scalar_to_color(1.0), format!("■ {z_max:.1}{z_u}"));
             }
         });
 
@@ -398,9 +401,12 @@ impl XYScatter {
             if self.show_g_rings {
                 for (label, ring) in &self.ring_points {
                     plot_ui.line(
-                        egui_plot::Line::new(label.clone(), egui_plot::PlotPoints::from(ring.clone()))
-                            .color(text_color.linear_multiply(0.18))
-                            .allow_hover(false),
+                        egui_plot::Line::new(
+                            label.clone(),
+                            egui_plot::PlotPoints::from(ring.clone()),
+                        )
+                        .color(text_color.linear_multiply(0.18))
+                        .allow_hover(false),
                     );
                 }
             }
@@ -420,11 +426,7 @@ impl XYScatter {
                     }
                     let t = (bin_idx as f32) / ((GRADIENT_BINS - 1) as f32);
                     let color = scalar_to_color(t).gamma_multiply(0.78);
-                    plot_ui.points(
-                        egui_plot::Points::new("", pts)
-                            .radius(2.4_f32)
-                            .color(color),
-                    );
+                    plot_ui.points(egui_plot::Points::new("", pts).radius(2.4_f32).color(color));
                 }
             } else if !timestamps_ms.is_empty() {
                 let all_pts: Vec<[f64; 2]> = x_vals
@@ -433,13 +435,9 @@ impl XYScatter {
                     .zip(y_vals.iter().copied())
                     .map(|(x, y)| [x, y])
                     .collect();
-                plot_ui.points(
-                    egui_plot::Points::new("", all_pts)
-                        .radius(2.3_f32)
-                        .color(eframe::egui::Color32::from_rgba_unmultiplied(
-                            80, 190, 255, 150,
-                        )),
-                );
+                plot_ui.points(egui_plot::Points::new("", all_pts).radius(2.3_f32).color(
+                    eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 150),
+                ));
             }
 
             // Recent comet trail leading up to playhead (`setpoint_ms`)
@@ -448,9 +446,8 @@ impl XYScatter {
                 let lo = timestamps_ms.partition_point(|&t| t < trail_start);
                 let hi = timestamps_ms.partition_point(|&t| t <= setpoint_ms);
                 if lo < hi {
-                    let comet_pts: Vec<[f64; 2]> = (lo..hi)
-                        .map(|i| [x_vals[i], y_vals[i]])
-                        .collect();
+                    let comet_pts: Vec<[f64; 2]> =
+                        (lo..hi).map(|i| [x_vals[i], y_vals[i]]).collect();
                     plot_ui.line(
                         egui_plot::Line::new("", comet_pts.clone())
                             .color(eframe::egui::Color32::from_rgba_unmultiplied(
@@ -469,12 +466,9 @@ impl XYScatter {
                 // Playhead marker
                 let play_idx = hi.saturating_sub(1).min(timestamps_ms.len() - 1);
                 plot_ui.points(
-                    egui_plot::Points::new(
-                        "Playhead",
-                        vec![[x_vals[play_idx], y_vals[play_idx]]],
-                    )
-                    .radius(5.8_f32)
-                    .color(eframe::egui::Color32::YELLOW),
+                    egui_plot::Points::new("Playhead", vec![[x_vals[play_idx], y_vals[play_idx]]])
+                        .radius(5.8_f32)
+                        .color(eframe::egui::Color32::YELLOW),
                 );
             }
 
@@ -487,12 +481,9 @@ impl XYScatter {
                     .saturating_sub(1)
                     .min(timestamps_ms.len() - 1);
                 plot_ui.points(
-                    egui_plot::Points::new(
-                        "Linked Cursor",
-                        vec![[x_vals[h_idx], y_vals[h_idx]]],
-                    )
-                    .radius(6.2_f32)
-                    .color(eframe::egui::Color32::from_rgb(130, 235, 255)),
+                    egui_plot::Points::new("Linked Cursor", vec![[x_vals[h_idx], y_vals[h_idx]]])
+                        .radius(6.2_f32)
+                        .color(eframe::egui::Color32::from_rgb(130, 235, 255)),
                 );
             }
 

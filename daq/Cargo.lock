@@ -1230,6 +1230,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 name = "daqapp-rust"
 version = "26.0.0"
 dependencies = [
+ "base64 0.22.1",
  "bytemuck",
  "chrono",
  "daqcore",
@@ -1238,8 +1239,10 @@ dependencies = [
  "egui_plot",
  "egui_tiles",
  "env_logger",
+ "flate2",
  "globset",
  "hashbrown 0.16.1",
+ "indexmap",
  "log",
  "rfd",
  "rusb",

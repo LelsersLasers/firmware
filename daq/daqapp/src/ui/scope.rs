@@ -2,21 +2,25 @@ use crate::{app, ui, workspace_view};
 use std::fs;
 
 pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
-    eframe::egui::Color32::from_rgb(80, 190, 255),  // Sky Blue
-    eframe::egui::Color32::from_rgb(255, 160, 60),  // Amber Orange
+    eframe::egui::Color32::from_rgb(80, 190, 255), // Sky Blue
+    eframe::egui::Color32::from_rgb(255, 160, 60), // Amber Orange
     eframe::egui::Color32::from_rgb(100, 230, 140), // Mint Green
     eframe::egui::Color32::from_rgb(235, 110, 245), // Orchid Purple
-    eframe::egui::Color32::from_rgb(255, 95, 105),  // Coral Red
-    eframe::egui::Color32::from_rgb(70, 225, 220),  // Teal Cyan
-    eframe::egui::Color32::from_rgb(250, 220, 80),  // Warm Yellow
+    eframe::egui::Color32::from_rgb(255, 95, 105), // Coral Red
+    eframe::egui::Color32::from_rgb(70, 225, 220), // Teal Cyan
+    eframe::egui::Color32::from_rgb(250, 220, 80), // Warm Yellow
     eframe::egui::Color32::from_rgb(165, 140, 255), // Periwinkle
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScopeXAxisMode {
     #[default]
+    #[serde(alias = "utc", alias = "time")]
     UtcTime,
+    #[serde(alias = "elapsed")]
     ElapsedTime,
+    #[serde(alias = "distance")]
     TrackDistance,
 }
 
@@ -218,9 +222,42 @@ impl Scope {
         }
     }
 
-    #[cfg(test)]
+    pub fn new_configured(
+        instance_num: usize,
+        title: String,
+        custom_title: bool,
+        channels: Vec<ScopeChannel>,
+        x_axis_mode: ScopeXAxisMode,
+        speed_signal_id: String,
+        y_bounds_override: Option<(f64, f64)>,
+    ) -> Self {
+        let mut s = Self {
+            title,
+            instance_num,
+            custom_title,
+            channels,
+            picker_target: None,
+            search_query: String::new(),
+            x_axis_mode,
+            speed_signal_id,
+            y_bounds_override,
+        };
+        if !custom_title {
+            s.refresh_title();
+        }
+        s
+    }
+
     pub fn channels(&self) -> &[ScopeChannel] {
         &self.channels
+    }
+
+    pub fn is_custom_title(&self) -> bool {
+        self.custom_title
+    }
+
+    pub fn y_bounds_override(&self) -> Option<(f64, f64)> {
+        self.y_bounds_override
     }
 
     pub fn add_channel(
@@ -381,9 +418,7 @@ impl Scope {
         }
 
         if self.channels.is_empty() || self.picker_target.is_some() {
-            let target = self
-                .picker_target
-                .unwrap_or(ScopePickerTarget::AddChannel);
+            let target = self.picker_target.unwrap_or(ScopePickerTarget::AddChannel);
             self.show_picker(ui, target, database, view);
             return egui_tiles::UiResponse::None;
         }
@@ -513,7 +548,8 @@ impl Scope {
 
         // Query data and compute per-channel statistics & unit bounds.
         let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
-        let mut unit_bounds: Vec<(f64, f64)> = vec![(f64::INFINITY, f64::NEG_INFINITY); unit_groups.len()];
+        let mut unit_bounds: Vec<(f64, f64)> =
+            vec![(f64::INFINITY, f64::NEG_INFINITY); unit_groups.len()];
 
         // Prepared traces to plot (before unit affine normalization):
         let mut raw_traces: Vec<PreparedTrace> = Vec::new();
@@ -570,7 +606,8 @@ impl Scope {
                                 ch_cnt += 1;
                             }
                         }
-                        if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty() {
+                        if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty()
+                        {
                             primary_distance_lookup = Some((
                                 ann_start_ms,
                                 dist_series.timestamps_ms.clone(),
@@ -595,8 +632,11 @@ impl Scope {
                     } else {
                         let ann_dur_s = ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
                         max_x_bound = max_x_bound.max(ann_dur_s);
-                        let series =
-                            view.query_signal_range(&ch.signal_id, ann_start_ms..=ann_end_ms, ann_res);
+                        let series = view.query_signal_range(
+                            &ch.signal_id,
+                            ann_start_ms..=ann_end_ms,
+                            ann_res,
+                        );
                         if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
                             ch_min = ch_min.min(s_min);
                             ch_max = ch_max.max(s_max);
@@ -826,7 +866,10 @@ impl Scope {
                         let phys = tf.plot_to_phys(mark.value);
                         let phys_step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
                         let decimals = (-phys_step.log10().floor() as isize).clamp(0, 3) as usize;
-                        eframe::egui::emath::format_with_decimals_in_range(phys, decimals..=decimals)
+                        eframe::egui::emath::format_with_decimals_in_range(
+                            phys,
+                            decimals..=decimals,
+                        )
                     });
                 if multi_unit && !unit_name.is_empty() {
                     hints = hints.label(unit_name.clone());
@@ -843,9 +886,11 @@ impl Scope {
         } else {
             match x_axis_mode {
                 ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
-                ScopeXAxisMode::TrackDistance => primary_distance_lookup
-                    .as_ref()
-                    .and_then(|(_, ts, ds)| interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())),
+                ScopeXAxisMode::TrackDistance => {
+                    primary_distance_lookup.as_ref().and_then(|(_, ts, ds)| {
+                        interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())
+                    })
+                }
             }
         };
 
@@ -903,93 +948,77 @@ impl Scope {
             plot = plot.legend(egui_plot::Legend::default());
         }
         plot.show(ui, |plot_ui| {
-                plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
-                plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
+            plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
+            plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
 
-                for trace in raw_traces {
-                    let tf = unit_transforms[trace.unit_idx];
-                    let fill_color = trace.color.gamma_multiply(0.22);
-                    let band_stroke =
-                        eframe::egui::Stroke::new(0.5_f32, trace.color.gamma_multiply(0.35));
+            for trace in raw_traces {
+                let tf = unit_transforms[trace.unit_idx];
+                let fill_color = trace.color.gamma_multiply(0.22);
+                let band_stroke =
+                    eframe::egui::Stroke::new(0.5_f32, trace.color.gamma_multiply(0.35));
 
-                    for quad in trace.envelope_bands {
-                        let mapped_quad = vec![
-                            [quad[0][0], tf.phys_to_plot(quad[0][1])],
-                            [quad[1][0], tf.phys_to_plot(quad[1][1])],
-                            [quad[2][0], tf.phys_to_plot(quad[2][1])],
-                            [quad[3][0], tf.phys_to_plot(quad[3][1])],
-                        ];
-                        plot_ui.polygon(
-                            egui_plot::Polygon::new("", mapped_quad)
-                                .fill_color(fill_color)
-                                .stroke(band_stroke)
-                                .allow_hover(false),
-                        );
-                    }
-
-                    let mapped_pts: Vec<[f64; 2]> = trace
-                        .mean_points
-                        .into_iter()
-                        .map(|[x, y]| [x, tf.phys_to_plot(y)])
-                        .collect();
-
-                    plot_ui.line(
-                        egui_plot::Line::new(trace.name, egui_plot::PlotPoints::from(mapped_pts))
-                            .color(trace.color)
-                            .style(trace.style),
+                for quad in trace.envelope_bands {
+                    let mapped_quad = vec![
+                        [quad[0][0], tf.phys_to_plot(quad[0][1])],
+                        [quad[1][0], tf.phys_to_plot(quad[1][1])],
+                        [quad[2][0], tf.phys_to_plot(quad[2][1])],
+                        [quad[3][0], tf.phys_to_plot(quad[3][1])],
+                    ];
+                    plot_ui.polygon(
+                        egui_plot::Polygon::new("", mapped_quad)
+                            .fill_color(fill_color)
+                            .stroke(band_stroke)
+                            .allow_hover(false),
                     );
                 }
 
-                if let Some(px) = playhead_x {
-                    plot_ui.vline(
-                        egui_plot::VLine::new("", px)
-                            .color(eframe::egui::Color32::YELLOW)
-                            .width(1.5_f32),
-                    );
-                }
+                let mapped_pts: Vec<[f64; 2]> = trace
+                    .mean_points
+                    .into_iter()
+                    .map(|[x, y]| [x, tf.phys_to_plot(y)])
+                    .collect();
 
-                if let Some(hx) = hover_x
-                    && hx >= 0.0
-                    && hx <= max_x_bound
-                {
-                    plot_ui.vline(
-                        egui_plot::VLine::new("", hx)
-                            .color(eframe::egui::Color32::from_rgba_unmultiplied(
-                                180, 235, 255, 210,
-                            ))
-                            .style(egui_plot::LineStyle::dashed_dense()),
-                    );
-                }
+                plot_ui.line(
+                    egui_plot::Line::new(trace.name, egui_plot::PlotPoints::from(mapped_pts))
+                        .color(trace.color)
+                        .style(trace.style),
+                );
+            }
 
-                let mut pointer_utc_ms: Option<i64> = None;
-                let mut pointer_plot_y: Option<f64> = None;
-                if plot_ui.response().hovered()
-                    && let Some(coord) = plot_ui.pointer_coordinate()
-                {
-                    pointer_plot_y = Some(coord.y);
-                    let clamped_x = coord.x.clamp(0.0, max_x_bound);
-                    match x_axis_mode {
-                        ScopeXAxisMode::TrackDistance => {
-                            view.set_hover_distance_m(Some(clamped_x));
-                            if let Some((_, ts, ds)) = &primary_distance_lookup
-                                && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
-                            {
-                                view.set_hover_utc_ms(Some(utc_ms));
-                                pointer_utc_ms = Some(utc_ms);
-                                if plot_ui.response().clicked() {
-                                    view.request_setpoint_utc_ms(utc_ms);
-                                }
-                            }
-                        }
-                        ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
-                            let ref_start_ms = if is_comparison {
-                                comparison_annotations
-                                    .first()
-                                    .map_or(start_ms, |a| a.start_utc_ms)
-                            } else {
-                                start_ms
-                            };
-                            let utc_ms = ref_start_ms + (clamped_x * 1000.0).round() as i64;
+            if let Some(px) = playhead_x {
+                plot_ui.vline(
+                    egui_plot::VLine::new("", px)
+                        .color(eframe::egui::Color32::YELLOW)
+                        .width(1.5_f32),
+                );
+            }
+
+            if let Some(hx) = hover_x
+                && hx >= 0.0
+                && hx <= max_x_bound
+            {
+                plot_ui.vline(
+                    egui_plot::VLine::new("", hx)
+                        .color(eframe::egui::Color32::from_rgba_unmultiplied(
+                            180, 235, 255, 210,
+                        ))
+                        .style(egui_plot::LineStyle::dashed_dense()),
+                );
+            }
+
+            let mut pointer_utc_ms: Option<i64> = None;
+            let mut pointer_plot_y: Option<f64> = None;
+            if plot_ui.response().hovered()
+                && let Some(coord) = plot_ui.pointer_coordinate()
+            {
+                pointer_plot_y = Some(coord.y);
+                let clamped_x = coord.x.clamp(0.0, max_x_bound);
+                match x_axis_mode {
+                    ScopeXAxisMode::TrackDistance => {
+                        view.set_hover_distance_m(Some(clamped_x));
+                        if let Some((_, ts, ds)) = &primary_distance_lookup
+                            && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
+                        {
                             view.set_hover_utc_ms(Some(utc_ms));
                             pointer_utc_ms = Some(utc_ms);
                             if plot_ui.response().clicked() {
@@ -997,74 +1026,89 @@ impl Scope {
                             }
                         }
                     }
-                }
-
-                // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
-                // selected window; it never changes the MasterTimeline X range.
-                if plot_ui.response().double_clicked() {
-                    next_y_override = None;
-                    plot_ui.set_plot_bounds_y(primary_min..=primary_max);
-                }
-
-                if !is_comparison {
-                    let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
-                    let anchor_ms =
-                        pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
-
-                    if plot_ui.response().hovered() {
-                        let (scroll, zoom_delta, shift_held) = plot_ui.ctx().input(|i| {
-                            (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift)
-                        });
-                        if shift_held && scroll.y.abs() > 0.5 {
-                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
-                            let cur_span = (active_y_max - active_y_min).max(1e-6);
-                            let new_span = (cur_span * factor).clamp(1e-4, 1e9);
-                            let anchor_y = pointer_plot_y
-                                .unwrap_or((active_y_min + active_y_max) * 0.5)
-                                .clamp(active_y_min, active_y_max);
-                            let ratio = (anchor_y - active_y_min) / cur_span;
-                            let new_lo = anchor_y - ratio * new_span;
-                            next_y_override = Some((new_lo, new_lo + new_span));
-                        } else if (zoom_delta - 1.0).abs() > 1e-3 {
-                            let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
-                            view.request_zoom_around_ms(anchor_ms, factor);
-                        } else if scroll.y.abs() > 0.5 {
-                            let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
-                            view.request_zoom_around_ms(anchor_ms, factor);
-                        }
-                        if scroll.x.abs() > 0.5 {
-                            let delta_ms = (-(scroll.x as f64) / (plot_width as f64) * span_ms)
-                                .round() as i64;
-                            view.request_pan_delta_ms(delta_ms);
+                    ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
+                        let ref_start_ms = if is_comparison {
+                            comparison_annotations
+                                .first()
+                                .map_or(start_ms, |a| a.start_utc_ms)
+                        } else {
+                            start_ms
+                        };
+                        let utc_ms = ref_start_ms + (clamped_x * 1000.0).round() as i64;
+                        view.set_hover_utc_ms(Some(utc_ms));
+                        pointer_utc_ms = Some(utc_ms);
+                        if plot_ui.response().clicked() {
+                            view.request_setpoint_utc_ms(utc_ms);
                         }
                     }
+                }
+            }
 
-                    let plot_rect = plot_ui.response().rect;
-                    let drag_dx = if plot_ui
-                        .response()
-                        .dragged_by(eframe::egui::PointerButton::Primary)
-                    {
-                        plot_ui.response().drag_delta().x
-                    } else {
-                        plot_ui.ctx().input(|i| {
-                            if i.pointer.primary_down()
-                                && i.pointer
-                                    .press_origin()
-                                    .is_some_and(|origin| plot_rect.contains(origin))
-                            {
-                                i.pointer.delta().x
-                            } else {
-                                0.0
-                            }
-                        })
-                    };
-                    if drag_dx.abs() > 0.0 {
+            // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
+            // selected window; it never changes the MasterTimeline X range.
+            if plot_ui.response().double_clicked() {
+                next_y_override = None;
+                plot_ui.set_plot_bounds_y(primary_min..=primary_max);
+            }
+
+            if !is_comparison {
+                let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
+                let anchor_ms = pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
+
+                if plot_ui.response().hovered() {
+                    let (scroll, zoom_delta, shift_held) = plot_ui
+                        .ctx()
+                        .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
+                    if shift_held && scroll.y.abs() > 0.5 {
+                        let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                        let cur_span = (active_y_max - active_y_min).max(1e-6);
+                        let new_span = (cur_span * factor).clamp(1e-4, 1e9);
+                        let anchor_y = pointer_plot_y
+                            .unwrap_or((active_y_min + active_y_max) * 0.5)
+                            .clamp(active_y_min, active_y_max);
+                        let ratio = (anchor_y - active_y_min) / cur_span;
+                        let new_lo = anchor_y - ratio * new_span;
+                        next_y_override = Some((new_lo, new_lo + new_span));
+                    } else if (zoom_delta - 1.0).abs() > 1e-3 {
+                        let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
+                        view.request_zoom_around_ms(anchor_ms, factor);
+                    } else if scroll.y.abs() > 0.5 {
+                        let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
+                        view.request_zoom_around_ms(anchor_ms, factor);
+                    }
+                    if scroll.x.abs() > 0.5 {
                         let delta_ms =
-                            (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
+                            (-(scroll.x as f64) / (plot_width as f64) * span_ms).round() as i64;
                         view.request_pan_delta_ms(delta_ms);
                     }
                 }
-            });
+
+                let plot_rect = plot_ui.response().rect;
+                let drag_dx = if plot_ui
+                    .response()
+                    .dragged_by(eframe::egui::PointerButton::Primary)
+                {
+                    plot_ui.response().drag_delta().x
+                } else {
+                    plot_ui.ctx().input(|i| {
+                        if i.pointer.primary_down()
+                            && i.pointer
+                                .press_origin()
+                                .is_some_and(|origin| plot_rect.contains(origin))
+                        {
+                            i.pointer.delta().x
+                        } else {
+                            0.0
+                        }
+                    })
+                };
+                if drag_dx.abs() > 0.0 {
+                    let delta_ms =
+                        (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
+                    view.request_pan_delta_ms(delta_ms);
+                }
+            }
+        });
         self.y_bounds_override = next_y_override;
 
         egui_tiles::UiResponse::None
@@ -1165,8 +1209,7 @@ pub fn build_envelope_quads(
     }
 
     let step = buckets.len().div_ceil(pixels.max(64)).max(1);
-    let mut sampled: Vec<&daqcore::router::EnvelopePoint> =
-        buckets.iter().step_by(step).collect();
+    let mut sampled: Vec<&daqcore::router::EnvelopePoint> = buckets.iter().step_by(step).collect();
     if let Some(last) = buckets.last()
         && sampled.last().is_none_or(|b| b.utc_ms != last.utc_ms)
     {
@@ -1180,21 +1223,13 @@ pub fn build_envelope_quads(
         if b1.utc_ms <= b0.utc_ms || b1.utc_ms - b0.utc_ms > max_gap_ms {
             continue;
         }
-        if !b0.min.is_finite()
-            || !b0.max.is_finite()
-            || !b1.min.is_finite()
-            || !b1.max.is_finite()
+        if !b0.min.is_finite() || !b0.max.is_finite() || !b1.min.is_finite() || !b1.max.is_finite()
         {
             continue;
         }
         let t0 = ((b0.utc_ms - start_ms) as f64) / 1000.0;
         let t1 = ((b1.utc_ms - start_ms) as f64) / 1000.0;
-        quads.push([
-            [t0, b0.min],
-            [t1, b1.min],
-            [t1, b1.max],
-            [t0, b0.max],
-        ]);
+        quads.push([[t0, b0.min], [t1, b1.min], [t1, b1.max], [t0, b0.max]]);
     }
     quads
 }

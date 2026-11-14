@@ -12,6 +12,7 @@ mod widget_constructor;
 mod widget_ids;
 mod widgets;
 mod workspace;
+mod workspace_io;
 mod workspace_view;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
