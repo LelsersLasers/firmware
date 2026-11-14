@@ -229,9 +229,9 @@ impl GpsPlot {
                         format!("■ {min_v:.1}{unit_str}"),
                     );
                     if let Some(cur_v) = cursor_overlay_val {
-                        ui.label(format!("→ {sig_id} ({cur_v:.2}{unit_str}) →"));
+                        ui.label(format!(".. {sig_id} ({cur_v:.2}{unit_str}) .."));
                     } else {
-                        ui.label(format!("→ {sig_id} →"));
+                        ui.label(format!(".. {sig_id} .."));
                     }
                     ui.colored_label(
                         ui::xy_scatter::scalar_to_color(1.0),

@@ -352,7 +352,7 @@ impl XYScatter {
                     scalar_to_color(0.0),
                     format!("■ {z_min:.1}{z_u}"),
                 );
-                ui.label(format!("→ {z_sig} →"));
+                ui.label(format!(".. {z_sig} .."));
                 ui.colored_label(
                     scalar_to_color(1.0),
                     format!("■ {z_max:.1}{z_u}"),
