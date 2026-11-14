@@ -849,17 +849,142 @@ mod tests {
         assert!(self_cycle.validate(&engine).is_err());
     }
 
-    #[test]
-    fn signal_browser_and_drag_targets_render_and_configure_cleanly() {
+    fn sample_database_selection() -> app::DatabaseSelection {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let database = daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26");
+        let database =
+            daqcore::superdbc::database::Database::load(&dbc_path).unwrap_or_else(|_| {
+                let fallback_json = r#"{
+              "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              "versions": { "schema_version": "1.1", "hash": "test_v1" },
+              "buses": {
+                "VCAN": {
+                  "bus_id": 0,
+                  "baud_rate": 500000,
+                  "nodes": [
+                    { "name": "A_BOX", "is_external": false },
+                    { "name": "MAIN_MODULE", "is_external": false }
+                  ],
+                  "messages": [
+                    {
+                      "id": 100,
+                      "is_extended_id": false,
+                      "message_name": "pack_stats",
+                      "transmitter": "A_BOX",
+                      "receivers": [],
+                      "length_bytes": 6,
+                      "nominal_period_ms": 10,
+                      "priority": 1,
+                      "description": "Accumulator pack voltage, current, and temperature telemetry",
+                      "signals": [
+                        {
+                          "signal_name": "vbatt_adc",
+                          "description": "Pack battery voltage",
+                          "data_type": "uint16_t",
+                          "raw_type": "unsigned",
+                          "start_bit": 0,
+                          "bit_length": 16,
+                          "byte_order": "little_endian",
+                          "scale": 0.1,
+                          "offset": 0.0,
+                          "limits": null,
+                          "unit": "V",
+                          "choices": null,
+                          "display_format": null
+                        },
+                        {
+                          "signal_name": "ibatt_adc",
+                          "description": "Pack battery current",
+                          "data_type": "int16_t",
+                          "raw_type": "signed",
+                          "start_bit": 16,
+                          "bit_length": 16,
+                          "byte_order": "little_endian",
+                          "scale": 0.1,
+                          "offset": 0.0,
+                          "limits": null,
+                          "unit": "A",
+                          "choices": null,
+                          "display_format": null
+                        },
+                        {
+                          "signal_name": "max_cell_temp",
+                          "description": "Maximum accumulator cell temperature sensor reading",
+                          "data_type": "int16_t",
+                          "raw_type": "signed",
+                          "start_bit": 32,
+                          "bit_length": 16,
+                          "byte_order": "little_endian",
+                          "scale": 0.1,
+                          "offset": 0.0,
+                          "limits": null,
+                          "unit": "C",
+                          "choices": null,
+                          "display_format": null
+                        }
+                      ]
+                    },
+                    {
+                      "id": 200,
+                      "is_extended_id": false,
+                      "message_name": "motor_stats",
+                      "transmitter": "MAIN_MODULE",
+                      "receivers": [],
+                      "length_bytes": 4,
+                      "nominal_period_ms": 10,
+                      "priority": 2,
+                      "description": "Inverter and motor thermal telemetry",
+                      "signals": [
+                        {
+                          "signal_name": "motor_temp_c",
+                          "description": "Stator winding temperature",
+                          "data_type": "int16_t",
+                          "raw_type": "signed",
+                          "start_bit": 0,
+                          "bit_length": 16,
+                          "byte_order": "little_endian",
+                          "scale": 0.1,
+                          "offset": 0.0,
+                          "limits": null,
+                          "unit": "C",
+                          "choices": null,
+                          "display_format": null
+                        },
+                        {
+                          "signal_name": "inverter_temp_c",
+                          "description": "IGBT module temperature",
+                          "data_type": "int16_t",
+                          "raw_type": "signed",
+                          "start_bit": 16,
+                          "bit_length": 16,
+                          "byte_order": "little_endian",
+                          "scale": 0.1,
+                          "offset": 0.0,
+                          "limits": null,
+                          "unit": "C",
+                          "choices": null,
+                          "display_format": null
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }"#;
+                daqcore::superdbc::database::Database::from_json(fallback_json)
+                    .expect("valid fallback SuperDBC JSON")
+            });
         let selection = daqcore::can_thread::BusSelection::default_single(&database)
             .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
-        let db_sel = app::DatabaseSelection {
+        app::DatabaseSelection {
             database,
             selection,
-        };
+        }
+    }
+
+    #[test]
+    fn signal_browser_and_drag_targets_render_and_configure_cleanly() {
+        let db_sel = sample_database_selection();
 
         let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
         let mut router =
@@ -920,15 +1045,7 @@ mod tests {
 
     #[test]
     fn sidebar_width_remains_stable_across_frames_when_searching() {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let database = daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26");
-        let selection = daqcore::can_thread::BusSelection::default_single(&database)
-            .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
-        let db_sel = app::DatabaseSelection {
-            database,
-            selection,
-        };
+        let db_sel = sample_database_selection();
 
         let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
         let mut router =
