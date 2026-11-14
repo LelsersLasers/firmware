@@ -106,12 +106,23 @@ impl AnnotationDraft {
     }
 }
 
-/// Persistent UI state for the Master Timeline Bar and its Annotation Editor modal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkFilter {
+    All,
+    StintsAndEvents,
+    Partitions,
+    Faults,
+}
+
+/// Persistent UI state for the Master Timeline Bar, Calendar/Subchunk Navigator, and Annotation Editor modal.
 #[derive(Debug, Clone)]
 pub struct TimelineUiState {
     pub editor: Option<AnnotationDraft>,
     pub show_stints: bool,
     pub show_faults: bool,
+    pub show_chunk_navigator: bool,
+    pub chunk_search_query: String,
+    pub chunk_filter: ChunkFilter,
 }
 
 impl Default for TimelineUiState {
@@ -120,6 +131,9 @@ impl Default for TimelineUiState {
             editor: None,
             show_stints: true,
             show_faults: true,
+            show_chunk_navigator: false,
+            chunk_search_query: String::new(),
+            chunk_filter: ChunkFilter::All,
         }
     }
 }
@@ -226,6 +240,13 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
             );
         });
 
+    show_chunk_navigator_window(
+        ctx,
+        &mut app.router,
+        &mut app.timeline_ui,
+        &mut app.diagnostic,
+    );
+
     show_annotation_editor_modal(
         ctx,
         &mut app.router,
@@ -310,6 +331,16 @@ pub fn show_timeline_contents(
         router.timeline().selected_annotation_ids().to_vec();
 
     ui.horizontal_wrapped(|ui| {
+        if ui
+            .selectable_label(timeline_ui.show_chunk_navigator, "📅 Browse Chunks")
+            .on_hover_text(
+                "Open the Calendar & Subchunk Navigator (browse days, SD partitions, driving stints, and annotations)",
+            )
+            .clicked()
+        {
+            timeline_ui.show_chunk_navigator = !timeline_ui.show_chunk_navigator;
+        }
+
         // Track Day ComboBox
         if !track_days.is_empty() {
             let selected_text = active_day_id.as_deref().unwrap_or("All Track Days");
@@ -339,6 +370,40 @@ pub fn show_timeline_contents(
                         }
                     }
                 });
+        }
+
+        // Quick `< Prev Stint` / `Next Stint >` buttons to step sequentially across subchunks
+        if !stint_annotations.is_empty() {
+            let cur_start = router.timeline().start_utc_ms();
+            if ui
+                .small_button("< Stint")
+                .on_hover_text("Jump to previous Driving Stint / Event")
+                .clicked()
+            {
+                let prev = stint_annotations
+                    .iter()
+                    .rev()
+                    .find(|a| a.start_utc_ms < cur_start - 500)
+                    .or_else(|| stint_annotations.last());
+                if let Some(ann) = prev {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
+            if ui
+                .small_button("Stint >")
+                .on_hover_text("Jump to next Driving Stint / Event")
+                .clicked()
+            {
+                let next = stint_annotations
+                    .iter()
+                    .find(|a| a.start_utc_ms > cur_start + 500)
+                    .or_else(|| stint_annotations.first());
+                if let Some(ann) = next {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
         }
 
         let timeline = router.timeline_mut();
@@ -1679,6 +1744,391 @@ pub fn show_annotation_editor_modal(
     }
 }
 
+/// Floating window wrapper for the Calendar & Subchunk Navigator (`📅 Browse Chunks`).
+pub fn show_chunk_navigator_window(
+    ctx: &eframe::egui::Context,
+    router: &mut daqcore::router::VirtualTimelineRouter,
+    timeline_ui: &mut TimelineUiState,
+    diagnostic: &mut Option<String>,
+) {
+    if !timeline_ui.show_chunk_navigator {
+        return;
+    }
+    let mut open = timeline_ui.show_chunk_navigator;
+    eframe::egui::Window::new("📅 Calendar & Subchunk Navigator")
+        .open(&mut open)
+        .default_width(420.0)
+        .default_height(460.0)
+        .resizable(true)
+        .collapsible(true)
+        .show(ctx, |ui| {
+            show_chunk_navigator_contents(ui, router, timeline_ui, diagnostic, 380.0);
+        });
+    timeline_ui.show_chunk_navigator = open;
+}
+
+/// Shared Calendar & Subchunk Navigator view (used in both the floating `📅 Browse Chunks` window
+/// and the collapsible section in the Left Sidebar).
+pub fn show_chunk_navigator_contents(
+    ui: &mut eframe::egui::Ui,
+    router: &mut daqcore::router::VirtualTimelineRouter,
+    timeline_ui: &mut TimelineUiState,
+    diagnostic: &mut Option<String>,
+    max_scroll_height: f32,
+) {
+    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+
+    // Search & Category Filter Header
+    ui.horizontal(|ui| {
+        ui.add(
+            eframe::egui::TextEdit::singleline(&mut timeline_ui.chunk_search_query)
+                .desired_width((ui.available_width() - 28.0).max(60.0))
+                .hint_text("Search date, stint, partition, fault, or note…"),
+        );
+        if !timeline_ui.chunk_search_query.is_empty() && ui.small_button("×").clicked() {
+            timeline_ui.chunk_search_query.clear();
+        }
+    });
+
+    ui.horizontal_wrapped(|ui| {
+        for (filter, lbl) in [
+            (ChunkFilter::All, "All"),
+            (ChunkFilter::StintsAndEvents, "Stints & Events"),
+            (ChunkFilter::Partitions, "Partitions"),
+            (ChunkFilter::Faults, "Faults"),
+        ] {
+            if ui
+                .selectable_label(timeline_ui.chunk_filter == filter, lbl)
+                .clicked()
+            {
+                timeline_ui.chunk_filter = filter;
+            }
+        }
+    });
+    ui.separator();
+
+    let query = timeline_ui.chunk_search_query.trim().to_lowercase();
+    let matches = |text: &str| -> bool {
+        query.is_empty() || text.to_lowercase().contains(&query)
+    };
+
+    // Collect all Track Days, SD Partitions, and Annotations across the entire store
+    let track_days = router.list_track_days().unwrap_or_default();
+    let all_partitions: Vec<(String, String, i64, i64, usize)> = router
+        .partitions()
+        .iter()
+        .map(|p| {
+            (
+                p.track_day_id.clone(),
+                p.partition_id.clone(),
+                p.start_utc_ms,
+                p.end_utc_ms,
+                p.manifest.signals.len(),
+            )
+        })
+        .collect();
+    let all_annotations: Vec<daqcore::storage::Annotation> = router
+        .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+        .unwrap_or_default();
+
+    let mut day_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for td in &track_days {
+        day_ids.insert(td.id.clone());
+    }
+    for (day_id, _, _, _, _) in &all_partitions {
+        day_ids.insert(day_id.clone());
+    }
+    for ann in &all_annotations {
+        day_ids.insert(ann.track_day_id.clone());
+    }
+
+    if day_ids.is_empty() {
+        ui.label(
+            eframe::egui::RichText::new("No recorded sessions or annotations loaded yet.")
+                .italics()
+                .weak(),
+        );
+        return;
+    }
+
+    let cur_win_start = router.timeline().start_utc_ms();
+    let cur_win_end = router.timeline().end_utc_ms();
+    let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
+
+    let mut req_select_day: Option<Option<String>> = None;
+    let mut req_snap_range: Option<(String, i64, i64)> = None;
+    let mut req_single_ann: Option<(String, String, i64, Option<i64>)> = None;
+    let mut req_compare_ann: Option<(String, i64, Option<i64>)> = None;
+    let mut req_edit_ann: Option<daqcore::storage::Annotation> = None;
+    let mut req_delete_ann_id: Option<String> = None;
+    let mut req_jump_fault: Option<(String, i64)> = None;
+
+    eframe::egui::ScrollArea::vertical()
+        .id_salt(("chunk_navigator_scroll", max_scroll_height as i32))
+        .max_height(max_scroll_height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            // Show newest track days first for fast multi-day navigation
+            for day_id in day_ids.into_iter().rev() {
+                let mut day_parts: Vec<&(String, String, i64, i64, usize)> = all_partitions
+                    .iter()
+                    .filter(|(d, p_id, s, e, _)| {
+                        d == &day_id
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::Partitions)
+                            && matches(&format!(
+                                "{day_id} {p_id} {} {}",
+                                daqcore::time::Time::from_unix_millis(*s).label(),
+                                daqcore::time::Time::from_unix_millis(*e).label()
+                            ))
+                    })
+                    .collect();
+                day_parts.sort_by_key(|(_, _, s, _, _)| *s);
+
+                let mut day_stints: Vec<&daqcore::storage::Annotation> = all_annotations
+                    .iter()
+                    .filter(|a| {
+                        a.track_day_id == day_id
+                            && a.category != "fault"
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::StintsAndEvents)
+                            && matches(&format!(
+                                "{day_id} {} {} {}",
+                                a.name,
+                                a.category,
+                                a.notes
+                            ))
+                    })
+                    .collect();
+                day_stints
+                    .sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+
+                let mut day_faults: Vec<&daqcore::storage::Annotation> = all_annotations
+                    .iter()
+                    .filter(|a| {
+                        a.track_day_id == day_id
+                            && a.category == "fault"
+                            && (timeline_ui.chunk_filter == ChunkFilter::All
+                                || timeline_ui.chunk_filter == ChunkFilter::Faults)
+                            && matches(&format!("{day_id} {}", a.name))
+                    })
+                    .collect();
+                day_faults.sort_by_key(|a| a.start_utc_ms);
+
+                if day_parts.is_empty() && day_stints.is_empty() && day_faults.is_empty() {
+                    continue;
+                }
+
+                let day_header = format!(
+                    "📅 {}  ({} stints · {} partitions · {} faults)",
+                    day_id,
+                    day_stints.len(),
+                    day_parts.len(),
+                    day_faults.len()
+                );
+
+                eframe::egui::CollapsingHeader::new(
+                    eframe::egui::RichText::new(day_header).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button("↔ Fit Entire Day")
+                            .on_hover_text("Select this Track Day and zoom out to its full span")
+                            .clicked()
+                        {
+                            req_select_day = Some(Some(day_id.clone()));
+                        }
+                    });
+
+                    // 1. Driving Stints & Event Annotations (Primary Subchunks)
+                    if !day_stints.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("Driving Stints & Events:")
+                                .weak()
+                                .small(),
+                        );
+                        for ann in &day_stints {
+                            let ann_end = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
+                            let dur_s = (ann_end - ann.start_utc_ms).max(0) as f64 / 1000.0;
+                            let start_lbl =
+                                daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label();
+                            let end_lbl = daqcore::time::Time::from_unix_millis(ann_end).label();
+                            let is_active = selected_ann_ids.contains(&ann.id)
+                                || ((cur_win_start - ann.start_utc_ms).abs() <= 1_000
+                                    && (cur_win_end - ann_end).abs() <= 1_000);
+                            let label = if dur_s > 0.0 {
+                                format!("🏷 {}  [{start_lbl} .. {end_lbl} · {dur_s:.1}s]", ann.name)
+                            } else {
+                                format!("📍 {}  [{start_lbl}]", ann.name)
+                            };
+                            let hover = if ann.notes.is_empty() {
+                                "Click to jump viewport to this subchunk".to_owned()
+                            } else {
+                                format!("{}\nClick to jump viewport to this subchunk", ann.notes)
+                            };
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .selectable_label(is_active, label)
+                                    .on_hover_text(hover)
+                                    .clicked()
+                                {
+                                    req_single_ann = Some((
+                                        day_id.clone(),
+                                        ann.id.clone(),
+                                        ann.start_utc_ms,
+                                        ann.end_utc_ms,
+                                    ));
+                                }
+                                if ui
+                                    .small_button(if selected_ann_ids.contains(&ann.id) {
+                                        "-Cmp"
+                                    } else {
+                                        "+Cmp"
+                                    })
+                                    .on_hover_text("Toggle multi-stint Comparison / Overlay Mode")
+                                    .clicked()
+                                {
+                                    req_compare_ann =
+                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                                }
+                                if ui.small_button("Edit").clicked() {
+                                    req_edit_ann = Some((*ann).clone());
+                                }
+                                if ui.small_button("×").clicked() {
+                                    req_delete_ann_id = Some(ann.id.clone());
+                                }
+                            });
+                        }
+                    }
+
+                    // 2. Recorded SD Log Partitions (Session Subchunks)
+                    if !day_parts.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("Recorded Log Partitions (SD Chunks):")
+                                .weak()
+                                .small(),
+                        );
+                        for (_, part_id, p_start, p_end, sig_count) in &day_parts {
+                            let dur_s = (*p_end - *p_start).max(0) as f64 / 1000.0;
+                            let start_lbl = daqcore::time::Time::from_unix_millis(*p_start).label();
+                            let end_lbl = daqcore::time::Time::from_unix_millis(*p_end).label();
+                            let is_active = (cur_win_start - *p_start).abs() <= 1_000
+                                && (cur_win_end - *p_end).abs() <= 1_000;
+                            let lbl = format!(
+                                "• {start_lbl} .. {end_lbl}  ({dur_s:.0}s · {sig_count} signals)"
+                            );
+                            if ui
+                                .selectable_label(is_active, lbl)
+                                .on_hover_text(format!(
+                                    "Partition {part_id}\nClick to snap viewport to this recorded partition"
+                                ))
+                                .clicked()
+                            {
+                                req_snap_range = Some((day_id.clone(), *p_start, *p_end));
+                            }
+                        }
+                    }
+
+                    // 3. Grouped Faults in this Track Day
+                    if !day_faults.is_empty() {
+                        let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> =
+                            Vec::new();
+                        for f in &day_faults {
+                            let short = f
+                                .name
+                                .strip_prefix("Fault: ")
+                                .unwrap_or(&f.name)
+                                .to_owned();
+                            if let Some((_, list)) = grouped.iter_mut().find(|(k, _)| k == &short) {
+                                list.push(*f);
+                            } else {
+                                grouped.push((short, vec![*f]));
+                            }
+                        }
+                        ui.collapsing(
+                            format!(
+                                "⚠ Faults ({} types, {} transitions)",
+                                grouped.len(),
+                                day_faults.len()
+                            ),
+                            |ui| {
+                                for (fault_name, occurrences) in grouped {
+                                    let first_ms = occurrences[0].start_utc_ms;
+                                    let first_lbl =
+                                        daqcore::time::Time::from_unix_millis(first_ms).label();
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .small_button(format!(
+                                                "⚠ {} ({}×, 1st @ {})",
+                                                fault_name,
+                                                occurrences.len(),
+                                                first_lbl
+                                            ))
+                                            .on_hover_text(
+                                                "Click to jump 10s window & playhead to first occurrence",
+                                            )
+                                            .clicked()
+                                        {
+                                            req_jump_fault = Some((day_id.clone(), first_ms));
+                                        }
+                                    });
+                                }
+                            },
+                        );
+                    }
+                });
+            }
+        });
+
+    if let Some(day_opt) = req_select_day {
+        if let Err(err) = router.select_track_day(day_opt) {
+            *diagnostic = Some(format!("Failed to select track day: {err}"));
+        } else if let Some((lo, hi)) = router.timeline().day_bounds_ms() {
+            router.timeline_mut().snap_to_range_ms(lo, hi);
+        }
+    }
+    if let Some((day_id, lo, hi)) = req_snap_range {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        router.timeline_mut().snap_to_range_ms(lo, hi);
+    }
+    if let Some((day_id, ann_id, s, e)) = req_single_ann {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        router.timeline_mut().select_single_annotation(ann_id, s, e);
+    }
+    if let Some((ann_id, s, e)) = req_compare_ann {
+        router
+            .timeline_mut()
+            .toggle_comparison_annotation(ann_id, s, e);
+    }
+    if let Some(ann) = req_edit_ann {
+        timeline_ui.open_edit(&ann);
+    }
+    if let Some(del_id) = req_delete_ann_id {
+        let now_ms = daqcore::time::Time::now().unix_millis();
+        if let Err(err) = router.soft_delete_annotation(&del_id, now_ms) {
+            *diagnostic = Some(format!("Failed to delete annotation: {err}"));
+        }
+    }
+    if let Some((day_id, fault_ms)) = req_jump_fault {
+        if router.timeline().active_track_day_id() != Some(day_id.as_str()) {
+            let _ = router.select_track_day(Some(day_id));
+        }
+        let tl = router.timeline_mut();
+        let half_win = (tl.window_ms() / 2).clamp(2_500, 10_000);
+        tl.snap_to_range_ms(
+            fault_ms.saturating_sub(half_win),
+            fault_ms.saturating_add(half_win),
+        );
+        tl.set_setpoint(daqcore::time::Time::from_unix_millis(fault_ms));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1749,7 +2199,10 @@ mod tests {
         );
         assert!(router.timeline().is_comparison_mode());
 
-        let mut timeline_ui = TimelineUiState::default();
+        let mut timeline_ui = TimelineUiState {
+            show_chunk_navigator: true,
+            ..Default::default()
+        };
         timeline_ui.open_new_at_playhead(&router, true);
         assert!(timeline_ui.editor.is_some());
 
@@ -1781,6 +2234,7 @@ mod tests {
                     );
                 });
                 show_annotation_editor_modal(ctx, &mut router, &mut timeline_ui, &mut diagnostic);
+                show_chunk_navigator_window(ctx, &mut router, &mut timeline_ui, &mut diagnostic);
             });
             assert!(
                 diagnostic.is_none(),

@@ -49,6 +49,21 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
 
     ui.separator();
 
+    eframe::egui::CollapsingHeader::new("📅 Sessions, Stints & Chunks")
+        .id_salt("sidebar_chunk_navigator")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui::timeline::show_chunk_navigator_contents(
+                ui,
+                &mut app.router,
+                &mut app.timeline_ui,
+                &mut app.diagnostic,
+                240.0,
+            );
+        });
+
+    ui.separator();
+
     ui::signal_browser::show_signal_browser(
         ui,
         &mut app.signal_browser,
