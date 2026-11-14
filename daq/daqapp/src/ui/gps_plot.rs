@@ -107,6 +107,7 @@ impl GpsPlot {
         let mut clear_color = false;
         ui.horizontal_wrapped(|ui| {
             let color_badge = match &self.overlay_signal {
+                Some((sig_id, unit)) if !unit.is_empty() => format!("Color: {sig_id} [{unit}]"),
                 Some((sig_id, _)) => format!("Color: {sig_id}"),
                 None => "Color: None (Solid)".to_owned(),
             };

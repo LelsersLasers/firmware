@@ -186,14 +186,26 @@ impl XYScatter {
 
         // Axis slot selector strip
         let mut clear_z = false;
+        let fmt_slot_sig = |sig_id: &str| -> String {
+            let unit = view.resolve_signal_unit(sig_id, database);
+            if unit.is_empty() {
+                sig_id.to_owned()
+            } else {
+                format!("{sig_id} [{unit}]")
+            }
+        };
         ui.horizontal_wrapped(|ui| {
+            let x_lbl = fmt_slot_sig(&self.x_signal);
+            let y_lbl = fmt_slot_sig(&self.y_signal);
+            let z_lbl = self
+                .z_color_signal
+                .as_deref()
+                .map(fmt_slot_sig)
+                .unwrap_or_else(|| "None".to_owned());
             for (slot, current_val) in [
-                (ScatterAxisSlot::X, self.x_signal.as_str()),
-                (ScatterAxisSlot::Y, self.y_signal.as_str()),
-                (
-                    ScatterAxisSlot::ZColor,
-                    self.z_color_signal.as_deref().unwrap_or("None"),
-                ),
+                (ScatterAxisSlot::X, x_lbl.as_str()),
+                (ScatterAxisSlot::Y, y_lbl.as_str()),
+                (ScatterAxisSlot::ZColor, z_lbl.as_str()),
             ] {
                 let is_picking = self.picker_slot == Some(slot);
                 let is_drop = self.active_drop_slot == slot;

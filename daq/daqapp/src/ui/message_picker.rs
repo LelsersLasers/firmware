@@ -10,6 +10,17 @@ pub struct PickedSignal {
     pub is_derived: bool,
 }
 
+impl PickedSignal {
+    /// Formats the picker entry as `"msg.signal [unit]"` (or `"msg.signal"` when unitless).
+    pub fn display_label(&self) -> String {
+        if self.unit.is_empty() {
+            self.signal_id.clone()
+        } else {
+            format!("{} [{}]", self.signal_id, self.unit)
+        }
+    }
+}
+
 pub enum SignalPickerAction {
     None,
     Cancelled,
@@ -156,13 +167,14 @@ pub fn show_signal_picker(
                 return;
             }
             for cand in candidates.into_iter().take(200) {
-                let hover_text = if cand.unit.is_empty() {
-                    cand.signal_id.clone()
+                let button_label = cand.display_label();
+                let hover_text = if cand.is_derived && cand.signal_name != cand.signal_id {
+                    format!("{} — {}", button_label, cand.signal_name)
                 } else {
-                    format!("{} ({})", cand.signal_id, cand.unit)
+                    button_label.clone()
                 };
                 if ui
-                    .add(eframe::egui::Button::new(&cand.signal_id).wrap())
+                    .add(eframe::egui::Button::new(button_label).wrap())
                     .on_hover_text(hover_text)
                     .clicked()
                 {
@@ -264,4 +276,30 @@ pub fn no_database_placeholder(ui: &mut eframe::egui::Ui) {
         ui.label("CMD+S to toggle the sidebar.");
         ui.label("Use the sidebar to select a SuperDBC file and CAN bus.");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picked_signal_display_label_formats_msg_signal_and_unit() {
+        let with_unit = PickedSignal {
+            signal_id: "pedals.throttle".to_owned(),
+            signal_name: "throttle".to_owned(),
+            unit: "%".to_owned(),
+            key: None,
+            is_derived: false,
+        };
+        assert_eq!(with_unit.display_label(), "pedals.throttle [%]");
+
+        let unitless = PickedSignal {
+            signal_id: "VCU_state.state".to_owned(),
+            signal_name: "state".to_owned(),
+            unit: String::new(),
+            key: None,
+            is_derived: false,
+        };
+        assert_eq!(unitless.display_label(), "VCU_state.state");
+    }
 }
