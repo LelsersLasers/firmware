@@ -228,6 +228,69 @@ impl DAQApp {
         Ok(app)
     }
 
+    #[cfg(test)]
+    pub fn new_for_test(ctx: &eframe::egui::Context) -> Self {
+        egui_extras::install_image_loaders(ctx);
+        let theme_selection = ui::theme::ThemeSelection::default();
+        let theme = theme_selection.get_style();
+        ui::theme::store_theme(ctx, theme_selection.get_colors());
+        let (can_to_ui_tx, can_to_ui_rx) = mpsc::channel();
+        let config = daqcore::can_thread::CanThreadConfig {
+            log_folder: None,
+            hil_dir: path::PathBuf::from("hil_config"),
+        };
+        let can_thread =
+            daqcore::can_thread::spawn_can_thread(config, can_to_ui_tx).expect("spawn test can_thread");
+        let router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(1_794_500_000_000),
+            30.0,
+        )
+        .expect("live router");
+
+        Self {
+            connection_status: ConnectionStatus::Disconnected,
+            value_formatter: load_formatter(),
+            is_sidebar_open: true,
+            sidebar_tab: ui::sidebar::SidebarTab::default(),
+            active_workspace_tab: None,
+            show_share_popover: false,
+            command_palette: ui::command_palette::CommandPalette::new(),
+            tile_tree: egui_tiles::Tree::empty("workspace_tree"),
+            widget_ids: widget_ids::WidgetIds::new(),
+            can_to_ui_rx,
+            ui_to_can_tx: can_thread.sender(),
+            can_thread,
+            action_queue: Vec::new(),
+            selected_source: None,
+            theme,
+            theme_selection,
+            pixels_per_point: None,
+            serial_ports: Vec::new(),
+            cannector_available: false,
+            database: None,
+            pending_database: None,
+            selection_request: 0,
+            can_bus_speed: daqcore::connection::CanBusSpeed::Kbps500,
+            udp_port: 5000,
+            router,
+            bus_load_samples: Vec::new(),
+            hover_utc_ms: None,
+            hover_distance_m: None,
+            hil_snapshot: daqcore::hil::engine::HilSnapshot::idle(),
+            active_source: None,
+            diagnostic: None,
+            log_folder: None,
+            timeline_ui: ui::timeline::TimelineUiState::default(),
+            signal_browser: ui::signal_browser::SignalBrowserState::default(),
+            workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
+            workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
+            export_modal: ui::export_modal::ExportModalState::default(),
+            frame_times: std::collections::VecDeque::with_capacity(256),
+            fps: 60.0,
+            frame_time_ms: 16.6,
+        }
+    }
+
     pub fn selection_pending(&self) -> bool {
         self.pending_database.is_some()
     }

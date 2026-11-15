@@ -44,6 +44,7 @@ impl ThemeSelection {
         }
     }
 
+    #[cfg(test)]
     pub fn is_light(&self) -> bool {
         matches!(self, Self::NominalLight)
     }
@@ -65,6 +66,7 @@ impl ThemeSelection {
         }
     }
 
+    #[cfg(test)]
     pub fn next(&self) -> Self {
         match self {
             Self::Default => Self::NominalLight,
@@ -243,6 +245,7 @@ impl ThemeColors {
             .unwrap_or(eframe::egui::Color32::from_rgb(209, 154, 102))
     }
 
+    #[cfg(test)]
     pub fn success_color(&self) -> eframe::egui::Color32 {
         self.success
             .as_deref()

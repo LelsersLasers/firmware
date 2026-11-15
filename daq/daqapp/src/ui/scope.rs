@@ -939,14 +939,13 @@ impl Scope {
                 open_picker = Some(ScopePickerTarget::AddChannel);
             }
 
-            if self.x_axis_mode != ScopeXAxisMode::UtcTime {
-                if ui
+            if self.x_axis_mode != ScopeXAxisMode::UtcTime
+                && ui
                     .small_button(self.x_axis_mode.label())
                     .on_hover_text("Click to return to UTC Time X-axis")
                     .clicked()
-                {
-                    self.x_axis_mode = ScopeXAxisMode::UtcTime;
-                }
+            {
+                self.x_axis_mode = ScopeXAxisMode::UtcTime;
             }
 
             ui.menu_button("…", |ui| {
