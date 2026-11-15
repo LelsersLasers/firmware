@@ -163,6 +163,28 @@ fn show_workspace_tabs_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                 )
                 .response
                 .on_hover_text("Add a new plot or tool pane to the workspace");
+
+                let has_views = !app.tile_tree.is_empty();
+                let clear_btn = eframe::egui::Button::new(
+                    eframe::egui::RichText::new("× Clear")
+                        .size(10.5)
+                        .strong()
+                        .color(if has_views {
+                            muted_color
+                        } else {
+                            muted_color.gamma_multiply(0.45)
+                        }),
+                )
+                .fill(eframe::egui::Color32::TRANSPARENT)
+                .stroke(eframe::egui::Stroke::NONE);
+
+                if ui
+                    .add_enabled(has_views, clear_btn)
+                    .on_hover_text("Clear workspace of all opened views")
+                    .clicked()
+                {
+                    app.action_queue.push(action::AppAction::ClearWorkspace);
+                }
             });
         });
 }

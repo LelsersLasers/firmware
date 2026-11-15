@@ -17,6 +17,7 @@ pub enum AppAction {
     FocusSidebarSearch,
     ToggleCommandPalette,
     CloseActiveWidget,
+    ClearWorkspace,
     IncreaseScale,
     DecreaseScale,
     TogglePlayback,
@@ -94,6 +95,7 @@ impl AppAction {
                 "Copy Workspace Share String (daqview1:...)",
                 Self::CopyWorkspaceShareString,
             ),
+            ("Clear Workspace (Close All Views)", Self::ClearWorkspace),
             (
                 "Spawn Scope",
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::ScopeEmpty),

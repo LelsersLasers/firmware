@@ -567,6 +567,12 @@ impl DAQApp {
                 self.close_active_widget();
                 self.save_settings();
             }
+            action::AppAction::ClearWorkspace => {
+                self.tile_tree = egui_tiles::Tree::empty("workspace_tree");
+                self.widget_ids = widget_ids::WidgetIds::new();
+                self.active_workspace_tab = None;
+                self.save_settings();
+            }
             action::AppAction::IncreaseScale => {
                 let current_scale = self
                     .pixels_per_point
