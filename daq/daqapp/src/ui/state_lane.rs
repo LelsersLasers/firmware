@@ -109,6 +109,16 @@ impl StateLane {
         self.custom_title
     }
 
+    pub fn set_title(&mut self, new_title: String) {
+        self.title = new_title;
+        self.custom_title = !self.title.trim().is_empty();
+    }
+
+    pub fn reset_auto_title(&mut self) {
+        self.custom_title = false;
+        self.refresh_title();
+    }
+
     pub fn load_standard_vehicle_lanes(&mut self) {
         for &(sig_id, label) in STANDARD_VEHICLE_STATE_LANES {
             if !self.lanes.iter().any(|l| l.signal_id == sig_id) {
@@ -212,7 +222,32 @@ impl StateLane {
                 self.show_picker = !self.show_picker;
             }
             ui.menu_button("…", |ui| {
-                ui.set_min_width(180.0);
+                ui.set_min_width(195.0);
+                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.title)
+                            .desired_width(140.0)
+                            .hint_text("Tab title…"),
+                    );
+                    if resp.changed() {
+                        self.custom_title = !self.title.trim().is_empty();
+                    }
+                    if resp.lost_focus() && self.title.trim().is_empty() {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                    if self.custom_title
+                        && ui
+                            .small_button("Auto")
+                            .on_hover_text("Reset to automatic lane title")
+                            .clicked()
+                    {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                });
+                ui.separator();
                 ui.label(eframe::egui::RichText::new("Lane Presets").weak().small());
                 if ui.button("Load Vehicle States").clicked() {
                     load_std = true;

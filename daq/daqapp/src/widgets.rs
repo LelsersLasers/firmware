@@ -43,6 +43,43 @@ impl Widget {
         }
     }
 
+    pub fn set_title(&mut self, new_title: String) {
+        match self {
+            Widget::ViewerTable(w) => w.title = new_title,
+            Widget::ViewerList(w) => w.title = new_title,
+            Widget::Bootloader(w) => w.title = new_title,
+            Widget::Scope(w) => w.set_title(new_title),
+            Widget::StateLane(w) => w.set_title(new_title),
+            Widget::XYScatter(w) => w.set_title(new_title),
+            Widget::LogParser(w) => w.title = new_title,
+            Widget::SendUi(w) => w.title = new_title,
+            Widget::BusLoad(w) => w.title = new_title,
+            Widget::GpsPlot(w) => w.set_title(new_title),
+            Widget::Jitter(w) => w.title = new_title,
+            Widget::Hil(w) => w.title = new_title,
+        }
+    }
+
+    pub fn has_custom_title(&self) -> bool {
+        match self {
+            Widget::Scope(w) => w.is_custom_title(),
+            Widget::StateLane(w) => w.is_custom_title(),
+            Widget::XYScatter(w) => w.is_custom_title(),
+            Widget::GpsPlot(w) => w.is_custom_title(),
+            _ => false,
+        }
+    }
+
+    pub fn reset_auto_title(&mut self) {
+        match self {
+            Widget::Scope(w) => w.reset_auto_title(),
+            Widget::StateLane(w) => w.reset_auto_title(),
+            Widget::XYScatter(w) => w.reset_auto_title(),
+            Widget::GpsPlot(w) => w.reset_auto_title(),
+            _ => {}
+        }
+    }
+
     pub fn kind(&self) -> widget_constructor::WidgetKind {
         match self {
             Widget::ViewerTable(_) => widget_constructor::WidgetKind::ViewerTable,

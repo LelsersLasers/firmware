@@ -373,6 +373,69 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
     ) -> bool {
         true
     }
+
+    fn on_tab_button(
+        &mut self,
+        tiles: &egui_tiles::Tiles<widgets::Widget>,
+        tile_id: egui_tiles::TileId,
+        button_response: eframe::egui::Response,
+    ) -> eframe::egui::Response {
+        if let Some(egui_tiles::Tile::Pane(widget)) = tiles.get(tile_id) {
+            let current_title = widget.title().to_owned();
+            let has_custom_title = widget.has_custom_title();
+            let mut pending_title: Option<String> = None;
+            let mut reset_auto = false;
+            let mut close_pane = false;
+
+            button_response.context_menu(|ui| {
+                ui.set_min_width(195.0);
+                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                let mut draft = current_title.clone();
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut draft)
+                            .desired_width(140.0)
+                            .hint_text("Tab title…"),
+                    );
+                    if resp.changed() {
+                        pending_title = Some(draft.clone());
+                    }
+                    if resp.lost_focus() && draft.trim().is_empty() {
+                        reset_auto = true;
+                    }
+                    if has_custom_title
+                        && ui
+                            .small_button("Auto")
+                            .on_hover_text("Reset to automatic title")
+                            .clicked()
+                    {
+                        reset_auto = true;
+                        ui.close();
+                    }
+                });
+                ui.separator();
+                if ui.button("× Close View").clicked() {
+                    close_pane = true;
+                    ui.close();
+                }
+            });
+
+            if reset_auto {
+                self.action_queue
+                    .push(action::AppAction::ResetPaneTitle { tile_id });
+            } else if let Some(new_title) = pending_title {
+                self.action_queue.push(action::AppAction::RenamePane {
+                    tile_id,
+                    title: new_title,
+                });
+            }
+            if close_pane {
+                self.action_queue
+                    .push(action::AppAction::ClosePane { tile_id });
+            }
+        }
+        button_response
+    }
 }
 
 #[cfg(test)]

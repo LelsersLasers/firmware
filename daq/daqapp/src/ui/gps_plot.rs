@@ -94,6 +94,22 @@ impl GpsPlot {
         }
     }
 
+    pub fn default_title(&self) -> String {
+        format!("GPS Plot #{}", self.instance_num)
+    }
+
+    pub fn is_custom_title(&self) -> bool {
+        self.title != self.default_title()
+    }
+
+    pub fn set_title(&mut self, new_title: String) {
+        self.title = new_title;
+    }
+
+    pub fn reset_auto_title(&mut self) {
+        self.title = self.default_title();
+    }
+
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
@@ -310,7 +326,28 @@ impl GpsPlot {
             }
 
             ui.menu_button("…", |ui| {
-                ui.set_min_width(190.0);
+                ui.set_min_width(195.0);
+                let default_title = self.default_title();
+                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.title)
+                            .desired_width(140.0)
+                            .hint_text("Tab title…"),
+                    );
+                    if resp.lost_focus() && self.title.trim().is_empty() {
+                        self.title = default_title.clone();
+                    }
+                    if self.title != default_title
+                        && ui
+                            .small_button("Auto")
+                            .on_hover_text("Reset to default GPS title")
+                            .clicked()
+                    {
+                        self.title = default_title;
+                    }
+                });
+                ui.separator();
                 ui.label(eframe::egui::RichText::new(&fix_summary).monospace().small());
                 ui.separator();
                 ui.horizontal(|ui| {

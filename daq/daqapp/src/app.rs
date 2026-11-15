@@ -573,6 +573,24 @@ impl DAQApp {
                 self.active_workspace_tab = None;
                 self.save_settings();
             }
+            action::AppAction::RenamePane { tile_id, title } => {
+                if let Some(egui_tiles::Tile::Pane(widget)) = self.tile_tree.tiles.get_mut(tile_id)
+                {
+                    widget.set_title(title);
+                    self.save_settings();
+                }
+            }
+            action::AppAction::ResetPaneTitle { tile_id } => {
+                if let Some(egui_tiles::Tile::Pane(widget)) = self.tile_tree.tiles.get_mut(tile_id)
+                {
+                    widget.reset_auto_title();
+                    self.save_settings();
+                }
+            }
+            action::AppAction::ClosePane { tile_id } => {
+                self.tile_tree.tiles.remove(tile_id);
+                self.save_settings();
+            }
             action::AppAction::IncreaseScale => {
                 let current_scale = self
                     .pixels_per_point

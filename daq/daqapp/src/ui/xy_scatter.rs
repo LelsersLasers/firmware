@@ -149,6 +149,16 @@ impl XYScatter {
         self.custom_title = custom_title;
     }
 
+    pub fn set_title(&mut self, new_title: String) {
+        self.title = new_title;
+        self.custom_title = !self.title.trim().is_empty();
+    }
+
+    pub fn reset_auto_title(&mut self) {
+        self.custom_title = false;
+        self.refresh_title();
+    }
+
     pub fn set_axis_signal(&mut self, slot: ScatterAxisSlot, signal_id: String) {
         match slot {
             ScatterAxisSlot::X => self.x_signal = signal_id,
@@ -460,7 +470,32 @@ impl XYScatter {
             }
 
             ui.menu_button("…", |ui| {
-                ui.set_min_width(180.0);
+                ui.set_min_width(195.0);
+                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.title)
+                            .desired_width(140.0)
+                            .hint_text("Tab title…"),
+                    );
+                    if resp.changed() {
+                        self.custom_title = !self.title.trim().is_empty();
+                    }
+                    if resp.lost_focus() && self.title.trim().is_empty() {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                    if self.custom_title
+                        && ui
+                            .small_button("Auto")
+                            .on_hover_text("Reset to automatic XY title")
+                            .clicked()
+                    {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                });
+                ui.separator();
                 ui.label(
                     eframe::egui::RichText::new("Scatter Presets")
                         .weak()

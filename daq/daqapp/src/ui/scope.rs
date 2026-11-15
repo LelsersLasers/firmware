@@ -316,6 +316,16 @@ impl Scope {
         self.custom_title
     }
 
+    pub fn set_title(&mut self, new_title: String) {
+        self.title = new_title;
+        self.custom_title = !self.title.trim().is_empty();
+    }
+
+    pub fn reset_auto_title(&mut self) {
+        self.custom_title = false;
+        self.refresh_title();
+    }
+
     pub fn y_bounds_override(&self) -> Option<(f64, f64)> {
         self.y_bounds_override
     }
@@ -954,7 +964,32 @@ impl Scope {
             }
 
             ui.menu_button("…", |ui| {
-                ui.set_min_width(190.0);
+                ui.set_min_width(195.0);
+                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        eframe::egui::TextEdit::singleline(&mut self.title)
+                            .desired_width(140.0)
+                            .hint_text("Tab title…"),
+                    );
+                    if resp.changed() {
+                        self.custom_title = !self.title.trim().is_empty();
+                    }
+                    if resp.lost_focus() && self.title.trim().is_empty() {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                    if self.custom_title
+                        && ui
+                            .small_button("Auto")
+                            .on_hover_text("Reset to automatic channel title")
+                            .clicked()
+                    {
+                        self.custom_title = false;
+                        self.refresh_title();
+                    }
+                });
+                ui.separator();
                 ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
                 for mode in [
                     ScopeXAxisMode::UtcTime,

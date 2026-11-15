@@ -18,6 +18,16 @@ pub enum AppAction {
     ToggleCommandPalette,
     CloseActiveWidget,
     ClearWorkspace,
+    RenamePane {
+        tile_id: egui_tiles::TileId,
+        title: String,
+    },
+    ResetPaneTitle {
+        tile_id: egui_tiles::TileId,
+    },
+    ClosePane {
+        tile_id: egui_tiles::TileId,
+    },
     IncreaseScale,
     DecreaseScale,
     TogglePlayback,
