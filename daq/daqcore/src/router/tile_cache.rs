@@ -408,7 +408,8 @@ impl TileCache {
         Ok(())
     }
 
-    /// Preload all local partitions in `partitions` from `<store_dir>/<relative_path>`.
+    /// Preload all partitions in `partitions` that have `overview_1hz.parquet` present in
+    /// `<store_dir>/<relative_path>` (including remote partitions whose 1Hz overview has been prefetched).
     pub fn preload_registered_partitions(
         &mut self,
         store_dir: &path::Path,
@@ -416,14 +417,11 @@ impl TileCache {
     ) -> Result<usize, RouterError> {
         let mut loaded = 0usize;
         for part in partitions {
-            if !part.is_local {
-                continue;
-            }
             if self.resident_1hz.contains_key(&part.partition_id) {
                 continue;
             }
             let part_dir = store_dir.join(&part.relative_path);
-            if part_dir.exists() {
+            if part_dir.join("overview_1hz.parquet").is_file() {
                 self.preload_partition(
                     &part.partition_id,
                     &part_dir,
@@ -543,14 +541,19 @@ impl TileCache {
             return Some(TileLookup::Ready(cached));
         }
 
-        // Enqueue background read if not already in flight
-        if let Some(partition_dir) = self.partition_dirs.get(partition_id)
-            && dyn_guard.in_flight.insert(key.clone())
-        {
-            let _ = self.cmd_tx.send(WorkerCommand::LoadTile {
-                key,
-                partition_dir: partition_dir.clone(),
-            });
+        // Enqueue background read if the requested Parquet file is present on disk and not already in flight
+        if let Some(partition_dir) = self.partition_dirs.get(partition_id) {
+            let file_exists = match resolution {
+                Resolution::FullRes => partition_dir.join("full_res.parquet").is_file(),
+                Resolution::Overview10Hz => partition_dir.join("overview_10hz.parquet").is_file(),
+                Resolution::Overview1Hz => partition_dir.join("overview_1hz.parquet").is_file(),
+            };
+            if file_exists && dyn_guard.in_flight.insert(key.clone()) {
+                let _ = self.cmd_tx.send(WorkerCommand::LoadTile {
+                    key,
+                    partition_dir: partition_dir.clone(),
+                });
+            }
         }
 
         // Return best available resident fallback immediately

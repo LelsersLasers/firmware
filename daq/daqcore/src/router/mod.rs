@@ -22,11 +22,14 @@ use crate::{
         map_series_to_distance,
     },
     frame::ParsedFrame,
-    storage::{Annotation, PartitionManifest, RegisteredPartition, Registry, TrackDay},
+    storage::{
+        Annotation, CloudSyncEvent, CloudSyncHandle, CloudSyncStatus, PartitionManifest,
+        RegisteredPartition, Registry, TrackDay,
+    },
     time::Time,
     timeline::MasterTimeline,
 };
-use std::{collections::HashMap, ops, path, sync::Mutex, time};
+use std::{collections::HashMap, io, ops, path, sync::Mutex, time};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct QueryCacheKey {
@@ -63,6 +66,8 @@ pub struct VirtualTimelineRouter {
     query_cache: Mutex<QuerySignalCache>,
     cached_track_days: Mutex<Option<Vec<TrackDay>>>,
     cached_annotations: Mutex<Option<Vec<Annotation>>>,
+    cloud_sync: Option<CloudSyncHandle>,
+    repaint_cb: Mutex<Option<RepaintCallback>>,
 }
 
 impl VirtualTimelineRouter {
@@ -82,6 +87,8 @@ impl VirtualTimelineRouter {
             query_cache: Mutex::new(QuerySignalCache::default()),
             cached_track_days: Mutex::new(None),
             cached_annotations: Mutex::new(None),
+            cloud_sync: None,
+            repaint_cb: Mutex::new(None),
         })
     }
 
@@ -107,6 +114,8 @@ impl VirtualTimelineRouter {
             query_cache: Mutex::new(QuerySignalCache::default()),
             cached_track_days: Mutex::new(None),
             cached_annotations: Mutex::new(None),
+            cloud_sync: None,
+            repaint_cb: Mutex::new(None),
         };
         router.refresh_store()?;
         Ok(router)
@@ -152,6 +161,21 @@ impl VirtualTimelineRouter {
             return Ok(0);
         };
         let _ = self.registry.sync_from_store_dir(&store_dir)?;
+        let newly_preloaded = self.reload_registry_state()?;
+        if let Some(sync) = &self.cloud_sync {
+            sync.trigger_upload();
+        }
+        Ok(newly_preloaded)
+    }
+
+    /// Reload track days and partitions from `local_registry.sqlite`, preload any new
+    /// `overview_1hz.parquet` / `states.parquet` files into `TileCache`, and update timeline day bounds.
+    pub fn reload_registry_state(&mut self) -> Result<usize, RouterError> {
+        self.invalidate_metadata_cache();
+        let Some(store_dir) = self.store_dir.clone() else {
+            return Ok(0);
+        };
+        let had_bounds = self.timeline.day_bounds_ms().is_some();
         let days = self.registry.list_track_days()?;
         if let Ok(mut guard) = self.cached_track_days.lock() {
             *guard = Some(days.clone());
@@ -180,6 +204,15 @@ impl VirtualTimelineRouter {
         {
             self.timeline
                 .set_active_track_day_id(Some(last_day.id.clone()));
+            if let Some(sync) = &self.cloud_sync {
+                sync.set_active_track_day(Some(last_day.id.clone()));
+            }
+        }
+        if !had_bounds
+            && self.live_buffer.is_empty()
+            && let Some((lo, hi)) = self.timeline.day_bounds_ms()
+        {
+            self.timeline.snap_to_range_ms(lo, hi);
         }
 
         self.partitions = all_partitions;
@@ -214,12 +247,128 @@ impl VirtualTimelineRouter {
         if self.timeline.active_track_day_id().is_none() {
             self.timeline
                 .set_active_track_day_id(Some(manifest.track_day_id.clone()));
+            if let Some(sync) = &self.cloud_sync {
+                sync.set_active_track_day(Some(manifest.track_day_id.clone()));
+            }
+        }
+        if let Some(sync) = &self.cloud_sync {
+            sync.trigger_upload();
         }
         Ok(())
     }
 
     pub fn set_repaint_callback(&self, callback: Option<RepaintCallback>) {
-        self.tile_cache.set_repaint_callback(callback);
+        if let Ok(mut guard) = self.repaint_cb.lock() {
+            *guard = callback.clone();
+        }
+        self.tile_cache.set_repaint_callback(callback.clone());
+        if let Some(sync) = &self.cloud_sync {
+            sync.set_repaint_callback(callback);
+        }
+    }
+
+    /// Connect this router to a `daqcloud` server at `base_url` (e.g. `"http://127.0.0.1:3000"`).
+    /// Spawns a non-blocking background worker that syncs the catalog, prefetches `1 Hz` overviews
+    /// and states, uploads local SD partitions, and listens for live WebSocket updates.
+    pub fn connect_cloud(&mut self, base_url: impl Into<String>) -> Result<(), RouterError> {
+        let Some(store_dir) = self.store_dir.clone() else {
+            return Err(RouterError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Cannot connect to daqcloud without an attached store directory",
+            )));
+        };
+        if let Some(mut existing) = self.cloud_sync.take() {
+            existing.shutdown();
+        }
+        let repaint_cb = self.repaint_cb.lock().ok().and_then(|g| g.clone());
+        let active_day = self.timeline.active_track_day_id().map(str::to_owned);
+        let handle = CloudSyncHandle::spawn(base_url, store_dir, active_day, repaint_cb);
+        self.cloud_sync = Some(handle);
+        Ok(())
+    }
+
+    /// Disconnect from `daqcloud` and terminate the background sync worker.
+    pub fn disconnect_cloud(&mut self) {
+        if let Some(mut handle) = self.cloud_sync.take() {
+            handle.shutdown();
+        }
+    }
+
+    /// Return the current connection and sync status for `daqcloud`.
+    pub fn cloud_status(&self) -> CloudSyncStatus {
+        self.cloud_sync
+            .as_ref()
+            .map(CloudSyncHandle::status)
+            .unwrap_or(CloudSyncStatus::Disconnected)
+    }
+
+    /// Trigger an immediate catalog sync and local partition upload pass on the background worker.
+    pub fn trigger_cloud_sync(&self) {
+        if let Some(sync) = &self.cloud_sync {
+            sync.trigger_sync();
+        }
+    }
+
+    /// Request an on-demand download of `overview_10hz.parquet` + `full_res.parquet` for `partition_id`.
+    pub fn request_partition_download(&self, partition_id: &str) -> bool {
+        self.cloud_sync
+            .as_ref()
+            .is_some_and(|sync| sync.request_partition_download(partition_id))
+    }
+
+    /// Drain pending [`CloudSyncEvent`]s from the background worker, preload newly downloaded
+    /// `overview_1hz.parquet` / `states.parquet` files into `TileCache`, refresh localized
+    /// `is_local` flags, and trigger on-demand full-resolution downloads if the viewport is zoomed in.
+    pub fn poll_cloud_sync(&mut self) -> usize {
+        let events = match &self.cloud_sync {
+            Some(sync) => sync.drain_events(),
+            None => return 0,
+        };
+
+        let mut reload_partitions = false;
+        let mut invalidate_anns = false;
+        let count = events.len();
+
+        for ev in events {
+            match ev {
+                CloudSyncEvent::CatalogSynced { .. }
+                | CloudSyncEvent::OverviewDownloaded { .. }
+                | CloudSyncEvent::PartitionLocalized { .. } => {
+                    reload_partitions = true;
+                }
+                CloudSyncEvent::AnnotationsUpdated => {
+                    invalidate_anns = true;
+                }
+                CloudSyncEvent::PartitionUploaded { .. } | CloudSyncEvent::Error(_) => {}
+            }
+        }
+
+        if reload_partitions {
+            let _ = self.reload_registry_state();
+        } else if invalidate_anns {
+            self.invalidate_metadata_cache();
+        }
+
+        // If the active timeline viewport is zoomed into the 10Hz or FullRes regime, automatically
+        // request on-demand downloads for any overlapping remote partitions (`!part.is_local`).
+        if self.timeline.window_ms() <= OVERVIEW_1HZ_THRESHOLD_MS
+            && let Some(sync) = &self.cloud_sync
+        {
+            let win = self.timeline.range_ms();
+            let start_ms = *win.start();
+            let end_ms = *win.end();
+            for part in &self.partitions {
+                if !part.is_local && part.start_utc_ms <= end_ms && part.end_utc_ms >= start_ms {
+                    sync.request_partition_download(&part.partition_id);
+                }
+            }
+        }
+
+        count
+    }
+
+    fn is_partition_readable(&self, part: &RegisteredPartition) -> bool {
+        part.is_local || self.tile_cache.is_partition_preloaded(&part.partition_id)
     }
 
     pub fn store_dir(&self) -> Option<&path::Path> {
@@ -420,7 +569,7 @@ impl VirtualTimelineRouter {
         let mut max_ms: Option<i64> = None;
 
         for part in &self.partitions {
-            if part.is_local {
+            if self.is_partition_readable(part) {
                 min_ms = Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
                 max_ms = Some(max_ms.map_or(part.end_utc_ms, |m| m.max(part.end_utc_ms)));
             }
@@ -436,11 +585,11 @@ impl VirtualTimelineRouter {
         ))
     }
 
-    /// Return the maximum `end_utc_ms` among local canonical SD partitions that start at or before `up_to_utc_ms`.
+    /// Return the maximum `end_utc_ms` among readable canonical SD partitions that start at or before `up_to_utc_ms`.
     fn max_canonical_end_ms(&self, up_to_utc_ms: i64) -> Option<i64> {
         self.partitions
             .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= up_to_utc_ms)
+            .filter(|p| self.is_partition_readable(p) && p.start_utc_ms <= up_to_utc_ms)
             .map(|p| p.end_utc_ms)
             .max()
     }
@@ -462,12 +611,20 @@ impl VirtualTimelineRouter {
         let start_ms = *range.start();
         let end_ms = *range.end();
 
-        let overlapping_ids: Vec<String> = self
-            .partitions
-            .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
-            .map(|p| p.partition_id.clone())
-            .collect();
+        let mut overlapping_ids: Vec<String> = Vec::new();
+        for part in &self.partitions {
+            if part.start_utc_ms <= end_ms && part.end_utc_ms >= start_ms {
+                if !part.is_local
+                    && matches!(resolution, Resolution::Overview10Hz | Resolution::FullRes)
+                    && let Some(sync) = &self.cloud_sync
+                {
+                    sync.request_partition_download(&part.partition_id);
+                }
+                if self.is_partition_readable(part) {
+                    overlapping_ids.push(part.partition_id.clone());
+                }
+            }
+        }
 
         let mut chunks = Vec::new();
         for part_id in &overlapping_ids {
@@ -567,12 +724,26 @@ impl VirtualTimelineRouter {
         let start_ms = *range.start();
         let end_ms = *range.end();
 
-        let overlapping_ids: Vec<String> = self
-            .partitions
-            .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
-            .map(|p| p.partition_id.clone())
-            .collect();
+        let mut overlapping_ids: Vec<String> = Vec::new();
+        for part in &self.partitions {
+            if part.start_utc_ms <= end_ms && part.end_utc_ms >= start_ms {
+                if !part.is_local
+                    && matches!(resolution, Resolution::Overview10Hz | Resolution::FullRes)
+                    && let Some(sync) = &self.cloud_sync
+                {
+                    sync.request_partition_download(&part.partition_id);
+                }
+                if part.is_local
+                    || (resolution == Resolution::Overview1Hz && self.is_partition_readable(part))
+                    || self
+                        .cloud_sync
+                        .as_ref()
+                        .is_some_and(|s| s.is_partition_localized(&part.partition_id))
+                {
+                    overlapping_ids.push(part.partition_id.clone());
+                }
+            }
+        }
 
         let mut chunks = Vec::new();
         for part_id in &overlapping_ids {
@@ -639,7 +810,10 @@ impl VirtualTimelineRouter {
 
         let mut out = Vec::new();
         for part in &self.partitions {
-            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > end_ms
+                || part.end_utc_ms < start_ms
+            {
                 continue;
             }
             if let Some(intervals) = self
@@ -718,7 +892,7 @@ impl VirtualTimelineRouter {
 
         // Otherwise search canonical partitions in reverse chronological order.
         for part in self.partitions.iter().rev() {
-            if !part.is_local || part.start_utc_ms > target_utc_ms {
+            if !self.is_partition_readable(part) || part.start_utc_ms > target_utc_ms {
                 continue;
             }
             if let Some(found) = self.tile_cache.latest_resident_at_or_before(
@@ -768,7 +942,10 @@ impl VirtualTimelineRouter {
         }
 
         for part in self.partitions.iter().rev() {
-            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > end_ms
+                || part.end_utc_ms < start_ms
+            {
                 continue;
             }
             if let Some(sig_entry) = part
@@ -811,7 +988,10 @@ impl VirtualTimelineRouter {
             std::collections::BTreeMap::new();
 
         for part in &self.partitions {
-            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > end_ms
+                || part.end_utc_ms < start_ms
+            {
                 continue;
             }
             let clamped = start_ms.max(part.start_utc_ms)..=end_ms.min(part.end_utc_ms);
@@ -886,7 +1066,10 @@ impl VirtualTimelineRouter {
         let canonical_id = canonicalize_signal_ref(signal_id);
         let win = self.timeline.range_ms();
         for part in self.partitions.iter().rev() {
-            if !part.is_local || part.start_utc_ms > *win.end() || part.end_utc_ms < *win.start() {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > *win.end()
+                || part.end_utc_ms < *win.start()
+            {
                 continue;
             }
             if let Some(entry) = part
@@ -921,7 +1104,10 @@ impl VirtualTimelineRouter {
         let mut spans = Vec::new();
 
         for part in &self.partitions {
-            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > end_ms
+                || part.end_utc_ms < start_ms
+            {
                 continue;
             }
             spans.push(CoverageSpan {
@@ -973,6 +1159,9 @@ impl VirtualTimelineRouter {
     ) -> Result<Option<(i64, i64)>, RouterError> {
         self.timeline.set_active_track_day_id(track_day_id.clone());
         self.timeline.clear_selected_annotations();
+        if let Some(sync) = &self.cloud_sync {
+            sync.set_active_track_day(track_day_id.clone());
+        }
 
         let mut min_ms: Option<i64> = None;
         let mut max_ms: Option<i64> = None;
@@ -1030,7 +1219,10 @@ impl VirtualTimelineRouter {
 
         let mut merged: std::collections::BTreeMap<i64, u32> = std::collections::BTreeMap::new();
         for part in &self.partitions {
-            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+            if !self.is_partition_readable(part)
+                || part.start_utc_ms > end_ms
+                || part.end_utc_ms < start_ms
+            {
                 continue;
             }
             if let Some(buckets) = self.tile_cache.partition_activity_1hz(&part.partition_id) {
@@ -1074,7 +1266,7 @@ impl VirtualTimelineRouter {
     pub fn clock_provenance_at(&self, target_utc_ms: i64) -> Option<ClockProvenance> {
         // 1. Exact containment inside a canonical SD partition
         for part in &self.partitions {
-            if part.is_local
+            if self.is_partition_readable(part)
                 && part.start_utc_ms <= target_utc_ms
                 && target_utc_ms <= part.end_utc_ms
             {
@@ -1100,7 +1292,11 @@ impl VirtualTimelineRouter {
         if let Some(part) = self
             .partitions
             .iter()
-            .filter(|p| p.is_local && p.start_utc_ms <= win_end && p.end_utc_ms >= win_start)
+            .filter(|p| {
+                self.is_partition_readable(p)
+                    && p.start_utc_ms <= win_end
+                    && p.end_utc_ms >= win_start
+            })
             .min_by_key(|p| {
                 if target_utc_ms < p.start_utc_ms {
                     p.start_utc_ms - target_utc_ms
@@ -1181,6 +1377,11 @@ impl VirtualTimelineRouter {
             self.timeline
                 .set_active_track_day_id(Some(annotation.track_day_id.clone()));
         }
+        if changed
+            && let Some(sync) = &self.cloud_sync
+        {
+            sync.push_annotation(annotation.clone());
+        }
         Ok(changed)
     }
 
@@ -1197,6 +1398,11 @@ impl VirtualTimelineRouter {
         if self.timeline.is_annotation_selected(annotation_id) {
             self.timeline
                 .toggle_comparison_annotation(annotation_id.to_owned(), 0, None);
+        }
+        if deleted
+            && let Some(sync) = &self.cloud_sync
+        {
+            sync.delete_annotation(annotation_id.to_owned(), updated_at_ms);
         }
         Ok(deleted)
     }
@@ -1259,8 +1465,6 @@ fn rle_intervals_from_series(
     }
     intervals
 }
-
-use std::io;
 
 #[cfg(test)]
 mod tests {
