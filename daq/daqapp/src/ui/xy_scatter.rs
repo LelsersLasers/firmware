@@ -29,6 +29,32 @@ impl ScatterAxisSlot {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScatterCacheKey {
+    start_ms: i64,
+    end_ms: i64,
+    resolution: daqcore::router::Resolution,
+    staleness_ms: i64,
+    x_signal: String,
+    y_signal: String,
+    z_color_signal: Option<String>,
+    data_revision: u64,
+    has_database: bool,
+}
+
+struct CachedScatterData {
+    key: ScatterCacheKey,
+    x_unit: String,
+    y_unit: String,
+    z_unit: String,
+    timestamps_ms: Vec<i64>,
+    x_vals: Vec<f64>,
+    y_vals: Vec<f64>,
+    z_vals: Option<Vec<f64>>,
+    z_range: Option<(f64, f64)>,
+    color_bins: Vec<(eframe::egui::Color32, Vec<[f64; 2]>)>,
+}
+
 pub struct XYScatter {
     pub title: String,
     instance_num: usize,
@@ -42,6 +68,7 @@ pub struct XYScatter {
     picker_slot: Option<ScatterAxisSlot>,
     search_query: String,
     ring_points: Vec<(String, Vec<[f64; 2]>)>,
+    cached_data: Option<CachedScatterData>,
 }
 
 impl XYScatter {
@@ -71,6 +98,7 @@ impl XYScatter {
             picker_slot: None,
             search_query: String::new(),
             ring_points: build_g_rings(),
+            cached_data: None,
         }
     }
 
@@ -147,7 +175,9 @@ impl XYScatter {
         self.active_drop_slot = target_slot.next();
     }
 
-    pub fn reset_database(&mut self) {}
+    pub fn reset_database(&mut self) {
+        self.cached_data = None;
+    }
 
     pub fn show(
         &mut self,
@@ -192,24 +222,161 @@ impl XYScatter {
             ui.checkbox(&mut self.show_g_rings, "G-Rings");
         });
 
+        let width_px = ui.available_width().max(60.0);
+        let resolution = view.timeline.resolution_for_width(width_px);
+        let staleness_ms = view.router.formula_engine().max_staleness_ms();
+        let range_ms = view.timeline.range_ms();
+        let cache_key = ScatterCacheKey {
+            start_ms: *range_ms.start(),
+            end_ms: *range_ms.end(),
+            resolution,
+            staleness_ms,
+            x_signal: self.x_signal.clone(),
+            y_signal: self.y_signal.clone(),
+            z_color_signal: self.z_color_signal.clone(),
+            data_revision: view.data_revision(),
+            has_database: database.is_some(),
+        };
+
+        if self
+            .cached_data
+            .as_ref()
+            .is_none_or(|c| c.key != cache_key)
+        {
+            let x_series = view.query_signal(&self.x_signal, resolution);
+            let y_series = view.query_signal(&self.y_signal, resolution);
+
+            let x_unit = view.resolve_signal_unit(&self.x_signal, database);
+            let y_unit = view.resolve_signal_unit(&self.y_signal, database);
+            let z_unit = self
+                .z_color_signal
+                .as_deref()
+                .map(|z| view.resolve_signal_unit(z, database))
+                .unwrap_or_default();
+
+            let mut timestamps_ms: Vec<i64>;
+            let mut x_vals: Vec<f64>;
+            let mut y_vals: Vec<f64>;
+            let mut z_vals: Option<Vec<f64>> = None;
+
+            if let Some(z_sig) = &self.z_color_signal {
+                let z_series = view.query_signal(z_sig, resolution);
+                let aligned_xyz = daqcore::analysis::align_xyz_triples(
+                    &x_series,
+                    &y_series,
+                    &z_series,
+                    staleness_ms,
+                );
+                if !aligned_xyz.timestamps_ms.is_empty() {
+                    timestamps_ms = aligned_xyz.timestamps_ms;
+                    x_vals = aligned_xyz.x_values;
+                    y_vals = aligned_xyz.y_values;
+                    z_vals = Some(aligned_xyz.z_values);
+                } else {
+                    let aligned_xy =
+                        daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
+                    timestamps_ms = aligned_xy.timestamps_ms;
+                    x_vals = aligned_xy.x_values;
+                    y_vals = aligned_xy.y_values;
+                }
+            } else {
+                let aligned_xy =
+                    daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
+                timestamps_ms = aligned_xy.timestamps_ms;
+                x_vals = aligned_xy.x_values;
+                y_vals = aligned_xy.y_values;
+            }
+
+            // Decimate if sample count is very large so interactive scatter stays 120fps
+            let max_scatter_pts = 4_000usize;
+            if timestamps_ms.len() > max_scatter_pts {
+                let step = timestamps_ms.len().div_ceil(max_scatter_pts).max(1);
+                timestamps_ms = timestamps_ms.into_iter().step_by(step).collect();
+                x_vals = x_vals.into_iter().step_by(step).collect();
+                y_vals = y_vals.into_iter().step_by(step).collect();
+                if let Some(zv) = z_vals {
+                    z_vals = Some(zv.into_iter().step_by(step).collect());
+                }
+            }
+
+            let z_range = z_vals.as_ref().and_then(|zv| {
+                let mut lo = f64::INFINITY;
+                let mut hi = f64::NEG_INFINITY;
+                for &v in zv {
+                    if v.is_finite() {
+                        lo = lo.min(v);
+                        hi = hi.max(v);
+                    }
+                }
+                (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+            });
+
+            let mut color_bins: Vec<(eframe::egui::Color32, Vec<[f64; 2]>)> = Vec::new();
+            if let (Some(zv), Some((z_min, z_max))) = (&z_vals, z_range) {
+                let z_span = (z_max - z_min).abs().max(1e-9);
+                let mut bins: Vec<Vec<[f64; 2]>> = vec![Vec::new(); GRADIENT_BINS];
+                for i in 0..timestamps_ms.len() {
+                    let norm = ((zv[i] - z_min) / z_span).clamp(0.0, 1.0);
+                    let bin = ((norm * ((GRADIENT_BINS - 1) as f64)).round() as usize)
+                        .min(GRADIENT_BINS - 1);
+                    bins[bin].push([x_vals[i], y_vals[i]]);
+                }
+                for (bin_idx, pts) in bins.into_iter().enumerate() {
+                    if pts.is_empty() {
+                        continue;
+                    }
+                    let t = (bin_idx as f32) / ((GRADIENT_BINS - 1) as f32);
+                    let color = scalar_to_color(t).gamma_multiply(0.78);
+                    color_bins.push((color, pts));
+                }
+            } else if !timestamps_ms.is_empty() {
+                let all_pts: Vec<[f64; 2]> = x_vals
+                    .iter()
+                    .copied()
+                    .zip(y_vals.iter().copied())
+                    .map(|(x, y)| [x, y])
+                    .collect();
+                color_bins.push((
+                    eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 150),
+                    all_pts,
+                ));
+            }
+
+            self.cached_data = Some(CachedScatterData {
+                key: cache_key,
+                x_unit,
+                y_unit,
+                z_unit,
+                timestamps_ms,
+                x_vals,
+                y_vals,
+                z_vals,
+                z_range,
+                color_bins,
+            });
+        }
+
         // Axis slot selector strip
         let mut clear_z = false;
-        let fmt_slot_sig = |sig_id: &str| -> String {
-            let unit = view.resolve_signal_unit(sig_id, database);
+        let fmt_slot_sig = |sig_id: &str, unit: &str| -> String {
             if unit.is_empty() {
                 sig_id.to_owned()
             } else {
                 format!("{sig_id} [{unit}]")
             }
         };
-        ui.horizontal_wrapped(|ui| {
-            let x_lbl = fmt_slot_sig(&self.x_signal);
-            let y_lbl = fmt_slot_sig(&self.y_signal);
-            let z_lbl = self
+        let (x_lbl, y_lbl, z_lbl) = {
+            let cached = self.cached_data.as_ref().expect("populated above");
+            let x_l = fmt_slot_sig(&self.x_signal, &cached.x_unit);
+            let y_l = fmt_slot_sig(&self.y_signal, &cached.y_unit);
+            let z_l = self
                 .z_color_signal
                 .as_deref()
-                .map(fmt_slot_sig)
+                .map(|z| fmt_slot_sig(z, &cached.z_unit))
                 .unwrap_or_else(|| "None".to_owned());
+            (x_l, y_l, z_l)
+        };
+        ui.horizontal_wrapped(|ui| {
             for (slot, current_val) in [
                 (ScatterAxisSlot::X, x_lbl.as_str()),
                 (ScatterAxisSlot::Y, y_lbl.as_str()),
@@ -249,6 +416,8 @@ impl XYScatter {
             if self.picker_slot == Some(ScatterAxisSlot::ZColor) {
                 self.picker_slot = None;
             }
+            self.cached_data = None;
+            return egui_tiles::UiResponse::None;
         }
 
         if let Some(slot) = self.picker_slot {
@@ -256,72 +425,15 @@ impl XYScatter {
             return egui_tiles::UiResponse::None;
         }
 
-        let width_px = ui.available_width().max(60.0);
-        let resolution = view.timeline.resolution_for_width(width_px);
-        let staleness_ms = view.router.formula_engine().max_staleness_ms();
-
-        let x_series = view.query_signal(&self.x_signal, resolution);
-        let y_series = view.query_signal(&self.y_signal, resolution);
-
-        let x_unit = view.resolve_signal_unit(&self.x_signal, database);
-        let y_unit = view.resolve_signal_unit(&self.y_signal, database);
-        let z_unit = self
-            .z_color_signal
-            .as_deref()
-            .map(|z| view.resolve_signal_unit(z, database))
-            .unwrap_or_default();
-
-        let mut timestamps_ms: Vec<i64>;
-        let mut x_vals: Vec<f64>;
-        let mut y_vals: Vec<f64>;
-        let mut z_vals: Option<Vec<f64>> = None;
-
-        if let Some(z_sig) = &self.z_color_signal {
-            let z_series = view.query_signal(z_sig, resolution);
-            let aligned_xyz =
-                daqcore::analysis::align_xyz_triples(&x_series, &y_series, &z_series, staleness_ms);
-            if !aligned_xyz.timestamps_ms.is_empty() {
-                timestamps_ms = aligned_xyz.timestamps_ms;
-                x_vals = aligned_xyz.x_values;
-                y_vals = aligned_xyz.y_values;
-                z_vals = Some(aligned_xyz.z_values);
-            } else {
-                let aligned_xy =
-                    daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
-                timestamps_ms = aligned_xy.timestamps_ms;
-                x_vals = aligned_xy.x_values;
-                y_vals = aligned_xy.y_values;
-            }
-        } else {
-            let aligned_xy = daqcore::analysis::align_xy_pairs(&x_series, &y_series, staleness_ms);
-            timestamps_ms = aligned_xy.timestamps_ms;
-            x_vals = aligned_xy.x_values;
-            y_vals = aligned_xy.y_values;
-        }
-
-        // Decimate if sample count is very large so interactive scatter stays 120fps
-        let max_scatter_pts = 4_000usize;
-        if timestamps_ms.len() > max_scatter_pts {
-            let step = timestamps_ms.len().div_ceil(max_scatter_pts).max(1);
-            timestamps_ms = timestamps_ms.into_iter().step_by(step).collect();
-            x_vals = x_vals.into_iter().step_by(step).collect();
-            y_vals = y_vals.into_iter().step_by(step).collect();
-            if let Some(zv) = z_vals {
-                z_vals = Some(zv.into_iter().step_by(step).collect());
-            }
-        }
-
-        let z_range = z_vals.as_ref().and_then(|zv| {
-            let mut lo = f64::INFINITY;
-            let mut hi = f64::NEG_INFINITY;
-            for &v in zv {
-                if v.is_finite() {
-                    lo = lo.min(v);
-                    hi = hi.max(v);
-                }
-            }
-            (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
-        });
+        let cached = self.cached_data.as_ref().expect("populated above");
+        let timestamps_ms = &cached.timestamps_ms;
+        let x_vals = &cached.x_vals;
+        let y_vals = &cached.y_vals;
+        let z_vals = &cached.z_vals;
+        let z_range = cached.z_range;
+        let x_unit = &cached.x_unit;
+        let y_unit = &cached.y_unit;
+        let z_unit = &cached.z_unit;
 
         let cursor_ms = view.active_cursor_utc_ms();
         let cursor_idx = (!timestamps_ms.is_empty()).then(|| {
@@ -329,7 +441,7 @@ impl XYScatter {
             pos.saturating_sub(1).min(timestamps_ms.len() - 1)
         });
 
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             if let Some(idx) = cursor_idx {
                 let x_u = if x_unit.is_empty() {
                     String::new()
@@ -345,7 +457,7 @@ impl XYScatter {
                     "Cursor: X = {:.2}{}, Y = {:.2}{}",
                     x_vals[idx], x_u, y_vals[idx], y_u
                 );
-                if let Some(zv) = &z_vals {
+                if let Some(zv) = z_vals {
                     let z_u = if z_unit.is_empty() {
                         String::new()
                     } else {
@@ -397,6 +509,9 @@ impl XYScatter {
                 .include_y(1.6);
         }
 
+        let has_z = z_vals.is_some() && z_range.is_some();
+        let radius = if has_z { 2.4_f32 } else { 2.3_f32 };
+
         plot.show(ui, |plot_ui| {
             if self.show_g_rings {
                 for (label, ring) in &self.ring_points {
@@ -411,33 +526,13 @@ impl XYScatter {
                 }
             }
 
-            if let (Some(zv), Some((z_min, z_max))) = (&z_vals, z_range) {
-                let z_span = (z_max - z_min).abs().max(1e-9);
-                let mut bins: Vec<Vec<[f64; 2]>> = vec![Vec::new(); GRADIENT_BINS];
-                for i in 0..timestamps_ms.len() {
-                    let norm = ((zv[i] - z_min) / z_span).clamp(0.0, 1.0);
-                    let bin = ((norm * ((GRADIENT_BINS - 1) as f64)).round() as usize)
-                        .min(GRADIENT_BINS - 1);
-                    bins[bin].push([x_vals[i], y_vals[i]]);
-                }
-                for (bin_idx, pts) in bins.into_iter().enumerate() {
-                    if pts.is_empty() {
-                        continue;
-                    }
-                    let t = (bin_idx as f32) / ((GRADIENT_BINS - 1) as f32);
-                    let color = scalar_to_color(t).gamma_multiply(0.78);
-                    plot_ui.points(egui_plot::Points::new("", pts).radius(2.4_f32).color(color));
-                }
-            } else if !timestamps_ms.is_empty() {
-                let all_pts: Vec<[f64; 2]> = x_vals
-                    .iter()
-                    .copied()
-                    .zip(y_vals.iter().copied())
-                    .map(|(x, y)| [x, y])
-                    .collect();
-                plot_ui.points(egui_plot::Points::new("", all_pts).radius(2.3_f32).color(
-                    eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 150),
-                ));
+            for (color, pts) in &cached.color_bins {
+                plot_ui.points(
+                    egui_plot::Points::new("", pts.clone())
+                        .radius(radius)
+                        .color(*color)
+                        .allow_hover(false),
+                );
             }
 
             // Recent comet trail leading up to playhead (`setpoint_ms`)
@@ -459,7 +554,8 @@ impl XYScatter {
                     plot_ui.points(
                         egui_plot::Points::new("", comet_pts)
                             .radius(3.4_f32)
-                            .color(eframe::egui::Color32::from_rgb(255, 210, 75)),
+                            .color(eframe::egui::Color32::from_rgb(255, 210, 75))
+                            .allow_hover(false),
                     );
                 }
 
@@ -468,7 +564,8 @@ impl XYScatter {
                 plot_ui.points(
                     egui_plot::Points::new("Playhead", vec![[x_vals[play_idx], y_vals[play_idx]]])
                         .radius(5.8_f32)
-                        .color(eframe::egui::Color32::YELLOW),
+                        .color(eframe::egui::Color32::YELLOW)
+                        .allow_hover(false),
                 );
             }
 
@@ -483,7 +580,8 @@ impl XYScatter {
                 plot_ui.points(
                     egui_plot::Points::new("Linked Cursor", vec![[x_vals[h_idx], y_vals[h_idx]]])
                         .radius(6.2_f32)
-                        .color(eframe::egui::Color32::from_rgb(130, 235, 255)),
+                        .color(eframe::egui::Color32::from_rgb(130, 235, 255))
+                        .allow_hover(false),
                 );
             }
 
