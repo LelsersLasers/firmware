@@ -1,8 +1,175 @@
-use crate::{action, app, ui, widgets, workspace_view};
+use crate::{action, app, ui, widget_constructor, widgets, workspace_view};
 use std::sync::mpsc;
+
+fn short_preset_tab_name<'a>(preset_id: &str, full_name: &'a str) -> &'a str {
+    match preset_id {
+        "vd_handling_suspension" => "VEHICLE DYNAMICS",
+        "powertrain_accumulator" => "POWERTRAIN",
+        "thermals_cooling" => "THERMALS",
+        "aero_ride_height" => "AERODYNAMICS",
+        "sensors_controls" => "SENSORS",
+        "trackside_live_debug" => "LIVE DEBUG",
+        _ => full_name,
+    }
+}
+
+fn show_workspace_tabs_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
+    let theme = ui::theme::get_theme(ctx);
+    let border_color = theme.border_color();
+    let accent_color = theme.accent_color();
+    let muted_color = theme.muted_text_color();
+
+    let bar_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
+        .inner_margin(eframe::egui::Margin::symmetric(6, 2))
+        .stroke(eframe::egui::Stroke::new(1.0_f32, border_color));
+
+    eframe::egui::TopBottomPanel::top("workspace_preset_tabs_bar")
+        .exact_height(24.0)
+        .frame(bar_frame)
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+
+                let preset_summaries: Vec<(String, String, String)> = app
+                    .workspace_presets
+                    .presets()
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.id.clone().unwrap_or_else(|| p.name.clone()),
+                            p.name.clone(),
+                            p.description.clone(),
+                        )
+                    })
+                    .collect();
+
+                for (preset_id, preset_name, preset_desc) in preset_summaries {
+                    let is_active = app.active_workspace_tab.as_deref() == Some(preset_id.as_str());
+                    let tab_label = short_preset_tab_name(&preset_id, &preset_name);
+                    let text_color = if is_active {
+                        ui.visuals().text_color()
+                    } else {
+                        muted_color
+                    };
+                    let fill = if is_active {
+                        theme.canvas_color()
+                    } else {
+                        eframe::egui::Color32::TRANSPARENT
+                    };
+                    let stroke = if is_active {
+                        eframe::egui::Stroke::new(1.0_f32, accent_color)
+                    } else {
+                        eframe::egui::Stroke::NONE
+                    };
+
+                    let btn = eframe::egui::Button::new(
+                        eframe::egui::RichText::new(tab_label)
+                            .size(10.5)
+                            .strong()
+                            .color(text_color),
+                    )
+                    .fill(fill)
+                    .stroke(stroke);
+
+                    if ui.add(btn).on_hover_text(preset_desc).clicked() {
+                        app.action_queue
+                            .push(action::AppAction::LoadWorkspacePreset {
+                                preset_id,
+                                apply_time_context: app
+                                    .workspace_view_modal
+                                    .jump_to_saved_time_range,
+                            });
+                    }
+                }
+
+                ui.separator();
+
+                // Nominal-style `+` button to add a widget pane directly from the tab bar
+                ui.menu_button(
+                    eframe::egui::RichText::new("+")
+                        .size(12.0)
+                        .strong()
+                        .color(muted_color),
+                    |ui| {
+                        ui.set_min_width(170.0);
+                        ui.label(
+                            eframe::egui::RichText::new("Add Analysis Pane")
+                                .small()
+                                .weak(),
+                        );
+                        for (label, ctor) in [
+                            (
+                                "Scope (Time / Distance)",
+                                widget_constructor::WidgetConstructor::ScopeEmpty,
+                            ),
+                            (
+                                "XY Scatter",
+                                widget_constructor::WidgetConstructor::XYScatter,
+                            ),
+                            (
+                                "State & Fault Lanes",
+                                widget_constructor::WidgetConstructor::StateLane,
+                            ),
+                            (
+                                "GPS Track Map",
+                                widget_constructor::WidgetConstructor::GpsPlot,
+                            ),
+                        ] {
+                            if ui.button(label).clicked() {
+                                app.action_queue.push(action::AppAction::SpawnWidget(ctor));
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        ui.label(
+                            eframe::egui::RichText::new("Operational Tools")
+                                .small()
+                                .weak(),
+                        );
+                        for (label, ctor) in [
+                            (
+                                "CAN Viewer Table",
+                                widget_constructor::WidgetConstructor::ViewerTable,
+                            ),
+                            (
+                                "CAN Viewer List",
+                                widget_constructor::WidgetConstructor::ViewerList,
+                            ),
+                            ("Bus Load", widget_constructor::WidgetConstructor::BusLoad),
+                            (
+                                "Jitter Histogram",
+                                widget_constructor::WidgetConstructor::Jitter,
+                            ),
+                            (
+                                "Message Sender",
+                                widget_constructor::WidgetConstructor::SendUi,
+                            ),
+                            ("HIL Runner", widget_constructor::WidgetConstructor::Hil),
+                            (
+                                "Bootloader",
+                                widget_constructor::WidgetConstructor::Bootloader,
+                            ),
+                            (
+                                "SD Log Importer",
+                                widget_constructor::WidgetConstructor::LogParser,
+                            ),
+                        ] {
+                            if ui.button(label).clicked() {
+                                app.action_queue.push(action::AppAction::SpawnWidget(ctor));
+                                ui.close();
+                            }
+                        }
+                    },
+                )
+                .response
+                .on_hover_text("Add a new plot or tool pane to the workspace");
+            });
+        });
+}
 
 pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     ui::timeline::show(app, ctx);
+    show_workspace_tabs_bar(app, ctx);
     app.router.poll_background_tiles();
     let start = app.router.timeline().start();
     let removed = app
@@ -15,18 +182,33 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         app.hover_utc_ms,
         app.hover_distance_m,
     );
+    let theme = ui::theme::get_theme(ctx);
     let central_frame = eframe::egui::Frame::central_panel(&ctx.style())
-        .inner_margin(eframe::egui::Margin::same(2));
+        .fill(theme.border_color())
+        .inner_margin(eframe::egui::Margin::same(1));
     eframe::egui::CentralPanel::default()
         .frame(central_frame)
         .show(ctx, |ui| {
             if app.tile_tree.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.label("No widgets in workspace yet.");
-                    ui.label("CMD+S to toggle the sidebar.");
-                    ui.label("CMD+P to toggle the command palette.");
-                    ui.label("Drag any signal from the Signal Browser to open a Scope.");
-                });
+                eframe::egui::Frame::NONE
+                    .fill(theme.canvas_color())
+                    .show(ui, |ui| {
+                        ui.set_min_size(ui.available_size());
+                        ui.vertical_centered(|ui| {
+                            ui.add_space((ui.available_height() * 0.35).max(16.0));
+                            ui.label(
+                                eframe::egui::RichText::new("No panes in active workspace")
+                                    .strong(),
+                            );
+                            ui.label(
+                                eframe::egui::RichText::new(
+                                    "Select a subteam tab above, drag a channel from CHANNELS, or press Ctrl+P.",
+                                )
+                                .small()
+                                .color(theme.muted_text_color()),
+                            );
+                        });
+                    });
             } else {
                 let mut behavior = WorkspaceTileBehavior {
                     view: &view,
@@ -118,8 +300,10 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
         widget: &mut widgets::Widget,
     ) -> egui_tiles::UiResponse {
         ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+        let canvas_color = ui::theme::get_theme(ui.ctx()).canvas_color();
         eframe::egui::Frame::NONE
-            .inner_margin(eframe::egui::Margin::symmetric(3, 2))
+            .fill(canvas_color)
+            .inner_margin(eframe::egui::Margin::symmetric(4, 2))
             .show(ui, |ui| {
                 ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                 widget.show(
@@ -142,7 +326,7 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
     }
 
     fn gap_width(&self, _style: &eframe::egui::Style) -> f32 {
-        2.0
+        1.0
     }
 
     fn tab_title_for_pane(&mut self, widget: &widgets::Widget) -> eframe::egui::WidgetText {
@@ -150,7 +334,7 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
     }
 
     fn tab_bar_color(&self, visuals: &eframe::egui::Visuals) -> eframe::egui::Color32 {
-        visuals.window_fill
+        visuals.panel_fill
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {

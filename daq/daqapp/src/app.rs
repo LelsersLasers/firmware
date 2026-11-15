@@ -43,6 +43,9 @@ pub struct DAQApp {
     pub connection_status: ConnectionStatus,
     pub value_formatter: Option<daqcore::formatter::Formatter>,
     pub is_sidebar_open: bool,
+    pub sidebar_tab: ui::sidebar::SidebarTab,
+    pub active_workspace_tab: Option<String>,
+    pub show_share_popover: bool,
     pub command_palette: ui::command_palette::CommandPalette,
     pub tile_tree: egui_tiles::Tree<widgets::Widget>,
     pub widget_ids: widget_ids::WidgetIds,
@@ -165,6 +168,9 @@ impl DAQApp {
             connection_status: ConnectionStatus::Disconnected,
             value_formatter: load_formatter(),
             is_sidebar_open: true,
+            sidebar_tab: ui::sidebar::SidebarTab::default(),
+            active_workspace_tab: None,
+            show_share_popover: false,
             command_palette: ui::command_palette::CommandPalette::new(),
             tile_tree: egui_tiles::Tree::empty("workspace_tree"),
             widget_ids: widget_ids::WidgetIds::new(),
@@ -454,6 +460,7 @@ impl DAQApp {
                             "Failed to apply workspace preset '{preset_id}': {err}"
                         ));
                     } else {
+                        self.active_workspace_tab = Some(preset_id);
                         self.save_settings();
                     }
                 } else {
@@ -470,8 +477,8 @@ impl DAQApp {
                 {
                     self.diagnostic =
                         Some(format!("Failed to generate workspace share string: {err}"));
-                } else if !self.is_sidebar_open {
-                    self.workspace_view_modal.open();
+                } else {
+                    self.show_share_popover = true;
                 }
             }
             action::AppAction::OpenExportDataModal => {
@@ -504,8 +511,12 @@ impl DAQApp {
         }
     }
 
-    pub fn toggle_theme(&mut self, ctx: &eframe::egui::Context) {
-        self.theme_selection = self.theme_selection.next();
+    pub fn set_theme(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        selection: ui::theme::ThemeSelection,
+    ) {
+        self.theme_selection = selection;
         self.theme = self.theme_selection.get_style();
         ui::theme::store_theme(ctx, self.theme_selection.get_colors());
     }
