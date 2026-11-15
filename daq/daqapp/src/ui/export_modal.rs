@@ -1,4 +1,3 @@
-use crate::app::DatabaseSelection;
 use daqcore::{
     export::{
         ExportError, ExportFormat, ExportPresetRegistry, ExportSummary, SamplingMode,
@@ -55,7 +54,7 @@ impl Default for ExportModalState {
 }
 
 impl ExportModalState {
-    pub fn open(&mut self, router: &VirtualTimelineRouter, database: Option<&DatabaseSelection>) {
+    pub fn open(&mut self, router: &VirtualTimelineRouter) {
         self.is_open = true;
         self.status_banner = None;
         if let Some(first_selected) = router.timeline().selected_annotation_ids().first() {
@@ -64,7 +63,7 @@ impl ExportModalState {
             self.range_mode = UiExportRangeMode::CurrentViewport;
         }
         let preset_id = self.selected_preset_id.clone();
-        self.apply_preset(&preset_id, router, database);
+        self.apply_preset(&preset_id, router);
         self.sync_output_extension();
     }
 
@@ -85,12 +84,7 @@ impl ExportModalState {
         }
     }
 
-    pub fn apply_preset(
-        &mut self,
-        preset_id: &str,
-        router: &VirtualTimelineRouter,
-        database: Option<&DatabaseSelection>,
-    ) {
+    pub fn apply_preset(&mut self, preset_id: &str, router: &VirtualTimelineRouter) {
         self.selected_preset_id = preset_id.to_owned();
         let Some(preset) = self.preset_registry.get(preset_id).cloned() else {
             return;
@@ -109,11 +103,10 @@ impl ExportModalState {
             let e = router.timeline().end_utc_ms();
             s..=e.max(s)
         });
-        let db_ref = database.map(|d| &d.database);
-        if let Ok(expanded) = expand_signal_patterns(&preset.signals, router, range, db_ref) {
+        if let Ok(expanded) = expand_signal_patterns(&preset.signals, router, range, None) {
             self.selected_signals = expanded.into_iter().map(|m| m.signal_id).collect();
         } else {
-            self.selected_signals = preset.signals.into_iter().collect();
+            self.selected_signals.clear();
         }
     }
 
@@ -136,7 +129,6 @@ impl ExportModalState {
     pub fn execute_export(
         &mut self,
         router: &mut VirtualTimelineRouter,
-        database: Option<&DatabaseSelection>,
     ) -> Result<ExportSummary, ExportError> {
         let range = self.active_range(router)?;
         let sampling_mode = if self.sparse_mode {
@@ -145,7 +137,6 @@ impl ExportModalState {
             SamplingMode::UniformGridHz(self.rate_hz)
         };
         let signal_patterns: Vec<String> = self.selected_signals.iter().cloned().collect();
-        let db_ref = database.map(|d| &d.database);
 
         match export_dataset(
             router,
@@ -154,7 +145,7 @@ impl ExportModalState {
             sampling_mode,
             self.format,
             self.output_path.trim(),
-            db_ref,
+            None,
         ) {
             Ok(summary) => {
                 self.status_banner = Some(Ok(format!(
@@ -173,12 +164,7 @@ impl ExportModalState {
         }
     }
 
-    pub fn show(
-        &mut self,
-        ctx: &eframe::egui::Context,
-        router: &mut VirtualTimelineRouter,
-        database: Option<&DatabaseSelection>,
-    ) {
+    pub fn show(&mut self, ctx: &eframe::egui::Context, router: &mut VirtualTimelineRouter) {
         if !self.is_open {
             return;
         }
@@ -239,6 +225,7 @@ impl ExportModalState {
                     .clicked()
                 {
                     self.range_mode = UiExportRangeMode::CurrentViewport;
+                    preset_to_apply = Some(self.selected_preset_id.clone());
                 }
 
                 ui.horizontal(|ui| {
@@ -249,6 +236,7 @@ impl ExportModalState {
                             .map(|a| a.name.clone())
                             .unwrap_or_else(|| "Stint 1".to_owned());
                         self.range_mode = UiExportRangeMode::Annotation(default_ann);
+                        preset_to_apply = Some(self.selected_preset_id.clone());
                     }
 
                     let current_ann_label = match &self.range_mode {
@@ -285,6 +273,7 @@ impl ExportModalState {
                                 {
                                     self.range_mode =
                                         UiExportRangeMode::Annotation(ann.name.clone());
+                                    preset_to_apply = Some(self.selected_preset_id.clone());
                                 }
                             }
                         });
@@ -328,7 +317,12 @@ impl ExportModalState {
                 });
 
                 if self.show_signal_checklist {
-                    let all_signals = collect_available_signals(router, database);
+                    let active_range = self.active_range(router).unwrap_or_else(|_| {
+                        let s = router.timeline().start_utc_ms();
+                        let e = router.timeline().end_utc_ms();
+                        s..=e.max(s)
+                    });
+                    let all_signals = collect_available_signals(router, active_range);
                     ui.horizontal(|ui| {
                         ui.label("🔍");
                         ui.add(
@@ -488,29 +482,23 @@ impl ExportModalState {
             self.is_open = false;
         }
         if let Some(preset_id) = preset_to_apply {
-            self.apply_preset(&preset_id, router, database);
+            self.apply_preset(&preset_id, router);
         }
         if trigger_export {
-            let _ = self.execute_export(router, database);
+            let _ = self.execute_export(router);
         }
     }
 }
 
 fn collect_available_signals(
     router: &VirtualTimelineRouter,
-    database: Option<&DatabaseSelection>,
+    range: RangeInclusive<i64>,
 ) -> Vec<String> {
-    let s = router.timeline().start_utc_ms();
-    let e = router.timeline().end_utc_ms().max(s);
-    let db_ref = database.map(|d| &d.database);
-    let catalog = discover_available_signals(router, s..=e, db_ref);
-    let mut set: BTreeSet<String> = catalog.into_keys().collect();
-    for preset in ExportPresetRegistry::with_builtin().presets() {
-        for sig in &preset.signals {
-            if !sig.contains('*') && !sig.contains('?') {
-                set.insert(sig.clone());
-            }
-        }
-    }
+    let catalog = discover_available_signals(router, range, None);
+    let set: BTreeSet<String> = catalog
+        .into_iter()
+        .filter(|(_, meta)| meta.has_samples_in_range)
+        .map(|(id, _)| id)
+        .collect();
     set.into_iter().collect()
 }

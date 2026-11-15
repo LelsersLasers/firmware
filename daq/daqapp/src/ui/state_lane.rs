@@ -1,4 +1,4 @@
-use crate::{app, ui, workspace_view};
+use crate::{ui, workspace_view};
 
 const STATE_PALETTE: [eframe::egui::Color32; 8] = [
     eframe::egui::Color32::from_rgb(65, 150, 230), // Blue
@@ -172,12 +172,9 @@ impl StateLane {
         self.add_lane(signal_id, label);
     }
 
-    pub fn reset_database(&mut self) {}
-
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
@@ -257,7 +254,7 @@ impl StateLane {
         }
 
         if self.show_picker || self.lanes.is_empty() {
-            self.show_signal_picker(ui, database, view);
+            self.show_signal_picker(ui, view);
             return egui_tiles::UiResponse::None;
         }
 
@@ -305,8 +302,7 @@ impl StateLane {
                             remove_idx = Some(idx);
                         }
                         let current_badge = active_interval.map(|iv| {
-                            let resolved =
-                                resolve_state_label(&lane.signal_id, iv, is_fault_sig, database);
+                            let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
                             let color =
                                 state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
                             (resolved, color)
@@ -356,8 +352,7 @@ impl StateLane {
                                 eframe::egui::pos2(x0, strip_rect.top() + 2.0),
                                 eframe::egui::pos2(x1, strip_rect.bottom() - 2.0),
                             );
-                            let resolved =
-                                resolve_state_label(&lane.signal_id, iv, is_fault_sig, database);
+                            let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
                             let fill =
                                 state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
                             painter.rect_filled(bar_rect, 2.5, fill.gamma_multiply(0.82));
@@ -458,12 +453,8 @@ impl StateLane {
                                 .iter()
                                 .rfind(|iv| iv.start_utc_ms <= ptr_ms && ptr_ms <= iv.end_utc_ms)
                             {
-                                let resolved = resolve_state_label(
-                                    &lane.signal_id,
-                                    iv,
-                                    is_fault_sig,
-                                    database,
-                                );
+                                let resolved =
+                                    resolve_state_label(&lane.signal_id, iv, is_fault_sig);
                                 let dur_s =
                                     ((iv.end_utc_ms - iv.start_utc_ms).max(0) as f64) / 1000.0;
                                 strip_resp.on_hover_text(format!(
@@ -533,7 +524,6 @@ impl StateLane {
     fn show_signal_picker(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) {
         let allow_cancel = !self.lanes.is_empty();
@@ -544,7 +534,6 @@ impl StateLane {
             allow_cancel,
             true,
             &mut self.search_query,
-            database,
             view,
         ) {
             ui::message_picker::SignalPickerAction::None => {}
@@ -571,21 +560,12 @@ pub fn is_likely_fault_signal(signal_id: &str) -> bool {
 }
 
 pub fn resolve_state_label(
-    signal_id: &str,
+    _signal_id: &str,
     interval: &daqcore::router::StateInterval,
     is_fault_sig: bool,
-    database: Option<&app::DatabaseSelection>,
 ) -> String {
     if !interval.label.is_empty() && !interval.label.starts_with("RAW_") {
         return interval.label.clone();
-    }
-    if let Some(db) = database
-        && let Some((msg_name, sig_name)) = signal_id.split_once('.')
-        && let Some(msg) = db.database.messages().find(|m| m.name() == msg_name)
-        && let Some(sig) = msg.signal(sig_name)
-        && let Some(choice) = sig.choice_label(interval.raw_int as i128)
-    {
-        return choice.to_owned();
     }
     if is_fault_sig {
         if interval.raw_int == 0 {
@@ -660,7 +640,7 @@ mod tests {
             raw_int: 1,
             label: "RAW_1".to_owned(),
         };
-        let label = resolve_state_label("a_box_fault_sync.IMD", &fault_iv, true, None);
+        let label = resolve_state_label("a_box_fault_sync.IMD", &fault_iv, true);
         assert_eq!(label, "FAULT (1)");
         let col = state_color_for_interval(&label, 1, true);
         assert_eq!(col, eframe::egui::Color32::from_rgb(225, 65, 65));
@@ -701,7 +681,7 @@ mod tests {
         };
         let _ = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = lane_widget.show(ui, None, &view);
+                let _ = lane_widget.show(ui, &view);
             });
         });
     }

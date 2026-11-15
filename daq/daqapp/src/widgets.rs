@@ -66,25 +66,21 @@ impl Widget {
         context: WidgetContext<'_>,
     ) -> egui_tiles::UiResponse {
         match self {
-            Widget::ViewerTable(w) => w.show(
-                ui,
-                context.action_queue,
-                context.formatter,
-                context.database,
-                context.view,
-            ),
-            Widget::ViewerList(w) => w.show(ui, context.formatter, context.database, context.view),
+            Widget::ViewerTable(w) => {
+                w.show(ui, context.action_queue, context.formatter, context.view)
+            }
+            Widget::ViewerList(w) => w.show(ui, context.formatter, context.view),
             Widget::Bootloader(w) => w.show(ui, &context.ui_to_can_tx),
-            Widget::Scope(w) => w.show(ui, context.database, context.view),
-            Widget::StateLane(w) => w.show(ui, context.database, context.view),
-            Widget::XYScatter(w) => w.show(ui, context.database, context.view),
+            Widget::Scope(w) => w.show(ui, context.view),
+            Widget::StateLane(w) => w.show(ui, context.view),
+            Widget::XYScatter(w) => w.show(ui, context.view),
             Widget::LogParser(w) => {
                 w.show(ui, context.database, context.view, context.action_queue)
             }
             Widget::SendUi(w) => w.show(ui, context.database, context.formatter),
             Widget::BusLoad(w) => w.show(ui, context.bus_load, context.view),
-            Widget::GpsPlot(w) => w.show(ui, context.database, context.view),
-            Widget::Jitter(w) => w.show(ui, context.database, context.view),
+            Widget::GpsPlot(w) => w.show(ui, context.view),
+            Widget::Jitter(w) => w.show(ui, context.view),
             Widget::Hil(w) => w.show(ui),
         }
     }
@@ -93,10 +89,6 @@ impl Widget {
         match self {
             Widget::SendUi(widget) => widget.reset_database(),
             Widget::Bootloader(widget) => widget.reset_database(),
-            Widget::Scope(widget) => widget.reset_database(),
-            Widget::StateLane(widget) => widget.reset_database(),
-            Widget::XYScatter(widget) => widget.reset_database(),
-            Widget::Jitter(widget) => widget.reset_database(),
             _ => {}
         }
     }

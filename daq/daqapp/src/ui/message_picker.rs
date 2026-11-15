@@ -28,8 +28,7 @@ pub enum SignalPickerAction {
 }
 
 /// Shared flat `msg.signal` (and derived formula) picker used across `Scope`, `XYScatter`,
-/// `StateLane`, and `GpsPlot`.
-#[allow(clippy::too_many_arguments)]
+/// `StateLane`, and `GpsPlot`. Lists only signals and formulas active in the current timeline viewport.
 pub fn show_signal_picker(
     ui: &mut eframe::egui::Ui,
     id_salt: impl std::hash::Hash,
@@ -37,7 +36,6 @@ pub fn show_signal_picker(
     allow_cancel: bool,
     prefer_discrete_when_empty: bool,
     search_query: &mut String,
-    database: Option<&app::DatabaseSelection>,
     view: &workspace_view::WorkspaceDataView<'_>,
 ) -> SignalPickerAction {
     let mut cancelled = false;
@@ -66,10 +64,28 @@ pub fn show_signal_picker(
         tokens.iter().all(|tok| lower.contains(tok))
     };
 
+    let active_signals = view.active_signals_in_viewport();
+    let active_id_set: std::collections::HashSet<&str> = active_signals
+        .iter()
+        .map(|s| s.signal_id.as_str())
+        .collect();
+
     let mut candidates: Vec<PickedSignal> = Vec::new();
 
     if !(prefer_discrete_when_empty && tokens.is_empty()) {
         for compiled in view.router.formula_engine().definitions() {
+            let deps_active = active_id_set.is_empty()
+                || view
+                    .router
+                    .formula_engine()
+                    .execution_plan_for_expr(&compiled.ast)
+                    .is_ok_and(|(_, leaves)| {
+                        leaves.is_empty()
+                            || leaves.iter().all(|leaf| active_id_set.contains(leaf.as_str()))
+                    });
+            if !deps_active {
+                continue;
+            }
             let def = &compiled.def;
             let searchable = format!("{} {} {}", def.id, def.label, def.unit);
             if matches_query(&searchable) {
@@ -89,65 +105,36 @@ pub fn show_signal_picker(
         }
     }
 
-    if let Some(db) = database {
-        for msg in db.database.messages() {
-            for sig in msg.signals() {
-                let sig_id = daqcore::storage::format_signal_id(msg.name(), sig.name());
-                let is_discrete = sig.choices().next().is_some()
-                    || sig.bit_length() == 1
-                    || ui::state_lane::is_likely_fault_signal(&sig_id);
-                if prefer_discrete_when_empty && tokens.is_empty() && !is_discrete {
-                    continue;
-                }
-                let searchable = format!("{} {}", sig_id, sig.unit());
-                if matches_query(&searchable) {
-                    candidates.push(PickedSignal {
-                        signal_id: sig_id,
-                        signal_name: sig.name().to_owned(),
-                        unit: sig.unit().to_owned(),
-                        key: Some(msg.key()),
-                        is_derived: false,
-                    });
-                }
-            }
+    for meta in &active_signals {
+        let is_discrete =
+            meta.is_discrete || ui::state_lane::is_likely_fault_signal(&meta.signal_id);
+        if prefer_discrete_when_empty && tokens.is_empty() && !is_discrete {
+            continue;
         }
-    }
-
-    for part in view.router.partitions() {
-        for col in &part.manifest.signals {
-            let is_discrete =
-                col.is_discrete || ui::state_lane::is_likely_fault_signal(&col.signal_id);
-            if prefer_discrete_when_empty && tokens.is_empty() && !is_discrete {
-                continue;
-            }
-            let searchable = format!("{} {}", col.signal_id, col.unit);
-            if matches_query(&searchable)
-                && !candidates.iter().any(|c| c.signal_id == col.signal_id)
-            {
-                let signal_name = col
-                    .signal_id
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(&col.signal_id)
-                    .to_owned();
-                candidates.push(PickedSignal {
-                    signal_id: col.signal_id.clone(),
-                    signal_name,
-                    unit: col.unit.clone(),
-                    key: None,
-                    is_derived: false,
-                });
-            }
+        let searchable = format!(
+            "{} {} {} {}",
+            meta.signal_id, meta.unit, meta.bus_name, meta.transmitter
+        );
+        if matches_query(&searchable) {
+            let (_, sig_name) = meta.split_message_signal();
+            let key = (meta.can_id != 0 || !meta.bus_name.is_empty()).then_some(
+                daqcore::superdbc::message::MessageKey {
+                    bus_id: meta.bus_id,
+                    identity: meta.can_id,
+                },
+            );
+            candidates.push(PickedSignal {
+                signal_id: meta.signal_id.clone(),
+                signal_name: sig_name.to_owned(),
+                unit: meta.unit.clone(),
+                key,
+                is_derived: false,
+            });
         }
     }
 
     if prefer_discrete_when_empty {
         candidates.sort_by(|a, b| a.signal_id.cmp(&b.signal_id));
-    }
-
-    if candidates.is_empty() && database.is_none() && view.router.partitions().is_empty() {
-        no_database_placeholder(ui);
-        return SignalPickerAction::None;
     }
 
     let mut picked: Option<PickedSignal> = None;
@@ -156,11 +143,12 @@ pub fn show_signal_picker(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             if candidates.is_empty() {
-                ui.label(
-                    eframe::egui::RichText::new("No matching signals found.")
-                        .italics()
-                        .weak(),
-                );
+                let msg = if active_signals.is_empty() {
+                    "No signals have samples in the active timeline range."
+                } else {
+                    "No matching signals found in the active timeline range."
+                };
+                ui.label(eframe::egui::RichText::new(msg).italics().weak());
                 return;
             }
             for cand in candidates.into_iter().take(200) {
@@ -184,6 +172,126 @@ pub fn show_signal_picker(
     match picked {
         Some(sig) => SignalPickerAction::Picked(sig),
         None => SignalPickerAction::None,
+    }
+}
+
+/// Metadata for a CAN message that has active signal samples in the current timeline viewport.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActiveMessageOption {
+    pub message_name: String,
+    pub bus_name: String,
+    pub bus_id: u8,
+    pub can_id: u32,
+    pub nominal_period_ms: Option<u32>,
+    pub first_signal_id: String,
+}
+
+impl ActiveMessageOption {
+    pub fn key(&self) -> daqcore::superdbc::message::MessageKey {
+        daqcore::superdbc::message::MessageKey {
+            bus_id: self.bus_id,
+            identity: self.can_id,
+        }
+    }
+}
+
+/// Range-aware CAN message picker backed by active signals in the current timeline viewport (used by `Jitter`).
+#[derive(Default)]
+pub struct ActiveMessagePickerState {
+    search_text: String,
+}
+
+impl ActiveMessagePickerState {
+    pub fn collect_active_messages(
+        view: &workspace_view::WorkspaceDataView<'_>,
+    ) -> Vec<ActiveMessageOption> {
+        let mut by_msg: std::collections::BTreeMap<String, ActiveMessageOption> =
+            std::collections::BTreeMap::new();
+        for meta in view.active_signals_in_viewport() {
+            let (msg_name, _) = meta.split_message_signal();
+            if msg_name.is_empty() {
+                continue;
+            }
+            by_msg
+                .entry(msg_name.to_owned())
+                .or_insert_with(|| ActiveMessageOption {
+                    message_name: msg_name.to_owned(),
+                    bus_name: if meta.bus_name.is_empty() {
+                        "CAN".to_owned()
+                    } else {
+                        meta.bus_name.clone()
+                    },
+                    bus_id: meta.bus_id,
+                    can_id: meta.can_id,
+                    nominal_period_ms: meta.nominal_period_ms,
+                    first_signal_id: meta.signal_id.clone(),
+                });
+        }
+        by_msg.into_values().collect()
+    }
+
+    pub fn show(
+        &mut self,
+        ui: &mut eframe::egui::Ui,
+        view: &workspace_view::WorkspaceDataView<'_>,
+        selected_msg_is_none: bool,
+    ) -> Option<ActiveMessageOption> {
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            ui.add(
+                eframe::egui::TextEdit::singleline(&mut self.search_text)
+                    .desired_width(ui.available_width().max(60.0))
+                    .hint_text("Message name, CAN ID, or bus…"),
+            );
+        });
+        ui.add_space(4.0);
+        if self.search_text.is_empty() && !selected_msg_is_none {
+            return None;
+        }
+        let search = self.search_text.trim().to_lowercase();
+        let messages = Self::collect_active_messages(view);
+        let mut found = false;
+        let mut picked = None;
+        let scroll_max_h = if selected_msg_is_none {
+            ui.available_height().max(80.0)
+        } else {
+            ui.available_height().clamp(80.0, 220.0)
+        };
+        eframe::egui::ScrollArea::vertical()
+            .id_salt("active_message_picker_results")
+            .max_height(scroll_max_h)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for msg in messages.into_iter().filter(|m| {
+                    search.is_empty()
+                        || search == "*"
+                        || m.message_name.to_lowercase().contains(&search)
+                        || format!("0x{:03x}", m.can_id).contains(&search)
+                        || m.bus_name.to_lowercase().contains(&search)
+                }) {
+                    found = true;
+                    let label = format!(
+                        "[{}] {} (0x{:03X})",
+                        msg.bus_name, msg.message_name, msg.can_id
+                    );
+                    if ui.add(eframe::egui::Button::new(label).wrap()).clicked() {
+                        picked = Some(msg);
+                    }
+                }
+                if !found {
+                    ui.label(
+                        eframe::egui::RichText::new(
+                            "No messages have samples in the active timeline range.",
+                        )
+                        .italics()
+                        .weak(),
+                    );
+                }
+            });
+        if picked.is_some() {
+            self.search_text.clear();
+        }
+        picked
     }
 }
 

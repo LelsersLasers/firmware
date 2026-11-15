@@ -1,4 +1,4 @@
-use crate::{app, ui, workspace_view};
+use crate::{ui, workspace_view};
 use std::{cell::Cell, rc::Rc};
 
 const DEFAULT_CENTER_LAT: f64 = 40.4344;
@@ -97,7 +97,6 @@ impl GpsPlot {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
@@ -199,7 +198,6 @@ impl GpsPlot {
                 true,
                 false,
                 &mut self.search_query,
-                database,
                 view,
             ) {
                 ui::message_picker::SignalPickerAction::None => {}
@@ -297,7 +295,7 @@ impl GpsPlot {
             if let Some((sig_id, unit)) = &self.overlay_signal {
                 ui.separator();
                 let resolved_unit = if unit.is_empty() {
-                    view.resolve_signal_unit(sig_id, None)
+                    view.resolve_signal_unit(sig_id)
                 } else {
                     unit.clone()
                 };
@@ -754,14 +752,14 @@ mod tests {
         };
         let _ = ctx.run(raw_input.clone(), |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = gps.show(ui, None, &view);
+                let _ = gps.show(ui, &view);
             });
         });
 
         gps.show_picker = true;
         let _ = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = gps.show(ui, None, &view);
+                let _ = gps.show(ui, &view);
             });
         });
     }

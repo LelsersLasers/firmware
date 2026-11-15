@@ -2406,13 +2406,6 @@ mod tests {
         );
         assert!(router.timeline().is_comparison_mode());
 
-        let selection = daqcore::can_thread::BusSelection::default_single(&database)
-            .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
-        let db_sel = app::DatabaseSelection {
-            database,
-            selection,
-        };
-
         let mut timeline_ui = TimelineUiState::default();
         let mut browser_state = ui::signal_browser::SignalBrowserState {
             search_query: "*vbatt*".to_owned(),
@@ -2452,7 +2445,6 @@ mod tests {
                 ui::signal_browser::show_signal_browser(
                     ui,
                     &mut browser_state,
-                    Some(&db_sel),
                     &mut router,
                     &mut action_queue,
                     &mut diagnostic,
@@ -2460,7 +2452,7 @@ mod tests {
             });
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 let view = crate::workspace_view::WorkspaceDataView::new(&router);
-                let _ = scope.show(ui, Some(&db_sel), &view);
+                let _ = scope.show(ui, &view);
             });
         });
         assert!(

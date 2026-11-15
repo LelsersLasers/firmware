@@ -558,7 +558,7 @@ mod tests {
                 eframe::egui::CentralPanel::default()
                     .frame(central_frame)
                     .show(ctx, |ui| {
-                        let _ = scope.show(ui, Some(&db), &view);
+                        let _ = scope.show(ui, &view);
                     });
             });
         }

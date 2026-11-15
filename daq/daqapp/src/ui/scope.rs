@@ -1,4 +1,4 @@
-use crate::{app, ui, workspace_view};
+use crate::{ui, workspace_view};
 use std::fs;
 
 pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
@@ -399,17 +399,10 @@ impl Scope {
         }
     }
 
-    pub fn reset_database(&mut self) {
-        for ch in &mut self.channels {
-            ch.key = None;
-        }
-    }
-
     fn show_picker(
         &mut self,
         ui: &mut eframe::egui::Ui,
         target: ScopePickerTarget,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) {
         let prompt = match target {
@@ -424,7 +417,6 @@ impl Scope {
             allow_cancel,
             false,
             &mut self.search_query,
-            database,
             view,
         ) {
             ui::message_picker::SignalPickerAction::None => {}
@@ -452,7 +444,6 @@ impl Scope {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
@@ -476,14 +467,14 @@ impl Scope {
 
         if self.channels.is_empty() || self.picker_target.is_some() {
             let target = self.picker_target.unwrap_or(ScopePickerTarget::AddChannel);
-            self.show_picker(ui, target, database, view);
+            self.show_picker(ui, target, view);
             return egui_tiles::UiResponse::None;
         }
 
         // Resolve units for any channel whose unit was not populated yet.
         for ch in &mut self.channels {
             if ch.unit.is_empty() {
-                ch.unit = view.resolve_signal_unit(&ch.signal_id, database);
+                ch.unit = view.resolve_signal_unit(&ch.signal_id);
             }
         }
 
@@ -526,7 +517,7 @@ impl Scope {
                 {
                     self.x_axis_mode = mode;
                     if mode == ScopeXAxisMode::TrackDistance && self.speed_signal_id.is_empty() {
-                        self.speed_signal_id = view.resolve_default_speed_signal(database);
+                        self.speed_signal_id = view.resolve_default_speed_signal();
                     }
                 }
             }
@@ -1550,7 +1541,7 @@ mod tests {
             };
             let _ = ctx.run(raw_input, |ctx| {
                 eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                    let _ = scope.show(ui, None, &view);
+                    let _ = scope.show(ui, &view);
                 });
             });
         }

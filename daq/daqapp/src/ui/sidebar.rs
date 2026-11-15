@@ -89,7 +89,6 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     ui::signal_browser::show_signal_browser(
         ui,
         &mut app.signal_browser,
-        app.database.as_ref(),
         &mut app.router,
         &mut app.action_queue,
         &mut app.diagnostic,

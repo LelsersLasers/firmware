@@ -1,4 +1,4 @@
-use crate::{app, workspace_view};
+use crate::workspace_view;
 
 pub struct ViewerList {
     pub title: String,
@@ -15,12 +15,12 @@ impl ViewerList {
         &self,
         ui: &mut eframe::egui::Ui,
         formatter: &Option<daqcore::formatter::Formatter>,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let live_frames = view.live_frames_to_setpoint();
+        let active_signals = view.active_signals_to_setpoint();
         ui.heading(&self.title);
-        if live_frames.is_empty() && view.router.partitions().is_empty() {
+        if live_frames.is_empty() && active_signals.is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
         eframe::egui::ScrollArea::horizontal()
@@ -68,36 +68,31 @@ impl ViewerList {
                         }
                     })
                     .body(|mut body| {
-                        if live_frames.is_empty()
-                            && let Some(db) = database
-                        {
+                        if live_frames.is_empty() {
                             let mut rows = Vec::new();
-                            for message in db.database.messages() {
-                                let key = message.key();
-                                let bus_name = db.bus_name(key.bus_id);
-                                for sig_def in message.signals() {
-                                    let signal_id = daqcore::storage::format_signal_id(
-                                        message.name(),
-                                        sig_def.name(),
-                                    );
-                                    if let Some((utc_ms, val)) =
-                                        view.latest_signal_value_at_setpoint(&signal_id)
-                                    {
-                                        let unit = sig_def.unit();
-                                        let formatted = if unit.is_empty() {
-                                            format!("{val:.3}")
-                                        } else {
-                                            format!("{val:.3} {unit}")
-                                        };
-                                        rows.push((
-                                            utc_ms,
-                                            bus_name,
-                                            message.name(),
-                                            key.identity,
-                                            sig_def.name(),
-                                            formatted,
-                                        ));
-                                    }
+                            for sig_meta in &active_signals {
+                                let (msg_name, sig_name) = sig_meta.split_message_signal();
+                                if let Some((utc_ms, val)) =
+                                    view.latest_signal_value_in_setpoint_range(&sig_meta.signal_id)
+                                {
+                                    let bus_name = if sig_meta.bus_name.is_empty() {
+                                        "CAN"
+                                    } else {
+                                        sig_meta.bus_name.as_str()
+                                    };
+                                    let formatted = if sig_meta.unit.is_empty() {
+                                        format!("{val:.3}")
+                                    } else {
+                                        format!("{val:.3} {}", sig_meta.unit)
+                                    };
+                                    rows.push((
+                                        utc_ms,
+                                        bus_name,
+                                        msg_name,
+                                        sig_meta.can_id,
+                                        sig_name,
+                                        formatted,
+                                    ));
                                 }
                             }
                             rows.sort_by_key(|b| std::cmp::Reverse(b.0));
@@ -127,22 +122,22 @@ impl ViewerList {
                             return;
                         }
                         for frame in live_frames.iter().rev().take(200) {
-                            let bus_name =
-                                database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
+                            let bus_name = frame
+                                .decoded
+                                .as_ref()
+                                .map(|d| d.bus_name())
+                                .filter(|b| !b.is_empty())
+                                .unwrap_or("CAN");
                             if let Some(decoded) = &frame.decoded {
-                                let key = decoded.key();
-                                let def = database
-                                    .and_then(|selection| selection.database.message_by_key(key));
                                 for (name, sig) in decoded.iter() {
-                                    let signal_definition =
-                                        def.and_then(|message| message.signal(name));
-
+                                    let unit_opt =
+                                        (!sig.unit().is_empty()).then_some(sig.unit());
                                     let value = daqcore::formatter::try_format(
                                         formatter,
                                         decoded.name(),
                                         name,
-                                        signal_definition,
                                         None,
+                                        unit_opt,
                                         sig,
                                     );
                                     body.row(18.0, |mut row| {

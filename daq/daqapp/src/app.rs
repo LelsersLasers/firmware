@@ -475,7 +475,7 @@ impl DAQApp {
                 }
             }
             action::AppAction::OpenExportDataModal => {
-                self.export_modal.open(&self.router, self.database.as_ref());
+                self.export_modal.open(&self.router);
             }
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
@@ -635,8 +635,7 @@ impl eframe::App for DAQApp {
         ) {
             self.save_settings();
         }
-        self.export_modal
-            .show(ctx, &mut self.router, self.database.as_ref());
+        self.export_modal.show(ctx, &mut self.router);
         ctx.request_repaint();
     }
 
