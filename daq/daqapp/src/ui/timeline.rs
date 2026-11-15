@@ -446,14 +446,14 @@ pub fn show_timeline_contents(
         let timeline = router.timeline_mut();
         if ui
             .small_button("⏮")
-            .on_hover_text("Step playhead backward 100 ms")
+            .on_hover_text("Step playhead backward 100 ms (or H / Left for 1% window step)")
             .clicked()
         {
             timeline.step_by_ms(-100);
         }
         if ui
             .small_button("⏪")
-            .on_hover_text("Step playhead backward 10 ms")
+            .on_hover_text("Step playhead backward 10 ms (Alt+H / Alt+Left)")
             .clicked()
         {
             timeline.step_by_ms(-10);
@@ -489,14 +489,14 @@ pub fn show_timeline_contents(
 
         if ui
             .small_button("⏩")
-            .on_hover_text("Step playhead forward 10 ms")
+            .on_hover_text("Step playhead forward 10 ms (Alt+L / Alt+Right)")
             .clicked()
         {
             timeline.step_by_ms(10);
         }
         if ui
             .small_button("⏭")
-            .on_hover_text("Step playhead forward 100 ms")
+            .on_hover_text("Step playhead forward 100 ms (or L / Right for 1% window step)")
             .clicked()
         {
             timeline.step_by_ms(100);
@@ -992,14 +992,14 @@ pub fn show_timeline_contents(
         }
         if ui
             .small_button("−")
-            .on_hover_text("Zoom out 2x around playhead")
+            .on_hover_text("Zoom out around playhead (- / J / Down / Shift+J)")
             .clicked()
         {
             timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 2.0);
         }
         if ui
             .small_button("+")
-            .on_hover_text("Zoom in 2x around playhead")
+            .on_hover_text("Zoom in around playhead (+ / K / Up / Shift+K)")
             .clicked()
         {
             timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
@@ -1007,7 +1007,7 @@ pub fn show_timeline_contents(
         if let Some((day_min, day_max)) = timeline.day_bounds_ms()
             && ui
                 .small_button("↔ Fit Day")
-                .on_hover_text("Zoom out to the full Track Day overview")
+                .on_hover_text("Zoom out to the full Track Day overview (F)")
                 .clicked()
         {
             timeline.snap_to_range_ms(day_min, day_max);
@@ -1041,13 +1041,39 @@ pub fn show_timeline_contents(
         if ui
             .add(fold_btn)
             .on_hover_text(
-                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon",
+                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon (G)",
             )
             .clicked()
         {
             fold_gaps = !fold_gaps;
             timeline.set_collapse_idle_gaps(fold_gaps);
         }
+
+        let help_pill = eframe::egui::Button::new(
+            eframe::egui::RichText::new("?")
+                .monospace()
+                .size(10.5)
+                .color(theme.muted_text_color()),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(bg_color)
+        .stroke(eframe::egui::Stroke::new(1.0_f32, border_color))
+        .corner_radius(3.0)
+        .sense(eframe::egui::Sense::hover());
+        ui.add(help_pill).on_hover_text(
+            "Keyboard Shortcuts:\n\
+             • / : Focus sidebar channel / session search (Esc to unfocus)\n\
+             • Space : Play / Pause timeline scrub\n\
+             • H / L or Left / Right : Move playhead (setpoint) left / right (1% window)\n\
+             • Alt + H / L or Alt + Left / Right : Fine-step playhead (±10 ms)\n\
+             • Shift + H / L or Shift + Left / Right : Pan viewport window left / right (10% window)\n\
+             • K / J, Up / Down, Shift + K / J, or + / - : Zoom window in / out around cursor/playhead\n\
+             • [ / ] : Jump to previous / next Driving Stint\n\
+             • F : Fit entire Track Day\n\
+             • G : Toggle Fold Idle Gaps\n\
+             • M : Drop event bookmark at Playhead\n\
+             • Ctrl/Cmd + P : Command Palette · Ctrl/Cmd + S : Toggle Sidebar",
+        );
     });
 
     if let Some((id, s, e)) = menu_single_click {
@@ -2022,12 +2048,15 @@ pub fn show_chunk_navigator_contents(
                 timeline_ui.chunk_search_query.clear();
             }
             let edit_w = (ui.available_width() - 10.0).max(40.0);
-            ui.add(
+            let resp = ui.add(
                 eframe::egui::TextEdit::singleline(&mut timeline_ui.chunk_search_query)
                     .id(eframe::egui::Id::new("chunk_navigator_search_input"))
                     .desired_width(edit_w)
-                    .hint_text("Search date, stint, partition, fault, or note…"),
+                    .hint_text("Search date, stint, partition, fault, or note… (/)"),
             );
+            if resp.has_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Escape)) {
+                resp.surrender_focus();
+            }
         },
     );
 

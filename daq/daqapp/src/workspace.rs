@@ -982,5 +982,132 @@ mod tests {
             ui::timeline::show(&mut app, ctx);
             super::show(&mut app, ctx);
         });
+
+        // Verify keyboard shortcuts: Space (play/pause), H/L (step setpoint), Shift+H/L (pan window),
+        // Shift+K/J (zoom window), G (fold gaps), and `/` (focus sidebar search without typing '/').
+        let send_key = |app: &mut app::DAQApp,
+                        ctx: &eframe::egui::Context,
+                        key: eframe::egui::Key,
+                        modifiers: eframe::egui::Modifiers,
+                        text: Option<&str>| {
+            let mut events = vec![eframe::egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }];
+            if let Some(t) = text {
+                events.push(eframe::egui::Event::Text(t.to_owned()));
+            }
+            let mut input = eframe::egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events,
+                modifiers,
+                ..Default::default()
+            };
+            input.viewport_id = eframe::egui::ViewportId::ROOT;
+            let _ = ctx.run(input, |ctx| {
+                ctx.set_style(app.theme.clone());
+                let actions = crate::shortcuts::ShortcutHandler::check_shortcuts(ctx);
+                for act in actions {
+                    app.handle_action(act, ctx);
+                }
+                ui::sidebar::show(app, ctx);
+                ui::timeline::show(app, ctx);
+                super::show(app, ctx);
+            });
+        };
+
+        assert!(!app.router.timeline().is_playing());
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::Space,
+            eframe::egui::Modifiers::NONE,
+            None,
+        );
+        assert!(app.router.timeline().is_playing());
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::Space,
+            eframe::egui::Modifiers::NONE,
+            None,
+        );
+        assert!(!app.router.timeline().is_playing());
+
+        let sp0 = app.router.timeline().setpoint_utc_ms();
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::H,
+            eframe::egui::Modifiers::NONE,
+            None,
+        );
+        let sp1 = app.router.timeline().setpoint_utc_ms();
+        assert!(sp1 < sp0, "H should step playhead backward");
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::L,
+            eframe::egui::Modifiers::NONE,
+            None,
+        );
+        assert_eq!(app.router.timeline().setpoint_utc_ms(), sp0);
+
+        let win_start0 = app.router.timeline().start_utc_ms();
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::H,
+            eframe::egui::Modifiers::SHIFT,
+            None,
+        );
+        assert!(
+            app.router.timeline().start_utc_ms() < win_start0,
+            "Shift+H should pan window left"
+        );
+
+        let span0 = app.router.timeline().window_ms();
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::K,
+            eframe::egui::Modifiers::SHIFT,
+            None,
+        );
+        assert!(
+            app.router.timeline().window_ms() < span0,
+            "Shift+K should shrink (zoom in) window"
+        );
+
+        let fold0 = app.router.timeline().collapse_idle_gaps();
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::G,
+            eframe::egui::Modifiers::NONE,
+            None,
+        );
+        assert_eq!(app.router.timeline().collapse_idle_gaps(), !fold0);
+
+        app.is_sidebar_open = false;
+        app.signal_browser.search_query.clear();
+        send_key(
+            &mut app,
+            &ctx,
+            eframe::egui::Key::Slash,
+            eframe::egui::Modifiers::NONE,
+            Some("/"),
+        );
+        assert!(
+            app.is_sidebar_open,
+            "'/' should open the sidebar and focus search"
+        );
+        assert_eq!(
+            app.signal_browser.search_query, "",
+            "'/' keybind must not insert a literal '/' into the search query"
+        );
     }
 }

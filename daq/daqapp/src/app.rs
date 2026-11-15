@@ -550,6 +550,16 @@ impl DAQApp {
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
             }
+            action::AppAction::FocusSidebarSearch => {
+                self.is_sidebar_open = true;
+                let search_id = if self.sidebar_tab == ui::sidebar::SidebarTab::Sessions {
+                    eframe::egui::Id::new("chunk_navigator_search_input")
+                } else {
+                    self.sidebar_tab = ui::sidebar::SidebarTab::Channels;
+                    eframe::egui::Id::new("signal_browser_search_input")
+                };
+                ctx.memory_mut(|m| m.request_focus(search_id));
+            }
             action::AppAction::ToggleCommandPalette => {
                 self.command_palette.toggle();
             }
@@ -570,6 +580,83 @@ impl DAQApp {
                     .unwrap_or_else(|| ctx.pixels_per_point());
                 self.pixels_per_point = Some(current_scale - UI_SCALE_STEP);
                 self.save_settings();
+            }
+            action::AppAction::TogglePlayback => {
+                self.router.timeline_mut().toggle_playing();
+            }
+            action::AppAction::StepPlayhead { direction, fine } => {
+                let tl = self.router.timeline_mut();
+                let step_ms = if fine {
+                    10
+                } else {
+                    (tl.window_ms() / 100).max(10)
+                };
+                tl.step_by_ms(direction.saturating_mul(step_ms));
+            }
+            action::AppAction::PanWindow { direction } => {
+                let tl = self.router.timeline_mut();
+                let pan_ms = (tl.window_ms() / 10).max(50);
+                let new_start = tl
+                    .start_utc_ms()
+                    .saturating_add(direction.saturating_mul(pan_ms));
+                tl.pan_to_start_ms(new_start);
+            }
+            action::AppAction::ZoomWindow { factor } => {
+                let tl = self.router.timeline_mut();
+                let anchor_ms = self.hover_utc_ms.unwrap_or_else(|| tl.setpoint_utc_ms());
+                tl.zoom_around_ms(anchor_ms, factor);
+                self.save_settings();
+            }
+            action::AppAction::JumpStint { direction } => {
+                let active_day_id = self
+                    .router
+                    .timeline()
+                    .active_track_day_id()
+                    .map(str::to_owned);
+                let mut stints: Vec<daqcore::storage::Annotation> = self
+                    .router
+                    .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|a| {
+                        a.category != "fault"
+                            && active_day_id
+                                .as_deref()
+                                .is_none_or(|d| a.track_day_id == d)
+                    })
+                    .collect();
+                stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+                if !stints.is_empty() {
+                    let cur_start = self.router.timeline().start_utc_ms();
+                    let target = if direction < 0 {
+                        stints
+                            .iter()
+                            .rev()
+                            .find(|a| a.start_utc_ms < cur_start - 500)
+                            .or_else(|| stints.last())
+                    } else {
+                        stints
+                            .iter()
+                            .find(|a| a.start_utc_ms > cur_start + 500)
+                            .or_else(|| stints.first())
+                    };
+                    if let Some(ann) = target {
+                        self.router.timeline_mut().select_single_annotation(
+                            ann.id.clone(),
+                            ann.start_utc_ms,
+                            ann.end_utc_ms,
+                        );
+                    }
+                }
+            }
+            action::AppAction::FitDay => {
+                if let Some((day_min, day_max)) = self.router.timeline().day_bounds_ms() {
+                    self.router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                }
+            }
+            action::AppAction::ToggleFoldGaps => {
+                let next = !self.router.timeline().collapse_idle_gaps();
+                self.router.timeline_mut().set_collapse_idle_gaps(next);
             }
         }
     }

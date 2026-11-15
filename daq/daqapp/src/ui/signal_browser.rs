@@ -453,12 +453,15 @@ pub fn show_signal_browser(
                 state.search_query.clear();
             }
             let edit_width = (ui.available_width() - 14.0).max(40.0);
-            ui.add(
+            let resp = ui.add(
                 eframe::egui::TextEdit::singleline(&mut state.search_query)
                     .id(eframe::egui::Id::new("signal_browser_search_input"))
                     .desired_width(edit_width)
-                    .hint_text("🔍 Search channel, unit, or glob…"),
+                    .hint_text("🔍 Search channel, unit, or glob… (/)"),
             );
+            if resp.has_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Escape)) {
+                resp.surrender_focus();
+            }
         },
     );
 

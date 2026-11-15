@@ -14,10 +14,18 @@ pub enum AppAction {
     CopyWorkspaceShareString,
     OpenExportDataModal,
     ToggleSidebar,
+    FocusSidebarSearch,
     ToggleCommandPalette,
     CloseActiveWidget,
     IncreaseScale,
     DecreaseScale,
+    TogglePlayback,
+    StepPlayhead { direction: i64, fine: bool },
+    PanWindow { direction: i64 },
+    ZoomWindow { factor: f64 },
+    JumpStint { direction: i64 },
+    FitDay,
+    ToggleFoldGaps,
 }
 
 impl AppAction {
