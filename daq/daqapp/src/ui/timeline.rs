@@ -388,43 +388,61 @@ pub fn show_timeline_contents(
     let is_comparing = router.timeline().is_comparison_mode();
     let mut clear_comparison = false;
 
+    let theme = ui::theme::get_theme(ui.ctx());
+    let border_color = theme.border_color();
+    let bg_color = ui.visuals().extreme_bg_color;
+    let stint_color = eframe::egui::Color32::from_rgb(34, 197, 94);
+    let fault_color = eframe::egui::Color32::from_rgb(245, 158, 11);
+    let event_color = eframe::egui::Color32::from_rgb(168, 85, 247);
+
     ui.horizontal_wrapped(|ui| {
         ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
+        ui.spacing_mut().item_spacing = eframe::egui::vec2(3.0, 2.0);
 
-        // 1. Left: Monospace Playhead Timestamp (Nominal style: `2026-09-06 14:39:30.703 UTC`)
-        ui.label(
-            eframe::egui::RichText::new(format!("{active_date_lbl} {playhead_lbl} UTC"))
+        // =====================================================================
+        // GROUP 1: Playhead Readout & Clock Provenance (Far Left)
+        // =====================================================================
+        let ts_pill = eframe::egui::Button::new(
+            eframe::egui::RichText::new(format!("{active_date_lbl}  {playhead_lbl} UTC"))
                 .monospace()
                 .size(11.0)
-                .strong(),
+                .strong()
+                .color(ui.visuals().strong_text_color()),
         )
-        .on_hover_text(format!(
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(bg_color)
+        .stroke(eframe::egui::Stroke::new(1.0_f32, border_color))
+        .corner_radius(3.0)
+        .sense(eframe::egui::Sense::hover());
+        ui.add(ts_pill).on_hover_text(format!(
             "Playhead: {playhead_lbl}\nViewport: {viewport_start_lbl} .. {viewport_end_lbl} ({:.2}s)",
             router.timeline().window_secs()
         ));
 
+        let prov_pill = eframe::egui::Button::new(
+            eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
+                .color(prov_color)
+                .small(),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(prov_color.gamma_multiply(0.14))
+        .stroke(eframe::egui::Stroke::new(
+            1.0_f32,
+            prov_color.gamma_multiply(0.55),
+        ))
+        .corner_radius(3.0)
+        .sense(eframe::egui::Sense::hover());
+        ui.add(prov_pill).on_hover_text(format!(
+            "{prov_hover}\nLOD Tier: {active_res}\nTile Cache: {tile_cache_mib:.1} MiB\nSD Partitions: {partition_count} · Live Frames: {live_frame_count}"
+        ));
+
+        ui.add_space(4.0);
         ui.separator();
+        ui.add_space(2.0);
 
-        // 2. Transport Controls (`< Stint`, `⏮`, `⏪`, `▶ Play`, `⏩`, `⏭`, `Stint >`, `1x`, `LIVE`)
-        if !stint_annotations.is_empty() {
-            let cur_start = router.timeline().start_utc_ms();
-            if ui
-                .small_button("< Stint")
-                .on_hover_text("Jump to previous Driving Stint / Event")
-                .clicked()
-            {
-                let prev = stint_annotations
-                    .iter()
-                    .rev()
-                    .find(|a| a.start_utc_ms < cur_start - 500)
-                    .or_else(|| stint_annotations.last());
-                if let Some(ann) = prev {
-                    menu_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                }
-            }
-        }
-
+        // =====================================================================
+        // GROUP 2: Playback Transport Deck (Center-Left, Accent-Highlighted Play)
+        // =====================================================================
         let timeline = router.timeline_mut();
         if ui
             .small_button("⏮")
@@ -442,8 +460,27 @@ pub fn show_timeline_contents(
         }
 
         let is_playing = timeline.is_playing();
+        let play_color = if is_playing {
+            fault_color
+        } else {
+            accent_color
+        };
+        let play_btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new(if is_playing { "⏸ Pause" } else { "▶ Play" })
+                .size(11.0)
+                .strong()
+                .color(if theme.is_light && !is_playing {
+                    accent_color
+                } else {
+                    ui.visuals().strong_text_color()
+                }),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(play_color.gamma_multiply(0.24))
+        .stroke(eframe::egui::Stroke::new(1.0_f32, play_color))
+        .corner_radius(3.0);
         if ui
-            .button(if is_playing { "⏸ Pause" } else { "▶ Play" })
+            .add(play_btn)
             .on_hover_text("Play / pause playhead scrub (Space)")
             .clicked()
         {
@@ -467,7 +504,7 @@ pub fn show_timeline_contents(
 
         let current_speed = timeline.playback_speed();
         eframe::egui::ComboBox::from_id_salt("timeline_playback_speed")
-            .width(52.0)
+            .width(46.0)
             .selected_text(format!("{current_speed}x"))
             .show_ui(ui, |ui| {
                 for &preset in &daqcore::timeline::PLAYBACK_SPEED_PRESETS {
@@ -483,40 +520,33 @@ pub fn show_timeline_contents(
                 }
             });
 
-        if !stint_annotations.is_empty() {
-            let cur_start = timeline.start_utc_ms();
-            if ui
-                .small_button("Stint >")
-                .on_hover_text("Jump to next Driving Stint / Event")
-                .clicked()
-            {
-                let next = stint_annotations
-                    .iter()
-                    .find(|a| a.start_utc_ms > cur_start + 500)
-                    .or_else(|| stint_annotations.first());
-                if let Some(ann) = next {
-                    menu_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                }
-            }
-        }
-
         // LIVE Follow toggle
         let is_live = timeline.is_live();
         let live_btn = eframe::egui::Button::new(
             eframe::egui::RichText::new(if is_live { "🔴 LIVE" } else { "• LIVE" })
-                .size(11.0)
+                .size(10.5)
+                .strong()
                 .color(if is_live {
                     eframe::egui::Color32::WHITE
                 } else {
-                    ui.visuals().text_color()
+                    theme.muted_text_color()
                 }),
         )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
         .fill(if is_live {
             eframe::egui::Color32::from_rgb(220, 38, 38)
         } else {
-            ui.visuals().widgets.inactive.bg_fill
-        });
+            bg_color
+        })
+        .stroke(eframe::egui::Stroke::new(
+            1.0_f32,
+            if is_live {
+                eframe::egui::Color32::from_rgb(248, 113, 113)
+            } else {
+                border_color
+            },
+        ))
+        .corner_radius(3.0);
         if ui
             .add(live_btn)
             .on_hover_text("Follow incoming live telemetry (click to toggle)")
@@ -530,265 +560,6 @@ pub fn show_timeline_contents(
                 timeline.go_live();
             }
         }
-
-        ui.separator();
-
-        // 3. Window Span, Zoom & Gap Folding
-        let mut span = timeline.window_secs();
-        ui.label(eframe::egui::RichText::new("Win:").small());
-        let span_control = eframe::egui::DragValue::new(&mut span)
-            .range(0.1..=86_400.0)
-            .speed(0.5)
-            .suffix(" s");
-        if ui.add(span_control).changed() {
-            let center_ms = timeline.setpoint_utc_ms();
-            let half_ms = ((span * 500.0).round() as i64).max(50);
-            timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
-            timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
-            if let Err(error) = timeline.set_window_secs(span) {
-                *diagnostic = Some(error);
-            }
-        }
-        if ui
-            .small_button("+")
-            .on_hover_text("Zoom in 2x around playhead")
-            .clicked()
-        {
-            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
-        }
-        if ui
-            .small_button("-")
-            .on_hover_text("Zoom out 2x around playhead")
-            .clicked()
-        {
-            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 2.0);
-        }
-        if let Some((day_min, day_max)) = timeline.day_bounds_ms()
-            && ui
-                .small_button("↔ Fit Day")
-                .on_hover_text("Zoom out to the full Track Day overview")
-                .clicked()
-        {
-            timeline.snap_to_range_ms(day_min, day_max);
-        }
-
-        let mut fold_gaps = timeline.collapse_idle_gaps();
-        if ui
-            .selectable_label(fold_gaps, "Fold Gaps")
-            .on_hover_text(
-                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon",
-            )
-            .clicked()
-        {
-            fold_gaps = !fold_gaps;
-            timeline.set_collapse_idle_gaps(fold_gaps);
-        }
-
-        ui.separator();
-
-        // 4. Chunks, Stints, Faults & Bookmark actions
-        if ui
-            .selectable_label(timeline_ui.show_chunk_navigator, "📅 Chunks")
-            .on_hover_text(
-                "Open the Calendar & Subchunk Navigator (browse days, SD partitions, driving stints, and annotations)",
-            )
-            .clicked()
-        {
-            timeline_ui.show_chunk_navigator = !timeline_ui.show_chunk_navigator;
-        }
-
-        if !track_days.is_empty() {
-            let selected_text = active_day_id.as_deref().unwrap_or("All Days");
-            eframe::egui::ComboBox::from_id_salt("timeline_track_day_selector")
-                .width(96.0)
-                .selected_text(selected_text)
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(active_day_id.is_none(), "All Track Days")
-                        .clicked()
-                    {
-                        requested_day_change = Some(None);
-                    }
-                    for td in &track_days {
-                        let label = if td.location.is_empty() {
-                            td.id.clone()
-                        } else {
-                            format!("{} ({})", td.id, td.location)
-                        };
-                        if ui
-                            .selectable_label(
-                                active_day_id.as_deref() == Some(td.id.as_str()),
-                                label,
-                            )
-                            .clicked()
-                        {
-                            requested_day_change = Some(Some(td.id.clone()));
-                        }
-                    }
-                });
-        }
-
-        ui.menu_button(format!("🏷 Stints ({})", stint_annotations.len()), |ui| {
-            ui.set_min_width(300.0);
-            ui.checkbox(&mut timeline_ui.show_stints, "Show Stints & Events on timeline");
-            ui.separator();
-            if stint_annotations.is_empty() {
-                ui.label(
-                    eframe::egui::RichText::new("No stints or events in this track day.")
-                        .italics()
-                        .weak(),
-                );
-            } else {
-                eframe::egui::ScrollArea::vertical()
-                    .max_height(260.0)
-                    .show(ui, |ui| {
-                        for ann in &stint_annotations {
-                            let is_sel = selected_ann_ids_for_menu.contains(&ann.id);
-                            let dur_s = ann
-                                .end_utc_ms
-                                .map(|e| (e - ann.start_utc_ms).max(0) as f64 / 1000.0);
-                            let time_lbl =
-                                daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label();
-                            let row_lbl = match dur_s {
-                                Some(d) if d > 0.0 => {
-                                    format!("{}  ({time_lbl}, {d:.1}s)", ann.name)
-                                }
-                                _ => format!("📍 {}  ({time_lbl})", ann.name),
-                            };
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .selectable_label(is_sel, row_lbl)
-                                    .on_hover_text("Click to snap viewport to this stint/event")
-                                    .clicked()
-                                {
-                                    menu_single_click =
-                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                                    ui.close();
-                                }
-                                if ui
-                                    .small_button(if is_sel { "-Cmp" } else { "+Cmp" })
-                                    .on_hover_text("Toggle multi-stint Comparison / Overlay Mode")
-                                    .clicked()
-                                {
-                                    menu_shift_click =
-                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                                }
-                                if ui.small_button("Edit").on_hover_text("Edit event").clicked() {
-                                    menu_edit_ann = Some(ann.clone());
-                                    ui.close();
-                                }
-                                if ui.small_button("×").on_hover_text("Delete event").clicked() {
-                                    menu_delete_id = Some(ann.id.clone());
-                                }
-                            });
-                        }
-                    });
-            }
-        });
-
-        ui.menu_button(format!("⚠ Faults ({})", fault_annotations.len()), |ui| {
-            ui.set_min_width(340.0);
-            ui.checkbox(
-                &mut timeline_ui.show_faults,
-                "Show fault tick markers on timeline",
-            );
-            ui.separator();
-            if fault_annotations.is_empty() {
-                ui.label(
-                    eframe::egui::RichText::new("No faults detected in this track day.")
-                        .italics()
-                        .weak(),
-                );
-            } else {
-                let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> = Vec::new();
-                for f in &fault_annotations {
-                    let short = f
-                        .name
-                        .strip_prefix("Fault: ")
-                        .unwrap_or(&f.name)
-                        .to_owned();
-                    if let Some((_, list)) = grouped.iter_mut().find(|(k, _)| k == &short) {
-                        list.push(f);
-                    } else {
-                        grouped.push((short, vec![f]));
-                    }
-                }
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "{} fault types ({} total transitions) — click to jump:",
-                        grouped.len(),
-                        fault_annotations.len()
-                    ))
-                    .weak()
-                    .small(),
-                );
-                eframe::egui::ScrollArea::vertical()
-                    .max_height(300.0)
-                    .show(ui, |ui| {
-                        for (fault_name, occurrences) in grouped {
-                            let first_ms = occurrences[0].start_utc_ms;
-                            let first_lbl =
-                                daqcore::time::Time::from_unix_millis(first_ms).label();
-                            let header = format!(
-                                "⚠ {}  [{}×, first @ {}]",
-                                fault_name,
-                                occurrences.len(),
-                                first_lbl
-                            );
-                            ui.collapsing(header, |ui| {
-                                for (idx, occ) in occurrences.iter().take(50).enumerate() {
-                                    let t_lbl =
-                                        daqcore::time::Time::from_unix_millis(occ.start_utc_ms)
-                                            .label();
-                                    let dur_str = occ
-                                        .end_utc_ms
-                                        .filter(|&e| e > occ.start_utc_ms)
-                                        .map(|e| {
-                                            format!(
-                                                " ({:.2}s)",
-                                                (e - occ.start_utc_ms) as f64 / 1000.0
-                                            )
-                                        })
-                                        .unwrap_or_default();
-                                    if ui
-                                        .small_button(format!("#{} @ {}{}", idx + 1, t_lbl, dur_str))
-                                        .on_hover_text("Jump playhead and 10s window to this fault")
-                                        .clicked()
-                                    {
-                                        menu_jump_fault_ms = Some(occ.start_utc_ms);
-                                        ui.close();
-                                    }
-                                }
-                                if occurrences.len() > 50 {
-                                    ui.label(
-                                        eframe::egui::RichText::new(format!(
-                                            "…and {} more occurrences",
-                                            occurrences.len() - 50
-                                        ))
-                                        .weak()
-                                        .small(),
-                                    );
-                                }
-                            });
-                        }
-                    });
-            }
-        });
-
-        if ui
-            .small_button("📍 +Mark")
-            .on_hover_text("Drop a point event bookmark at the current Playhead (Hotkey: M)")
-            .clicked()
-        {
-            open_new_bookmark = true;
-        }
-        if ui
-            .small_button("🏷 +Event")
-            .on_hover_text("Create a named interval annotation spanning [start .. end]")
-            .clicked()
-        {
-            open_new_interval = true;
-        }
         if live_frame_count > 0
             && ui
                 .small_button("Clear Live")
@@ -798,23 +569,367 @@ pub fn show_timeline_contents(
             clear_live_clicked = true;
         }
 
-        // 5. Compact Clock Provenance & LOD Badge (atomic pill so horizontal_wrapped never wraps character-by-character)
-        let prov_pill = eframe::egui::Button::new(
-            eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
-                .color(prov_color)
-                .small(),
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(2.0);
+
+        // =====================================================================
+        // GROUP 3: Stints, Faults & Event Markers (Color-Coded by Semantics)
+        // =====================================================================
+        // 3a. Stint Prev / Menu / Next cluster (Emerald green tint matching stint blocks)
+        let cur_start = router.timeline().start_utc_ms();
+        if !stint_annotations.is_empty()
+            && ui
+                .add(
+                    eframe::egui::Button::new(
+                        eframe::egui::RichText::new("◀")
+                            .size(10.0)
+                            .color(stint_color),
+                    )
+                    .small()
+                    .fill(stint_color.gamma_multiply(0.12))
+                    .stroke(eframe::egui::Stroke::new(
+                        1.0_f32,
+                        stint_color.gamma_multiply(0.45),
+                    )),
+                )
+                .on_hover_text("Jump to previous Driving Stint / Event")
+                .clicked()
+        {
+            let prev = stint_annotations
+                .iter()
+                .rev()
+                .find(|a| a.start_utc_ms < cur_start - 500)
+                .or_else(|| stint_annotations.last());
+            if let Some(ann) = prev {
+                menu_single_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+            }
+        }
+
+        ui.scope(|ui| {
+            if !stint_annotations.is_empty() {
+                ui.visuals_mut().widgets.inactive.bg_fill = stint_color.gamma_multiply(0.14);
+                ui.visuals_mut().widgets.inactive.bg_stroke =
+                    eframe::egui::Stroke::new(1.0_f32, stint_color.gamma_multiply(0.5));
+            }
+            ui.menu_button(
+                eframe::egui::RichText::new(format!("🏷 Stints ({})", stint_annotations.len()))
+                    .size(11.0)
+                    .color(if stint_annotations.is_empty() {
+                        ui.visuals().text_color()
+                    } else {
+                        stint_color
+                    }),
+                |ui| {
+                    ui.set_min_width(310.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut timeline_ui.show_stints,
+                            "Show Stints & Events on timeline",
+                        );
+                        if ui
+                            .small_button("📅 Browse All Chunks…")
+                            .on_hover_text("Open floating Calendar & Subchunk Navigator")
+                            .clicked()
+                        {
+                            timeline_ui.show_chunk_navigator = !timeline_ui.show_chunk_navigator;
+                            ui.close();
+                        }
+                    });
+                    if !track_days.is_empty() {
+                        ui.horizontal(|ui| {
+                            ui.label(eframe::egui::RichText::new("Track Day:").small().weak());
+                            let selected_text = active_day_id.as_deref().unwrap_or("All Days");
+                            eframe::egui::ComboBox::from_id_salt("timeline_track_day_selector")
+                                .width(140.0)
+                                .selected_text(selected_text)
+                                .show_ui(ui, |ui| {
+                                    if ui
+                                        .selectable_label(active_day_id.is_none(), "All Track Days")
+                                        .clicked()
+                                    {
+                                        requested_day_change = Some(None);
+                                    }
+                                    for td in &track_days {
+                                        let label = if td.location.is_empty() {
+                                            td.id.clone()
+                                        } else {
+                                            format!("{} ({})", td.id, td.location)
+                                        };
+                                        if ui
+                                            .selectable_label(
+                                                active_day_id.as_deref() == Some(td.id.as_str()),
+                                                label,
+                                            )
+                                            .clicked()
+                                        {
+                                            requested_day_change = Some(Some(td.id.clone()));
+                                        }
+                                    }
+                                });
+                        });
+                    }
+                    ui.separator();
+                    if stint_annotations.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("No stints or events in this track day.")
+                                .italics()
+                                .weak(),
+                        );
+                    } else {
+                        eframe::egui::ScrollArea::vertical()
+                            .max_height(260.0)
+                            .show(ui, |ui| {
+                                for ann in &stint_annotations {
+                                    let is_sel = selected_ann_ids_for_menu.contains(&ann.id);
+                                    let dur_s = ann
+                                        .end_utc_ms
+                                        .map(|e| (e - ann.start_utc_ms).max(0) as f64 / 1000.0);
+                                    let time_lbl =
+                                        daqcore::time::Time::from_unix_millis(ann.start_utc_ms)
+                                            .label();
+                                    let row_lbl = match dur_s {
+                                        Some(d) if d > 0.0 => {
+                                            format!("{}  ({time_lbl}, {d:.1}s)", ann.name)
+                                        }
+                                        _ => format!("📍 {}  ({time_lbl})", ann.name),
+                                    };
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .selectable_label(is_sel, row_lbl)
+                                            .on_hover_text(
+                                                "Click to snap viewport to this stint/event",
+                                            )
+                                            .clicked()
+                                        {
+                                            menu_single_click = Some((
+                                                ann.id.clone(),
+                                                ann.start_utc_ms,
+                                                ann.end_utc_ms,
+                                            ));
+                                            ui.close();
+                                        }
+                                        if ui
+                                            .small_button(if is_sel { "-Cmp" } else { "+Cmp" })
+                                            .on_hover_text(
+                                                "Toggle multi-stint Comparison / Overlay Mode",
+                                            )
+                                            .clicked()
+                                        {
+                                            menu_shift_click = Some((
+                                                ann.id.clone(),
+                                                ann.start_utc_ms,
+                                                ann.end_utc_ms,
+                                            ));
+                                        }
+                                        if ui
+                                            .small_button("Edit")
+                                            .on_hover_text("Edit event")
+                                            .clicked()
+                                        {
+                                            menu_edit_ann = Some(ann.clone());
+                                            ui.close();
+                                        }
+                                        if ui
+                                            .small_button("×")
+                                            .on_hover_text("Delete event")
+                                            .clicked()
+                                        {
+                                            menu_delete_id = Some(ann.id.clone());
+                                        }
+                                    });
+                                }
+                            });
+                    }
+                },
+            );
+        });
+
+        if !stint_annotations.is_empty()
+            && ui
+                .add(
+                    eframe::egui::Button::new(
+                        eframe::egui::RichText::new("▶")
+                            .size(10.0)
+                            .color(stint_color),
+                    )
+                    .small()
+                    .fill(stint_color.gamma_multiply(0.12))
+                    .stroke(eframe::egui::Stroke::new(
+                        1.0_f32,
+                        stint_color.gamma_multiply(0.45),
+                    )),
+                )
+                .on_hover_text("Jump to next Driving Stint / Event")
+                .clicked()
+        {
+            let next = stint_annotations
+                .iter()
+                .find(|a| a.start_utc_ms > cur_start + 500)
+                .or_else(|| stint_annotations.first());
+            if let Some(ann) = next {
+                menu_single_click = Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+            }
+        }
+
+        ui.add_space(2.0);
+
+        // 3b. Faults Menu Pill (Amber tint when faults > 0 so faults stand out)
+        ui.scope(|ui| {
+            if !fault_annotations.is_empty() {
+                ui.visuals_mut().widgets.inactive.bg_fill = fault_color.gamma_multiply(0.14);
+                ui.visuals_mut().widgets.inactive.bg_stroke =
+                    eframe::egui::Stroke::new(1.0_f32, fault_color.gamma_multiply(0.55));
+            }
+            ui.menu_button(
+                eframe::egui::RichText::new(format!("⚠ Faults ({})", fault_annotations.len()))
+                    .size(11.0)
+                    .color(if fault_annotations.is_empty() {
+                        theme.muted_text_color()
+                    } else {
+                        fault_color
+                    }),
+                |ui| {
+                    ui.set_min_width(340.0);
+                    ui.checkbox(
+                        &mut timeline_ui.show_faults,
+                        "Show fault tick markers on timeline",
+                    );
+                    ui.separator();
+                    if fault_annotations.is_empty() {
+                        ui.label(
+                            eframe::egui::RichText::new("No faults detected in this track day.")
+                                .italics()
+                                .weak(),
+                        );
+                    } else {
+                        let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> =
+                            Vec::new();
+                        for f in &fault_annotations {
+                            let short = f
+                                .name
+                                .strip_prefix("Fault: ")
+                                .unwrap_or(&f.name)
+                                .to_owned();
+                            if let Some((_, list)) = grouped.iter_mut().find(|(k, _)| k == &short)
+                            {
+                                list.push(f);
+                            } else {
+                                grouped.push((short, vec![f]));
+                            }
+                        }
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "{} fault types ({} total transitions) — click to jump:",
+                                grouped.len(),
+                                fault_annotations.len()
+                            ))
+                            .weak()
+                            .small(),
+                        );
+                        eframe::egui::ScrollArea::vertical()
+                            .max_height(300.0)
+                            .show(ui, |ui| {
+                                for (fault_name, occurrences) in grouped {
+                                    let first_ms = occurrences[0].start_utc_ms;
+                                    let first_lbl =
+                                        daqcore::time::Time::from_unix_millis(first_ms).label();
+                                    let header = format!(
+                                        "⚠ {}  [{}×, first @ {}]",
+                                        fault_name,
+                                        occurrences.len(),
+                                        first_lbl
+                                    );
+                                    ui.collapsing(header, |ui| {
+                                        for (idx, occ) in occurrences.iter().take(50).enumerate() {
+                                            let t_lbl = daqcore::time::Time::from_unix_millis(
+                                                occ.start_utc_ms,
+                                            )
+                                            .label();
+                                            let dur_str = occ
+                                                .end_utc_ms
+                                                .filter(|&e| e > occ.start_utc_ms)
+                                                .map(|e| {
+                                                    format!(
+                                                        " ({:.2}s)",
+                                                        (e - occ.start_utc_ms) as f64 / 1000.0
+                                                    )
+                                                })
+                                                .unwrap_or_default();
+                                            if ui
+                                                .small_button(format!(
+                                                    "#{} @ {}{}",
+                                                    idx + 1,
+                                                    t_lbl,
+                                                    dur_str
+                                                ))
+                                                .on_hover_text(
+                                                    "Jump playhead and 10s window to this fault",
+                                                )
+                                                .clicked()
+                                            {
+                                                menu_jump_fault_ms = Some(occ.start_utc_ms);
+                                                ui.close();
+                                            }
+                                        }
+                                        if occurrences.len() > 50 {
+                                            ui.label(
+                                                eframe::egui::RichText::new(format!(
+                                                    "…and {} more occurrences",
+                                                    occurrences.len() - 50
+                                                ))
+                                                .weak()
+                                                .small(),
+                                            );
+                                        }
+                                    });
+                                }
+                            });
+                    }
+                },
+            );
+        });
+
+        // 3c. Quick Bookmark / Event creation buttons (Violet/Indigo accent)
+        let mark_btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new("📍 +Mark")
+                .size(10.5)
+                .color(event_color),
         )
         .wrap_mode(eframe::egui::TextWrapMode::Extend)
-        .fill(prov_color.gamma_multiply(0.14))
+        .fill(event_color.gamma_multiply(0.10))
         .stroke(eframe::egui::Stroke::new(
             1.0_f32,
-            prov_color.gamma_multiply(0.6),
+            event_color.gamma_multiply(0.45),
         ))
-        .corner_radius(3.0)
-        .sense(eframe::egui::Sense::hover());
-        ui.add(prov_pill).on_hover_text(format!(
-            "{prov_hover}\nLOD Tier: {active_res}\nTile Cache: {tile_cache_mib:.1} MiB\nSD Partitions: {partition_count} · Live Frames: {live_frame_count}"
-        ));
+        .corner_radius(3.0);
+        if ui
+            .add(mark_btn)
+            .on_hover_text("Drop a point event bookmark at the current Playhead (Hotkey: M)")
+            .clicked()
+        {
+            open_new_bookmark = true;
+        }
+
+        let event_btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new("🏷 +Event")
+                .size(10.5)
+                .color(event_color),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(event_color.gamma_multiply(0.10))
+        .stroke(eframe::egui::Stroke::new(
+            1.0_f32,
+            event_color.gamma_multiply(0.45),
+        ))
+        .corner_radius(3.0);
+        if ui
+            .add(event_btn)
+            .on_hover_text("Create a named interval annotation spanning [start .. end]")
+            .clicked()
+        {
+            open_new_interval = true;
+        }
 
         if is_comparing {
             let names: Vec<String> = router
@@ -829,16 +944,15 @@ pub fn show_timeline_contents(
             } else {
                 format!("Comparing: {}  ×", names.join(" vs "))
             };
-            let compare_color = eframe::egui::Color32::from_rgb(168, 85, 247);
             let cmp_pill = eframe::egui::Button::new(
                 eframe::egui::RichText::new(compare_label)
-                    .color(compare_color)
+                    .color(event_color)
                     .small()
                     .strong(),
             )
             .wrap_mode(eframe::egui::TextWrapMode::Extend)
-            .fill(compare_color.gamma_multiply(0.18))
-            .stroke(eframe::egui::Stroke::new(1.0_f32, compare_color))
+            .fill(event_color.gamma_multiply(0.20))
+            .stroke(eframe::egui::Stroke::new(1.0_f32, event_color))
             .corner_radius(4.0);
             if ui
                 .add(cmp_pill)
@@ -847,6 +961,92 @@ pub fn show_timeline_contents(
             {
                 clear_comparison = true;
             }
+        }
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(2.0);
+
+        // =====================================================================
+        // GROUP 4: Viewport Window, Zoom & Gap Folding
+        // =====================================================================
+        let timeline = router.timeline_mut();
+        let mut span = timeline.window_secs();
+        ui.label(
+            eframe::egui::RichText::new("Win:")
+                .small()
+                .color(theme.muted_text_color()),
+        );
+        let span_control = eframe::egui::DragValue::new(&mut span)
+            .range(0.1..=86_400.0)
+            .speed(0.5)
+            .suffix(" s");
+        if ui.add(span_control).changed() {
+            let center_ms = timeline.setpoint_utc_ms();
+            let half_ms = ((span * 500.0).round() as i64).max(50);
+            timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
+            timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
+            if let Err(error) = timeline.set_window_secs(span) {
+                *diagnostic = Some(error);
+            }
+        }
+        if ui
+            .small_button("−")
+            .on_hover_text("Zoom out 2x around playhead")
+            .clicked()
+        {
+            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 2.0);
+        }
+        if ui
+            .small_button("+")
+            .on_hover_text("Zoom in 2x around playhead")
+            .clicked()
+        {
+            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
+        }
+        if let Some((day_min, day_max)) = timeline.day_bounds_ms()
+            && ui
+                .small_button("↔ Fit Day")
+                .on_hover_text("Zoom out to the full Track Day overview")
+                .clicked()
+        {
+            timeline.snap_to_range_ms(day_min, day_max);
+        }
+
+        let mut fold_gaps = timeline.collapse_idle_gaps();
+        let fold_btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new("Fold Gaps")
+                .size(10.5)
+                .color(if fold_gaps {
+                    accent_color
+                } else {
+                    theme.muted_text_color()
+                }),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(if fold_gaps {
+            accent_color.gamma_multiply(0.18)
+        } else {
+            bg_color
+        })
+        .stroke(eframe::egui::Stroke::new(
+            1.0_f32,
+            if fold_gaps {
+                accent_color.gamma_multiply(0.65)
+            } else {
+                border_color
+            },
+        ))
+        .corner_radius(3.0);
+        if ui
+            .add(fold_btn)
+            .on_hover_text(
+                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon",
+            )
+            .clicked()
+        {
+            fold_gaps = !fold_gaps;
+            timeline.set_collapse_idle_gaps(fold_gaps);
         }
     });
 
