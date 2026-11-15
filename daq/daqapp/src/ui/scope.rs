@@ -618,11 +618,7 @@ impl Scope {
             data_revision: view.data_revision(),
         };
 
-        if self
-            .cached_data
-            .as_ref()
-            .is_none_or(|c| c.key != cache_key)
-        {
+        if self.cached_data.as_ref().is_none_or(|c| c.key != cache_key) {
             // Build unit groups in order of appearance so each unique unit gets its own Y-axis.
             let mut unit_groups: Vec<String> = Vec::new();
             let mut channel_unit_group: Vec<usize> = Vec::with_capacity(self.channels.len());
@@ -946,7 +942,9 @@ impl Scope {
         let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
         if let Some(cached) = &self.cached_data {
             for (idx, ch) in self.channels.iter().enumerate() {
-                if let Some((min, max, mean)) = cached.channel_minmax_mean.get(idx).copied().flatten() {
+                if let Some((min, max, mean)) =
+                    cached.channel_minmax_mean.get(idx).copied().flatten()
+                {
                     let cursor = cached
                         .channel_cursor_lookups
                         .get(idx)
@@ -1007,7 +1005,11 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         };
 
-        if cached.mapped_traces.iter().all(|t| t.mean_points.is_empty()) {
+        if cached
+            .mapped_traces
+            .iter()
+            .all(|t| t.mean_points.is_empty())
+        {
             ui.label("No retained samples in the selected interval.");
         }
 
@@ -1047,19 +1049,20 @@ impl Scope {
         let x_axis_mode = self.x_axis_mode;
 
         // Compute playhead X and linked hover X in the current X-axis coordinate system.
-        let playhead_x: Option<f64> = if is_comparison {
-            None
-        } else {
-            match x_axis_mode {
-                ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
-                ScopeXAxisMode::TrackDistance => cached
-                    .primary_distance_lookup
-                    .as_ref()
-                    .and_then(|(_, ts, ds)| {
-                        interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())
-                    }),
-            }
-        };
+        let playhead_x: Option<f64> =
+            if is_comparison {
+                None
+            } else {
+                match x_axis_mode {
+                    ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
+                    ScopeXAxisMode::TrackDistance => cached
+                        .primary_distance_lookup
+                        .as_ref()
+                        .and_then(|(_, ts, ds)| {
+                            interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())
+                        }),
+                }
+            };
 
         let hover_x: Option<f64> = match x_axis_mode {
             ScopeXAxisMode::TrackDistance => view.hover_distance_m().or_else(|| {

@@ -238,11 +238,7 @@ impl XYScatter {
             has_database: database.is_some(),
         };
 
-        if self
-            .cached_data
-            .as_ref()
-            .is_none_or(|c| c.key != cache_key)
-        {
+        if self.cached_data.as_ref().is_none_or(|c| c.key != cache_key) {
             let x_series = view.query_signal(&self.x_signal, resolution);
             let y_series = view.query_signal(&self.y_signal, resolution);
 
