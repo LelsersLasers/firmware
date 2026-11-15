@@ -240,11 +240,14 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         ctx.request_repaint();
     }
 
+    let theme = ui::theme::get_theme(ctx);
     let mut span_changed = false;
-    let top_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
-        .inner_margin(eframe::egui::Margin::symmetric(6, 3));
-    eframe::egui::TopBottomPanel::top("shared_timeline")
-        .frame(top_frame)
+    let bottom_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
+        .fill(theme.panel_color())
+        .stroke(eframe::egui::Stroke::new(1.0_f32, theme.border_color()))
+        .inner_margin(eframe::egui::Margin::symmetric(8, 4));
+    eframe::egui::TopBottomPanel::bottom("shared_timeline")
+        .frame(bottom_frame)
         .show(ctx, |ui| {
             span_changed = show_timeline_contents(
                 ui,
@@ -274,7 +277,7 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     }
 }
 
-/// Render the two-lane Master Timeline Bar inside `ui`. Returns `true` if `window_secs` changed.
+/// Render the bottom-docked Master Timeline & Transport Bar inside `ui`. Returns `true` if `window_secs` changed.
 pub fn show_timeline_contents(
     ui: &mut eframe::egui::Ui,
     router: &mut daqcore::router::VirtualTimelineRouter,
@@ -283,13 +286,26 @@ pub fn show_timeline_contents(
     diagnostic: &mut Option<String>,
 ) -> bool {
     let theme = ui::theme::get_theme(ui.ctx());
-    let accent_color =
-        parse_hex_color(&theme.accent, eframe::egui::Color32::from_rgb(56, 189, 248));
+    let accent_color = theme.accent_color();
     let previous_span = router.timeline().window_secs();
     ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
     // -------------------------------------------------------------------------
-    // Row 1: Transport, Track Day Selector, Gap Folding, Clock Provenance Badge
+    // Top Strip: Day Overview, 1Hz Activity Envelope & Event Annotation Ribbon
+    // -------------------------------------------------------------------------
+    show_day_overview_lane(ui, router, timeline_ui, diagnostic, accent_color);
+
+    ui.add_space(1.0);
+
+    // -------------------------------------------------------------------------
+    // Middle Strip: Active Window Scrub & Playhead Ruler
+    // -------------------------------------------------------------------------
+    show_active_window_scrub_lane(ui, router, timeline_ui, accent_color);
+
+    ui.add_space(2.0);
+
+    // -------------------------------------------------------------------------
+    // Bottom Strip: Unified Transport, Time Readout, Stints/Faults & Provenance
     // -------------------------------------------------------------------------
     let track_days = router.list_track_days().unwrap_or_default();
     let active_day_id = router.timeline().active_track_day_id().map(str::to_owned);
@@ -298,7 +314,7 @@ pub fn show_timeline_contents(
     let mut open_new_bookmark = false;
     let mut open_new_interval = false;
 
-    // Pre-query active day annotations so the toolbar can display `Stints (N) ▾` and `Faults (N) ▾` menus
+    // Pre-query active day annotations so the transport footer can display `Stints (N)` and `Faults (N)` menus
     let captured_for_menu = router.captured_time_span();
     let (menu_day_min, menu_day_max) = router
         .timeline()
@@ -345,9 +361,232 @@ pub fn show_timeline_contents(
     let selected_ann_ids_for_menu: Vec<String> =
         router.timeline().selected_annotation_ids().to_vec();
 
+    // Provenance & LOD metadata for compact badge
+    let setpoint_ms = router.timeline().setpoint_utc_ms();
+    let provenance = router.clock_provenance_at(setpoint_ms);
+    let (prov_text, prov_color, prov_hover) =
+        provenance_badge_style(provenance.as_ref(), accent_color);
+    let active_res = match router
+        .timeline()
+        .resolution_for_width(ui.available_width().max(1.0))
+    {
+        daqcore::router::Resolution::Overview1Hz => "1Hz",
+        daqcore::router::Resolution::Overview10Hz => "10Hz",
+        daqcore::router::Resolution::FullRes => "Full-Res",
+    };
+    let tile_cache_mib = router.tile_cache().lru_bytes() as f64 / (1024.0 * 1024.0);
+    let partition_count = router.partitions().len();
+    let live_frame_count = router.live_buffer().len();
+    let viewport_start_lbl = router.timeline().start().label();
+    let viewport_end_lbl = router.timeline().end().label();
+    let playhead_lbl = router.timeline().setpoint().label();
+    let active_date_lbl = active_day_id
+        .clone()
+        .unwrap_or_else(|| format_utc_date(setpoint_ms));
+
+    let selected_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
+    let is_comparing = router.timeline().is_comparison_mode();
+    let mut clear_comparison = false;
+
     ui.horizontal_wrapped(|ui| {
+        // 1. Left: Monospace Playhead Timestamp (Nominal style: `2026-09-06 14:39:30.703 UTC`)
+        ui.label(
+            eframe::egui::RichText::new(format!("{active_date_lbl} {playhead_lbl} UTC"))
+                .monospace()
+                .size(11.0)
+                .strong(),
+        )
+        .on_hover_text(format!(
+            "Playhead: {playhead_lbl}\nViewport: {viewport_start_lbl} .. {viewport_end_lbl} ({:.2}s)",
+            router.timeline().window_secs()
+        ));
+
+        ui.separator();
+
+        // 2. Transport Controls (`< Stint`, `⏮`, `⏪`, `▶ Play`, `⏩`, `⏭`, `Stint >`, `1x`, `LIVE`)
+        if !stint_annotations.is_empty() {
+            let cur_start = router.timeline().start_utc_ms();
+            if ui
+                .small_button("< Stint")
+                .on_hover_text("Jump to previous Driving Stint / Event")
+                .clicked()
+            {
+                let prev = stint_annotations
+                    .iter()
+                    .rev()
+                    .find(|a| a.start_utc_ms < cur_start - 500)
+                    .or_else(|| stint_annotations.last());
+                if let Some(ann) = prev {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
+        }
+
+        let timeline = router.timeline_mut();
         if ui
-            .selectable_label(timeline_ui.show_chunk_navigator, "📅 Browse Chunks")
+            .small_button("⏮")
+            .on_hover_text("Step playhead backward 100 ms")
+            .clicked()
+        {
+            timeline.step_by_ms(-100);
+        }
+        if ui
+            .small_button("⏪")
+            .on_hover_text("Step playhead backward 10 ms")
+            .clicked()
+        {
+            timeline.step_by_ms(-10);
+        }
+
+        let is_playing = timeline.is_playing();
+        if ui
+            .button(if is_playing { "⏸ Pause" } else { "▶ Play" })
+            .on_hover_text("Play / pause playhead scrub (Space)")
+            .clicked()
+        {
+            timeline.toggle_playing();
+        }
+
+        if ui
+            .small_button("⏩")
+            .on_hover_text("Step playhead forward 10 ms")
+            .clicked()
+        {
+            timeline.step_by_ms(10);
+        }
+        if ui
+            .small_button("⏭")
+            .on_hover_text("Step playhead forward 100 ms")
+            .clicked()
+        {
+            timeline.step_by_ms(100);
+        }
+
+        let current_speed = timeline.playback_speed();
+        eframe::egui::ComboBox::from_id_salt("timeline_playback_speed")
+            .width(52.0)
+            .selected_text(format!("{current_speed}x"))
+            .show_ui(ui, |ui| {
+                for &preset in &daqcore::timeline::PLAYBACK_SPEED_PRESETS {
+                    if ui
+                        .selectable_label(
+                            (current_speed - preset).abs() < 1e-4,
+                            format!("{preset}x"),
+                        )
+                        .clicked()
+                    {
+                        timeline.set_playback_speed(preset);
+                    }
+                }
+            });
+
+        if !stint_annotations.is_empty() {
+            let cur_start = timeline.start_utc_ms();
+            if ui
+                .small_button("Stint >")
+                .on_hover_text("Jump to next Driving Stint / Event")
+                .clicked()
+            {
+                let next = stint_annotations
+                    .iter()
+                    .find(|a| a.start_utc_ms > cur_start + 500)
+                    .or_else(|| stint_annotations.first());
+                if let Some(ann) = next {
+                    menu_single_click =
+                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                }
+            }
+        }
+
+        // LIVE Follow toggle
+        let is_live = timeline.is_live();
+        let live_btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new(if is_live { "🔴 LIVE" } else { "• LIVE" })
+                .size(11.0)
+                .color(if is_live {
+                    eframe::egui::Color32::WHITE
+                } else {
+                    ui.visuals().text_color()
+                }),
+        )
+        .fill(if is_live {
+            eframe::egui::Color32::from_rgb(220, 38, 38)
+        } else {
+            ui.visuals().widgets.inactive.bg_fill
+        });
+        if ui
+            .add(live_btn)
+            .on_hover_text("Follow incoming live telemetry (click to toggle)")
+            .clicked()
+        {
+            if is_live {
+                timeline.set_start(timeline.start());
+                timeline.set_end(timeline.end());
+                timeline.set_setpoint(timeline.setpoint());
+            } else {
+                timeline.go_live();
+            }
+        }
+
+        ui.separator();
+
+        // 3. Window Span, Zoom & Gap Folding
+        let mut span = timeline.window_secs();
+        ui.label(eframe::egui::RichText::new("Win:").small());
+        let span_control = eframe::egui::DragValue::new(&mut span)
+            .range(0.1..=86_400.0)
+            .speed(0.5)
+            .suffix(" s");
+        if ui.add(span_control).changed() {
+            let center_ms = timeline.setpoint_utc_ms();
+            let half_ms = ((span * 500.0).round() as i64).max(50);
+            timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
+            timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
+            if let Err(error) = timeline.set_window_secs(span) {
+                *diagnostic = Some(error);
+            }
+        }
+        if ui
+            .small_button("+")
+            .on_hover_text("Zoom in 2x around playhead")
+            .clicked()
+        {
+            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
+        }
+        if ui
+            .small_button("-")
+            .on_hover_text("Zoom out 2x around playhead")
+            .clicked()
+        {
+            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 2.0);
+        }
+        if let Some((day_min, day_max)) = timeline.day_bounds_ms()
+            && ui
+                .small_button("↔ Fit Day")
+                .on_hover_text("Zoom out to the full Track Day overview")
+                .clicked()
+        {
+            timeline.snap_to_range_ms(day_min, day_max);
+        }
+
+        let mut fold_gaps = timeline.collapse_idle_gaps();
+        if ui
+            .selectable_label(fold_gaps, "Fold Gaps")
+            .on_hover_text(
+                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon",
+            )
+            .clicked()
+        {
+            fold_gaps = !fold_gaps;
+            timeline.set_collapse_idle_gaps(fold_gaps);
+        }
+
+        ui.separator();
+
+        // 4. Chunks, Stints, Faults & Bookmark actions
+        if ui
+            .selectable_label(timeline_ui.show_chunk_navigator, "📅 Chunks")
             .on_hover_text(
                 "Open the Calendar & Subchunk Navigator (browse days, SD partitions, driving stints, and annotations)",
             )
@@ -356,11 +595,11 @@ pub fn show_timeline_contents(
             timeline_ui.show_chunk_navigator = !timeline_ui.show_chunk_navigator;
         }
 
-        // Track Day ComboBox
         if !track_days.is_empty() {
-            let selected_text = active_day_id.as_deref().unwrap_or("All Track Days");
+            let selected_text = active_day_id.as_deref().unwrap_or("All Days");
             eframe::egui::ComboBox::from_id_salt("timeline_track_day_selector")
-                .selected_text(format!("📅 {selected_text}"))
+                .width(96.0)
+                .selected_text(selected_text)
                 .show_ui(ui, |ui| {
                     if ui
                         .selectable_label(active_day_id.is_none(), "All Track Days")
@@ -387,188 +626,6 @@ pub fn show_timeline_contents(
                 });
         }
 
-        // Quick `< Prev Stint` / `Next Stint >` buttons to step sequentially across subchunks
-        if !stint_annotations.is_empty() {
-            let cur_start = router.timeline().start_utc_ms();
-            if ui
-                .small_button("< Stint")
-                .on_hover_text("Jump to previous Driving Stint / Event")
-                .clicked()
-            {
-                let prev = stint_annotations
-                    .iter()
-                    .rev()
-                    .find(|a| a.start_utc_ms < cur_start - 500)
-                    .or_else(|| stint_annotations.last());
-                if let Some(ann) = prev {
-                    menu_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                }
-            }
-            if ui
-                .small_button("Stint >")
-                .on_hover_text("Jump to next Driving Stint / Event")
-                .clicked()
-            {
-                let next = stint_annotations
-                    .iter()
-                    .find(|a| a.start_utc_ms > cur_start + 500)
-                    .or_else(|| stint_annotations.first());
-                if let Some(ann) = next {
-                    menu_single_click =
-                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                }
-            }
-        }
-
-        let timeline = router.timeline_mut();
-
-        // LIVE Follow toggle
-        let is_live = timeline.is_live();
-        let live_btn = eframe::egui::Button::new(
-            eframe::egui::RichText::new(if is_live { "🔴 LIVE" } else { "• LIVE" }).color(
-                if is_live {
-                    eframe::egui::Color32::WHITE
-                } else {
-                    ui.visuals().text_color()
-                },
-            ),
-        )
-        .fill(if is_live {
-            eframe::egui::Color32::from_rgb(220, 38, 38)
-        } else {
-            ui.visuals().widgets.inactive.bg_fill
-        });
-        if ui
-            .add(live_btn)
-            .on_hover_text("Follow incoming live telemetry (click to toggle)")
-            .clicked()
-        {
-            if is_live {
-                timeline.set_start(timeline.start());
-                timeline.set_end(timeline.end());
-                timeline.set_setpoint(timeline.setpoint());
-            } else {
-                timeline.go_live();
-            }
-        }
-
-        if let Some((day_min, day_max)) = timeline.day_bounds_ms()
-            && ui
-                .button("↔ Fit Day")
-                .on_hover_text("Zoom out to the full Track Day overview")
-                .clicked()
-        {
-            timeline.snap_to_range_ms(day_min, day_max);
-        }
-
-        ui.separator();
-
-        // Play / Pause & Playback Speeds + Frame Stepping
-        let is_playing = timeline.is_playing();
-        if ui
-            .button(if is_playing { "⏸ Pause" } else { "▶ Play" })
-            .on_hover_text("Play / pause playhead scrub")
-            .clicked()
-        {
-            timeline.toggle_playing();
-        }
-
-        let current_speed = timeline.playback_speed();
-        eframe::egui::ComboBox::from_id_salt("timeline_playback_speed")
-            .width(58.0)
-            .selected_text(format!("{current_speed}x"))
-            .show_ui(ui, |ui| {
-                for &preset in &daqcore::timeline::PLAYBACK_SPEED_PRESETS {
-                    if ui
-                        .selectable_label(
-                            (current_speed - preset).abs() < 1e-4,
-                            format!("{preset}x"),
-                        )
-                        .clicked()
-                    {
-                        timeline.set_playback_speed(preset);
-                    }
-                }
-            });
-
-        if ui
-            .small_button("⏮ -100ms")
-            .on_hover_text("Step playhead backward 100 ms")
-            .clicked()
-        {
-            timeline.step_by_ms(-100);
-        }
-        if ui
-            .small_button("⏪ -10ms")
-            .on_hover_text("Step playhead backward 10 ms")
-            .clicked()
-        {
-            timeline.step_by_ms(-10);
-        }
-        if ui
-            .small_button("⏩ +10ms")
-            .on_hover_text("Step playhead forward 10 ms")
-            .clicked()
-        {
-            timeline.step_by_ms(10);
-        }
-        if ui
-            .small_button("⏭ +100ms")
-            .on_hover_text("Step playhead forward 100 ms")
-            .clicked()
-        {
-            timeline.step_by_ms(100);
-        }
-
-        ui.separator();
-
-        // Active window span & zoom buttons
-        let mut span = timeline.window_secs();
-        ui.label("Window:");
-        let span_control = eframe::egui::DragValue::new(&mut span)
-            .range(0.1..=86_400.0)
-            .speed(0.5)
-            .suffix(" s");
-        if ui.add(span_control).changed() {
-            let center_ms = timeline.setpoint_utc_ms();
-            let half_ms = ((span * 500.0).round() as i64).max(50);
-            timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
-            timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
-            if let Err(error) = timeline.set_window_secs(span) {
-                *diagnostic = Some(error);
-            }
-        }
-        if ui
-            .small_button("Zoom +")
-            .on_hover_text("Zoom in 2x around playhead")
-            .clicked()
-        {
-            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 0.5);
-        }
-        if ui
-            .small_button("Zoom -")
-            .on_hover_text("Zoom out 2x around playhead")
-            .clicked()
-        {
-            timeline.zoom_around_ms(timeline.setpoint_utc_ms(), 2.0);
-        }
-
-        ui.separator();
-
-        // Dead-Time Gap Folding toggle
-        let mut fold_gaps = timeline.collapse_idle_gaps();
-        if ui
-            .checkbox(&mut fold_gaps, "Fold Idle Gaps")
-            .on_hover_text(
-                "Collapse unlogged intervals (>= 60s) into thin dividers so active stints fill the horizontal ribbon",
-            )
-            .changed()
-        {
-            timeline.set_collapse_idle_gaps(fold_gaps);
-        }
-
-        // Stints & Events dropdown menu (clean chronological list, snap or compare)
         ui.menu_button(format!("🏷 Stints ({})", stint_annotations.len()), |ui| {
             ui.set_min_width(300.0);
             ui.checkbox(&mut timeline_ui.show_stints, "Show Stints & Events on timeline");
@@ -627,7 +684,6 @@ pub fn show_timeline_contents(
             }
         });
 
-        // Faults dropdown menu (grouped by fault signal name so 189 faults never pile on top of each other)
         ui.menu_button(format!("⚠ Faults ({})", fault_annotations.len()), |ui| {
             ui.set_min_width(340.0);
             ui.checkbox(
@@ -642,7 +698,6 @@ pub fn show_timeline_contents(
                         .weak(),
                 );
             } else {
-                // Group faults by signal name preserving chronological order of first occurrence
                 let mut grouped: Vec<(String, Vec<&daqcore::storage::Annotation>)> = Vec::new();
                 for f in &fault_annotations {
                     let short = f
@@ -718,9 +773,8 @@ pub fn show_timeline_contents(
             }
         });
 
-        // Add Event / Bookmark buttons
         if ui
-            .small_button("📍 +Bookmark")
+            .small_button("📍 +Mark")
             .on_hover_text("Drop a point event bookmark at the current Playhead (Hotkey: M)")
             .clicked()
         {
@@ -733,13 +787,68 @@ pub fn show_timeline_contents(
         {
             open_new_interval = true;
         }
-
-        if ui
-            .small_button("Clear Live")
-            .on_hover_text("Clear in-memory live ring buffer")
-            .clicked()
+        if live_frame_count > 0
+            && ui
+                .small_button("Clear Live")
+                .on_hover_text("Clear in-memory live ring buffer")
+                .clicked()
         {
             clear_live_clicked = true;
+        }
+
+        // 5. Compact Clock Provenance & LOD Badge (full details in tooltip)
+        eframe::egui::Frame::NONE
+            .fill(prov_color.gamma_multiply(0.14))
+            .stroke(eframe::egui::Stroke::new(1.0_f32, prov_color.gamma_multiply(0.6)))
+            .corner_radius(3.0)
+            .inner_margin(eframe::egui::Margin::symmetric(5, 1))
+            .show(ui, |ui| {
+                ui.label(
+                    eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
+                        .color(prov_color)
+                        .small(),
+                )
+                .on_hover_text(format!(
+                    "{prov_hover}\nLOD Tier: {active_res}\nTile Cache: {tile_cache_mib:.1} MiB\nSD Partitions: {partition_count} · Live Frames: {live_frame_count}"
+                ));
+            });
+
+        if is_comparing {
+            let names: Vec<String> = router
+                .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| selected_ids.contains(&a.id))
+                .map(|a| a.name)
+                .collect();
+            let compare_label = if names.is_empty() {
+                format!("Comparing {} Events", selected_ids.len())
+            } else {
+                format!("Comparing: {}", names.join(" vs "))
+            };
+            let compare_color = eframe::egui::Color32::from_rgb(168, 85, 247);
+            eframe::egui::Frame::NONE
+                .fill(compare_color.gamma_multiply(0.18))
+                .stroke(eframe::egui::Stroke::new(1.0_f32, compare_color))
+                .corner_radius(4.0)
+                .inner_margin(eframe::egui::Margin::symmetric(6, 1))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            eframe::egui::RichText::new(compare_label)
+                                .color(compare_color)
+                                .small()
+                                .strong(),
+                        );
+                        if ui
+                            .small_button("×")
+                            .on_hover_text("Exit Comparison Mode")
+                            .clicked()
+                        {
+                            clear_comparison = true;
+                        }
+                    });
+                });
         }
     });
 
@@ -783,124 +892,6 @@ pub fn show_timeline_contents(
     if open_new_interval {
         timeline_ui.open_new_at_playhead(router, false);
     }
-
-    // -------------------------------------------------------------------------
-    // Top Lane: Day Overview, 1Hz Activity Envelope & Event Annotation Ribbon
-    // -------------------------------------------------------------------------
-    show_day_overview_lane(ui, router, timeline_ui, diagnostic, accent_color);
-
-    ui.add_space(2.0);
-
-    // -------------------------------------------------------------------------
-    // Bottom Lane: Active Window Scrub & Playhead Controls
-    // -------------------------------------------------------------------------
-    show_active_window_scrub_lane(ui, router, timeline_ui, accent_color);
-
-    // -------------------------------------------------------------------------
-    // Footer Status & Badges Row (Clock Provenance, LOD Tier, Comparison Mode)
-    // -------------------------------------------------------------------------
-    let setpoint_ms = router.timeline().setpoint_utc_ms();
-    let provenance = router.clock_provenance_at(setpoint_ms);
-    let (prov_text, prov_color, prov_hover) =
-        provenance_badge_style(provenance.as_ref(), accent_color);
-    let active_res = match router
-        .timeline()
-        .resolution_for_width(ui.available_width().max(1.0))
-    {
-        daqcore::router::Resolution::Overview1Hz => "1Hz Overview",
-        daqcore::router::Resolution::Overview10Hz => "10Hz Overview",
-        daqcore::router::Resolution::FullRes => "Full-Res",
-    };
-    let tile_cache_mib = router.tile_cache().lru_bytes() as f64 / (1024.0 * 1024.0);
-    let partition_count = router.partitions().len();
-    let live_frame_count = router.live_buffer().len();
-
-    let selected_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
-    let is_comparing = router.timeline().is_comparison_mode();
-    let mut clear_comparison = false;
-
-    ui.horizontal_wrapped(|ui| {
-        // Clock Provenance Badge
-        eframe::egui::Frame::NONE
-            .fill(prov_color.gamma_multiply(0.18))
-            .stroke(eframe::egui::Stroke::new(1.0_f32, prov_color))
-            .corner_radius(3.0)
-            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
-            .show(ui, |ui| {
-                ui.label(
-                    eframe::egui::RichText::new(&prov_text)
-                        .color(prov_color)
-                        .small()
-                        .strong(),
-                )
-                .on_hover_text(prov_hover);
-            });
-
-        // LOD Tier Badge
-        eframe::egui::Frame::NONE
-            .fill(ui.visuals().widgets.noninteractive.bg_fill)
-            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .corner_radius(3.0)
-            .inner_margin(eframe::egui::Margin::symmetric(4, 1))
-            .show(ui, |ui| {
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "LOD: {active_res} · Cache: {tile_cache_mib:.1} MiB · {partition_count} SD Partitions · {live_frame_count} Live Frames"
-                    ))
-                    .small(),
-                );
-            });
-
-        ui.label(
-            eframe::egui::RichText::new(format!(
-                "Viewport: {} .. {} ({:.2}s) · Playhead: {}",
-                router.timeline().start().label(),
-                router.timeline().end().label(),
-                router.timeline().window_secs(),
-                router.timeline().setpoint().label(),
-            ))
-            .monospace()
-            .small(),
-        );
-
-        if is_comparing {
-            let names: Vec<String> = router
-                .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|a| selected_ids.contains(&a.id))
-                .map(|a| a.name)
-                .collect();
-            let compare_label = if names.is_empty() {
-                format!("Comparing {} Events", selected_ids.len())
-            } else {
-                format!("Comparing: {}", names.join(" vs "))
-            };
-            let compare_color = eframe::egui::Color32::from_rgb(168, 85, 247);
-            eframe::egui::Frame::NONE
-                .fill(compare_color.gamma_multiply(0.2))
-                .stroke(eframe::egui::Stroke::new(1.0_f32, compare_color))
-                .corner_radius(4.0)
-                .inner_margin(eframe::egui::Margin::symmetric(6, 2))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            eframe::egui::RichText::new(compare_label)
-                                .color(compare_color)
-                                .small()
-                                .strong(),
-                        );
-                        if ui
-                            .small_button("× Clear")
-                            .on_hover_text("Exit Comparison Mode")
-                            .clicked()
-                        {
-                            clear_comparison = true;
-                        }
-                    });
-                });
-        }
-    });
 
     if clear_comparison {
         router.timeline_mut().clear_selected_annotations();
@@ -977,7 +968,7 @@ fn show_day_overview_lane(
         .collect();
     let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
 
-    let lane_height = 38.0;
+    let lane_height = 28.0;
     let width = ui.available_width().max(1.0);
     let (rect, lane_response) = ui.allocate_exact_size(
         eframe::egui::vec2(width, lane_height),
@@ -986,8 +977,9 @@ fn show_day_overview_lane(
     let clip_rect = rect.intersect(ui.clip_rect());
     let painter = ui.painter_at(clip_rect);
 
-    // 1. Background (Idle Gap dark gray)
-    painter.rect_filled(rect, 4.0, eframe::egui::Color32::from_gray(24));
+    // 1. Background (theme-aware canvas color)
+    let theme = ui::theme::get_theme(ui.ctx());
+    painter.rect_filled(rect, 3.0, theme.canvas_color());
 
     let time_to_x =
         |utc_ms: i64| -> f32 { rect.left() + projection.time_to_fraction(utc_ms) * rect.width() };
@@ -1484,7 +1476,7 @@ fn show_active_window_scrub_lane(
         .query_annotations_in_range(win_start_ms..=win_end_ms)
         .unwrap_or_default();
 
-    let scrub_height = 24.0;
+    let scrub_height = 20.0;
     let width = ui.available_width().max(1.0);
     let (rect, background) = ui.allocate_exact_size(
         eframe::egui::vec2(width, scrub_height),
@@ -1493,7 +1485,8 @@ fn show_active_window_scrub_lane(
     let clip_rect = rect.intersect(ui.clip_rect());
     let painter = ui.painter_at(clip_rect);
 
-    painter.rect_filled(rect, 4.0, eframe::egui::Color32::from_gray(18));
+    let theme = ui::theme::get_theme(ui.ctx());
+    painter.rect_filled(rect, 3.0, theme.canvas_color());
 
     let pad_x = (rect.width() * 0.02).clamp(6.0, 20.0);
     let area = rect.shrink2(eframe::egui::vec2(pad_x, 0.0));
