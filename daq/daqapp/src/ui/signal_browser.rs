@@ -1055,4 +1055,224 @@ mod tests {
             });
         });
     }
+
+    #[test]
+    fn historical_viewport_filtering_works_without_superdbc() {
+        let store_dir = tempfile::tempdir().expect("temp store dir");
+
+        // Use a temporary SuperDBC ONLY during initial log import (simulating LogParser),
+        // then drop it before opening the store in VirtualTimelineRouter / UI widgets.
+        {
+            let import_db = daqcore::superdbc::database::Database::from_json(
+                r#"{
+                  "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                  "versions": { "schema_version": "1.1", "hash": "test_v1" },
+                  "buses": {
+                    "Main": {
+                      "bus_id": 0,
+                      "baud_rate": 500000,
+                      "nodes": [{ "name": "VCU", "is_external": false }],
+                      "messages": [
+                        {
+                          "id": 257,
+                          "is_extended_id": false,
+                          "message_name": "msg_alpha",
+                          "transmitter": "VCU",
+                          "receivers": [],
+                          "length_bytes": 4,
+                          "nominal_period_ms": 10,
+                          "priority": 1,
+                          "description": "Alpha message",
+                          "signals": [
+                            {
+                              "signal_name": "sig_a",
+                              "description": "Alpha voltage",
+                              "data_type": "uint16_t",
+                              "raw_type": "unsigned",
+                              "start_bit": 0,
+                              "bit_length": 16,
+                              "byte_order": "little_endian",
+                              "scale": 0.1,
+                              "offset": 0.0,
+                              "limits": null,
+                              "unit": "V",
+                              "choices": null,
+                              "display_format": null
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "Accum": {
+                      "bus_id": 1,
+                      "baud_rate": 500000,
+                      "nodes": [{ "name": "BMS", "is_external": false }],
+                      "messages": [
+                        {
+                          "id": 514,
+                          "is_extended_id": false,
+                          "message_name": "msg_beta",
+                          "transmitter": "BMS",
+                          "receivers": [],
+                          "length_bytes": 4,
+                          "nominal_period_ms": 50,
+                          "priority": 1,
+                          "description": "Beta message",
+                          "signals": [
+                            {
+                              "signal_name": "sig_b",
+                              "description": "Beta temperature",
+                              "data_type": "uint16_t",
+                              "raw_type": "unsigned",
+                              "start_bit": 0,
+                              "bit_length": 16,
+                              "byte_order": "little_endian",
+                              "scale": 1.0,
+                              "offset": 0.0,
+                              "limits": null,
+                              "unit": "C",
+                              "choices": null,
+                              "display_format": null
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }"#,
+            )
+            .expect("parse import_db");
+
+            let payload_a = import_db.encode(0, 257, &[("sig_a", 42.5)]).unwrap();
+            let decoded_a = import_db.decode(0, 257, &payload_a).unwrap();
+            let payload_b = import_db.encode(1, 514, &[("sig_b", 88.0)]).unwrap();
+            let decoded_b = import_db.decode(1, 514, &payload_b).unwrap();
+
+            let log_files = vec![
+                daqcore::log_parse::parse::SourceLogFile {
+                    file_name: "log-2026-09-06--10-00-00.log".to_owned(),
+                    sha256_hex: "11111111".repeat(8),
+                    rtc_timestamp_ms: Some(1_000),
+                    mtime_unix_ms: 1_000,
+                },
+                daqcore::log_parse::parse::SourceLogFile {
+                    file_name: "log-2026-09-06--10-00-20.log".to_owned(),
+                    sha256_hex: "22222222".repeat(8),
+                    rtc_timestamp_ms: Some(20_000),
+                    mtime_unix_ms: 20_000,
+                },
+            ];
+
+            let epochs = vec![
+                daqcore::log_parse::correlate::CorrelationChunkResult {
+                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
+                        timestamp: 500,
+                        bus_name: "Main".to_owned(),
+                        source_file_idx: 0,
+                        decoded: decoded_a,
+                    }],
+                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                        slope: 1.0,
+                        intercept_ms: 1_000.0,
+                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+                    },
+                },
+                daqcore::log_parse::correlate::CorrelationChunkResult {
+                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
+                        timestamp: 1_000,
+                        bus_name: "Accum".to_owned(),
+                        source_file_idx: 1,
+                        decoded: decoded_b,
+                    }],
+                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                        slope: 1.0,
+                        intercept_ms: 20_000.0,
+                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+                    },
+                },
+            ];
+
+            daqcore::storage::write_correlated_epochs_to_store(
+                store_dir.path(),
+                &log_files,
+                epochs,
+                &import_db,
+            )
+            .expect("write two partitions to store");
+        }
+
+        // Now attach store and browse/render WITHOUT any SuperDBC loaded
+        let t0 = daqcore::time::Time::from_unix_millis(30_000);
+        let mut router =
+            daqcore::router::VirtualTimelineRouter::live(t0, 5.0).expect("live router");
+        router
+            .attach_store(store_dir.path())
+            .expect("attach store without SuperDBC");
+
+        // 1. Viewport on Partition A ([1_000..=3_000]): only msg_alpha.sig_a is active
+        router.timeline_mut().snap_to_range_ms(1_000, 3_000);
+        let active_a = router.active_signals_in_viewport();
+        assert_eq!(active_a.len(), 1);
+        let meta_a = active_a
+            .iter()
+            .find(|m| m.signal_id == "msg_alpha.sig_a")
+            .expect("msg_alpha.sig_a active");
+        assert_eq!(meta_a.bus_name, "Main");
+        assert_eq!(meta_a.can_id, 257);
+        assert_eq!(meta_a.transmitter, "VCU");
+        assert_eq!(meta_a.nominal_period_ms, Some(10));
+        assert_eq!(meta_a.unit, "V");
+        assert_eq!(meta_a.description, "Alpha voltage");
+        assert!(!active_a.iter().any(|m| m.signal_id == "msg_beta.sig_b"));
+
+        // Render SignalBrowser, ViewerTable, ViewerList, Jitter without any SuperDBC
+        let ctx = eframe::egui::Context::default();
+        crate::ui::theme::store_theme(
+            &ctx,
+            crate::ui::theme::ThemeSelection::default().get_colors(),
+        );
+        let mut browser = SignalBrowserState::default();
+        let mut viewer_table = crate::ui::viewer_table::ViewerTable::new(1);
+        let viewer_list = crate::ui::viewer_list::ViewerList::new(1);
+        let mut jitter = crate::ui::jitter::Jitter::new(1);
+        let mut actions = Vec::new();
+        let mut diag = None;
+        let formatter = None;
+
+        let raw_input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_input, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                show_signal_browser(ui, &mut browser, &mut router, &mut actions, &mut diag);
+                let view = crate::workspace_view::WorkspaceDataView::new(&router);
+                let _ = viewer_table.show(ui, &mut actions, &formatter, &view);
+                let _ = viewer_list.show(ui, &formatter, &view);
+                let _ = jitter.show(ui, &view);
+            });
+        });
+
+        // 2. Viewport on Partition B ([20_000..=23_000]): only msg_beta.sig_b is active
+        router.timeline_mut().snap_to_range_ms(20_000, 23_000);
+        let active_b = router.active_signals_in_viewport();
+        assert_eq!(active_b.len(), 1);
+        let meta_b = active_b
+            .iter()
+            .find(|m| m.signal_id == "msg_beta.sig_b")
+            .expect("msg_beta.sig_b active");
+        assert_eq!(meta_b.bus_name, "Accum");
+        assert_eq!(meta_b.can_id, 514);
+        assert_eq!(meta_b.transmitter, "BMS");
+        assert_eq!(meta_b.nominal_period_ms, Some(50));
+        assert_eq!(meta_b.unit, "C");
+        assert!(!active_b.iter().any(|m| m.signal_id == "msg_alpha.sig_a"));
+
+        // 3. Viewport on empty gap ([8_000..=12_000]): no signals active
+        router.timeline_mut().snap_to_range_ms(8_000, 12_000);
+        assert!(router.active_signals_in_viewport().is_empty());
+    }
 }
