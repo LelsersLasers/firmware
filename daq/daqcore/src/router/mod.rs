@@ -2041,9 +2041,9 @@ mod tests {
         let mut router = VirtualTimelineRouter::open_store(&store_dir, Time::now(), 30.0)
             .expect("open PER26 store with default FormulaEngine");
 
-        // 1. Verify all 21 default derived signals from daq/config/derived_signals.json are loaded
+        // 1. Verify all 25 default derived signals from daq/config/derived_signals.json are loaded
         let descriptors = router.formula_engine().definitions();
-        assert_eq!(descriptors.len(), 21);
+        assert_eq!(descriptors.len(), 25);
         for id in [
             "battery.voltage_v",
             "battery.power_w",
@@ -2052,6 +2052,10 @@ mod tests {
             "vd.front_heave_mm",
             "vd.front_roll_displacement_mm",
             "vd.fl_damper_vel_mms",
+            "vd.fl_shockpot_50hz_mm",
+            "vd.fr_shockpot_50hz_mm",
+            "vd.rl_shockpot_50hz_mm",
+            "vd.rr_shockpot_50hz_mm",
             "vd.total_accel_g",
             "vd.understeer_gradient",
             "thermals.max_igbt_temp_c",
