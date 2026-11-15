@@ -112,7 +112,9 @@ impl ViewerList {
                                         ui.label(format!("{msg_name} (0x{identity:X})"));
                                     });
                                     row.col(|ui| {
-                                        ui.label(sig_name);
+                                        ui.label(daqcore::storage::format_signal_id(
+                                            msg_name, sig_name,
+                                        ));
                                     });
                                     row.col(|ui| {
                                         ui.label(value);
@@ -154,7 +156,10 @@ impl ViewerList {
                                             ));
                                         });
                                         row.col(|ui| {
-                                            ui.label(name);
+                                            ui.label(daqcore::storage::format_signal_id(
+                                                decoded.name(),
+                                                name,
+                                            ));
                                         });
                                         row.col(|ui| {
                                             ui.label(value);

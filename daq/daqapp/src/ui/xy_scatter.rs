@@ -50,6 +50,8 @@ struct CachedScatterData {
     x_vals: Vec<f64>,
     y_vals: Vec<f64>,
     z_vals: Option<Vec<f64>>,
+    x_bounds: (f64, f64),
+    y_bounds: (f64, f64),
     z_range: Option<(f64, f64)>,
     color_bins: Vec<(eframe::egui::Color32, Vec<[f64; 2]>)>,
 }
@@ -63,6 +65,7 @@ pub struct XYScatter {
     pub z_color_signal: Option<String>,
     pub equal_aspect: bool,
     pub show_g_rings: bool,
+    bounds_override: Option<([f64; 2], [f64; 2])>,
     active_drop_slot: ScatterAxisSlot,
     picker_slot: Option<ScatterAxisSlot>,
     search_query: String,
@@ -93,6 +96,7 @@ impl XYScatter {
             z_color_signal,
             equal_aspect,
             show_g_rings,
+            bounds_override: None,
             active_drop_slot: ScatterAxisSlot::X,
             picker_slot: None,
             search_query: String::new(),
@@ -151,6 +155,13 @@ impl XYScatter {
             ScatterAxisSlot::Y => self.y_signal = signal_id,
             ScatterAxisSlot::ZColor => self.z_color_signal = Some(signal_id),
         }
+        if matches!(slot, ScatterAxisSlot::X | ScatterAxisSlot::Y) {
+            let both_imu_accel =
+                is_imu_accel_signal(&self.x_signal) && is_imu_accel_signal(&self.y_signal);
+            self.equal_aspect = both_imu_accel;
+            self.show_g_rings = both_imu_accel;
+            self.bounds_override = None;
+        }
         self.custom_title = false;
         self.refresh_title();
     }
@@ -159,11 +170,7 @@ impl XYScatter {
         if self.custom_title {
             return;
         }
-        self.title = format!(
-            "XY: {} vs {}",
-            short_signal_name(&self.x_signal),
-            short_signal_name(&self.y_signal)
-        );
+        self.title = format!("XY: {} vs {}", self.x_signal, self.y_signal);
     }
 
     pub fn apply_dragged_signal(&mut self, dragged: ui::signal_browser::DraggedSignal) {
@@ -272,6 +279,9 @@ impl XYScatter {
                 }
             }
 
+            let x_bounds = compute_axis_bounds(&x_vals);
+            let y_bounds = compute_axis_bounds(&y_vals);
+
             let z_range = z_vals.as_ref().and_then(|zv| {
                 let mut lo = f64::INFINITY;
                 let mut hi = f64::NEG_INFINITY;
@@ -324,6 +334,8 @@ impl XYScatter {
                 x_vals,
                 y_vals,
                 z_vals,
+                x_bounds,
+                y_bounds,
                 z_range,
                 color_bins,
             });
@@ -342,8 +354,6 @@ impl XYScatter {
                 pos.saturating_sub(1).min(cached.timestamps_ms.len() - 1)
             });
 
-            let x_short = short_signal_name(&self.x_signal);
-            let y_short = short_signal_name(&self.y_signal);
             let x_u = if cached.x_unit.is_empty() {
                 String::new()
             } else {
@@ -363,7 +373,6 @@ impl XYScatter {
                 .unwrap_or_else(|| y_u.clone());
 
             let (z_p, z_t) = if let Some(z_sig) = &self.z_color_signal {
-                let z_short = short_signal_name(z_sig);
                 let z_u = if cached.z_unit.is_empty() {
                     String::new()
                 } else {
@@ -378,7 +387,7 @@ impl XYScatter {
                     .map(|(lo, hi)| format!("\nRange: {lo:.2}{z_u} .. {hi:.2}{z_u}"))
                     .unwrap_or_default();
                 (
-                    format!("Z: {z_short}{z_val}"),
+                    format!("Z: {z_sig}{z_val}"),
                     format!("Color (Z): {z_sig}{range_str}\nClick to change or drag signal here"),
                 )
             } else {
@@ -400,11 +409,17 @@ impl XYScatter {
             };
 
             (
-                format!("X: {x_short}{x_val_str}"),
-                format!("Y: {y_short}{y_val_str}"),
+                format!("X: {}{x_val_str}", self.x_signal),
+                format!("Y: {}{y_val_str}", self.y_signal),
                 z_p,
-                format!("X Axis: {}\nClick to change or drag signal here", self.x_signal),
-                format!("Y Axis: {}\nClick to change or drag signal here", self.y_signal),
+                format!(
+                    "X Axis: {}\nClick to change or drag signal here",
+                    self.x_signal
+                ),
+                format!(
+                    "Y Axis: {}\nClick to change or drag signal here",
+                    self.y_signal
+                ),
                 z_t,
                 x_axis_l,
                 y_axis_l,
@@ -446,7 +461,11 @@ impl XYScatter {
 
             ui.menu_button("…", |ui| {
                 ui.set_min_width(180.0);
-                ui.label(eframe::egui::RichText::new("Scatter Presets").weak().small());
+                ui.label(
+                    eframe::egui::RichText::new("Scatter Presets")
+                        .weak()
+                        .small(),
+                );
                 if ui.button("G-G Diagram").clicked() {
                     preset_choice = Some(0);
                     ui.close();
@@ -460,8 +479,22 @@ impl XYScatter {
                     ui.close();
                 }
                 ui.separator();
-                ui.checkbox(&mut self.equal_aspect, "1:1 Aspect Ratio");
-                ui.checkbox(&mut self.show_g_rings, "Show G-Rings");
+                if ui
+                    .checkbox(&mut self.equal_aspect, "1:1 Aspect Ratio")
+                    .changed()
+                {
+                    self.bounds_override = None;
+                }
+                if ui
+                    .checkbox(&mut self.show_g_rings, "Show G-Rings")
+                    .changed()
+                {
+                    self.bounds_override = None;
+                }
+                if self.bounds_override.is_some() && ui.button("Reset Axis Zoom").clicked() {
+                    self.bounds_override = None;
+                    ui.close();
+                }
                 if self.z_color_signal.is_some() && ui.button("Clear Color (Z)").clicked() {
                     clear_z = true;
                     ui.close();
@@ -513,28 +546,55 @@ impl XYScatter {
         let plot_width = ui.available_width().max(60.0);
         let plot_height = ui.available_height().max(60.0);
 
-        let mut plot = egui_plot::Plot::new(("xy_scatter_plot", self.instance_num))
+        let (mut default_x_min, mut default_x_max) = cached.x_bounds;
+        let (mut default_y_min, mut default_y_max) = cached.y_bounds;
+        if self.show_g_rings {
+            default_x_min = default_x_min.min(-1.65);
+            default_x_max = default_x_max.max(1.65);
+            default_y_min = default_y_min.min(-1.65);
+            default_y_max = default_y_max.max(1.65);
+        }
+        if self.equal_aspect {
+            let x_span = (default_x_max - default_x_min).abs().max(1e-6);
+            let y_span = (default_y_max - default_y_min).abs().max(1e-6);
+            let aspect = f64::from(plot_width) / f64::from(plot_height.max(1.0));
+            if x_span / y_span < aspect {
+                let target_x_span = y_span * aspect;
+                let x_mid = 0.5 * (default_x_min + default_x_max);
+                default_x_min = x_mid - 0.5 * target_x_span;
+                default_x_max = x_mid + 0.5 * target_x_span;
+            } else {
+                let target_y_span = x_span / aspect;
+                let y_mid = 0.5 * (default_y_min + default_y_max);
+                default_y_min = y_mid - 0.5 * target_y_span;
+                default_y_max = y_mid + 0.5 * target_y_span;
+            }
+        }
+        let ([active_x_min, active_x_max], [active_y_min, active_y_max]) =
+            self.bounds_override.unwrap_or((
+                [default_x_min, default_x_max],
+                [default_y_min, default_y_max],
+            ));
+        let mut next_bounds_override = self.bounds_override;
+
+        let plot = egui_plot::Plot::new(("xy_scatter_plot_v2", self.instance_num))
             .width(plot_width)
             .height(plot_height)
             .x_axis_label(x_axis_lbl)
             .y_axis_label(y_axis_lbl)
+            .allow_zoom(false)
+            .allow_drag(false)
             .allow_boxed_zoom(false)
-            .allow_scroll(false);
-        if self.equal_aspect {
-            plot = plot.data_aspect(1.0);
-        }
-        if self.show_g_rings {
-            plot = plot
-                .include_x(-1.6)
-                .include_x(1.6)
-                .include_y(-1.6)
-                .include_y(1.6);
-        }
+            .allow_scroll(false)
+            .allow_double_click_reset(false);
 
         let has_z = z_vals.is_some() && z_range.is_some();
         let radius = if has_z { 2.4_f32 } else { 2.3_f32 };
 
         plot.show(ui, |plot_ui| {
+            plot_ui.set_plot_bounds_x(active_x_min..=active_x_max);
+            plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
+
             if self.show_g_rings {
                 for (label, ring) in &self.ring_points {
                     plot_ui.line(
@@ -607,15 +667,58 @@ impl XYScatter {
                 );
             }
 
+            if plot_ui.response().double_clicked() {
+                next_bounds_override = None;
+            }
+
+            let x_span = (active_x_max - active_x_min).abs().max(1e-9);
+            let y_span = (active_y_max - active_y_min).abs().max(1e-9);
+
             if plot_ui.response().hovered() {
-                let scroll_y = plot_ui.ctx().input(|i| i.smooth_scroll_delta.y);
-                if scroll_y.abs() > 0.5 {
-                    let factor = if scroll_y > 0.0 { 1.25_f32 } else { 0.8_f32 };
-                    plot_ui.zoom_bounds_around_hovered(eframe::egui::vec2(factor, factor));
+                let (scroll_y, zoom_delta) = plot_ui
+                    .ctx()
+                    .input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
+                let zoom_factor = if (zoom_delta - 1.0).abs() > 1e-3 {
+                    Some((1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0))
+                } else if scroll_y.abs() > 0.5 {
+                    Some(if scroll_y > 0.0 { 0.8 } else { 1.25 })
+                } else {
+                    None
+                };
+                if let Some(factor) = zoom_factor {
+                    let anchor = plot_ui.pointer_coordinate().unwrap_or_else(|| {
+                        egui_plot::PlotPoint::new(
+                            0.5 * (active_x_min + active_x_max),
+                            0.5 * (active_y_min + active_y_max),
+                        )
+                    });
+                    let new_x_span = (x_span * factor).clamp(1e-6, 1e9);
+                    let new_y_span = (y_span * factor).clamp(1e-6, 1e9);
+                    let rx = ((anchor.x - active_x_min) / x_span).clamp(0.0, 1.0);
+                    let ry = ((anchor.y - active_y_min) / y_span).clamp(0.0, 1.0);
+                    let nx_min = anchor.x - rx * new_x_span;
+                    let ny_min = anchor.y - ry * new_y_span;
+                    next_bounds_override =
+                        Some(([nx_min, nx_min + new_x_span], [ny_min, ny_min + new_y_span]));
                 }
             }
 
-            // Interactive hover & click-to-setpoint on nearest point
+            if plot_ui
+                .response()
+                .dragged_by(eframe::egui::PointerButton::Primary)
+            {
+                let delta = plot_ui.response().drag_delta();
+                if delta.x.abs() > 0.0 || delta.y.abs() > 0.0 {
+                    let dx = -f64::from(delta.x) / f64::from(plot_width.max(1.0)) * x_span;
+                    let dy = f64::from(delta.y) / f64::from(plot_height.max(1.0)) * y_span;
+                    next_bounds_override = Some((
+                        [active_x_min + dx, active_x_max + dx],
+                        [active_y_min + dy, active_y_max + dy],
+                    ));
+                }
+            }
+
+            // Interactive hover & click-to-setpoint on nearest point (normalized by independent X/Y spans)
             if plot_ui.response().hovered()
                 && let Some(coord) = plot_ui.pointer_coordinate()
                 && !timestamps_ms.is_empty()
@@ -623,8 +726,8 @@ impl XYScatter {
                 let mut best_idx = 0usize;
                 let mut best_d2 = f64::INFINITY;
                 for i in 0..timestamps_ms.len() {
-                    let dx = x_vals[i] - coord.x;
-                    let dy = y_vals[i] - coord.y;
+                    let dx = (x_vals[i] - coord.x) / x_span;
+                    let dy = (y_vals[i] - coord.y) / y_span;
                     let d2 = dx * dx + dy * dy;
                     if d2 < best_d2 {
                         best_d2 = d2;
@@ -638,6 +741,7 @@ impl XYScatter {
                 }
             }
         });
+        self.bounds_override = next_bounds_override;
 
         egui_tiles::UiResponse::None
     }
@@ -670,8 +774,31 @@ impl XYScatter {
     }
 }
 
-fn short_signal_name(sig_id: &str) -> &str {
-    sig_id.rsplit('.').next().unwrap_or(sig_id)
+fn is_imu_accel_signal(sig_id: &str) -> bool {
+    sig_id
+        .trim_start_matches('-')
+        .starts_with("IMU_acceleration.")
+}
+
+fn compute_axis_bounds(vals: &[f64]) -> (f64, f64) {
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for &v in vals {
+        if v.is_finite() {
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+    }
+    if !lo.is_finite() || !hi.is_finite() {
+        return (-1.0, 1.0);
+    }
+    let span = (hi - lo).abs();
+    let pad = if span < 1e-6 {
+        (lo.abs() * 0.05).max(1.0)
+    } else {
+        span * 0.06
+    };
+    (lo - pad, hi + pad)
 }
 
 fn build_g_rings() -> Vec<(String, Vec<[f64; 2]>)> {
@@ -732,6 +859,17 @@ mod tests {
             unit: "deg/g".to_owned(),
         });
         assert_eq!(scatter.x_signal, "vd.understeer_gradient");
+        assert!(!scatter.equal_aspect);
+        assert!(!scatter.show_g_rings);
+        assert_eq!(
+            scatter.title,
+            "XY: vd.understeer_gradient vs IMU_acceleration.X_axis"
+        );
+
+        let rpm_bounds = compute_axis_bounds(&[0.0, 8800.0]);
+        let g_bounds = compute_axis_bounds(&[-1.2, 1.4]);
+        assert!(rpm_bounds.1 - rpm_bounds.0 > 8_800.0);
+        assert!(g_bounds.1 - g_bounds.0 < 3.5);
 
         let ctx = eframe::egui::Context::default();
         ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());

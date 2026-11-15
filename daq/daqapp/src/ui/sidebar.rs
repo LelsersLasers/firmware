@@ -269,10 +269,9 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     app::ConnectionStatus::Disconnected => {
                         let setpoint_ms = app.router.timeline().setpoint_utc_ms();
                         match app.router.clock_provenance_at(setpoint_ms) {
-                            Some(daqcore::router::ClockProvenance::CanonicalPartition(_)) => (
-                                "🕒 SD Synced",
-                                eframe::egui::Color32::from_rgb(34, 197, 94),
-                            ),
+                            Some(daqcore::router::ClockProvenance::CanonicalPartition(_)) => {
+                                ("🕒 SD Synced", eframe::egui::Color32::from_rgb(34, 197, 94))
+                            }
                             Some(daqcore::router::ClockProvenance::LiveProvisional) => {
                                 ("📡 Live Stream", accent_color)
                             }
@@ -370,13 +369,12 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     full_rect.center(),
                     eframe::egui::vec2(cmd_w, 20.0),
                 );
-                let mut cmd_ui = ui.new_child(
-                    eframe::egui::UiBuilder::new()
-                        .max_rect(cmd_rect)
-                        .layout(eframe::egui::Layout::centered_and_justified(
+                let mut cmd_ui =
+                    ui.new_child(eframe::egui::UiBuilder::new().max_rect(cmd_rect).layout(
+                        eframe::egui::Layout::centered_and_justified(
                             eframe::egui::Direction::LeftToRight,
-                        )),
-                );
+                        ),
+                    ));
                 let cmd_btn = eframe::egui::Button::new(
                     eframe::egui::RichText::new("🔍 Search or type a command… (Ctrl+P)")
                         .small()
@@ -533,10 +531,22 @@ fn show_widgets_tab(
         ui,
         &mut app.action_queue,
         &[
-            ("Scope (Time / Dist)", widget_constructor::WidgetConstructor::ScopeEmpty),
-            ("XY Scatter", widget_constructor::WidgetConstructor::XYScatter),
-            ("State & Fault Lanes", widget_constructor::WidgetConstructor::StateLane),
-            ("GPS Track Map", widget_constructor::WidgetConstructor::GpsPlot),
+            (
+                "Scope (Time / Dist)",
+                widget_constructor::WidgetConstructor::ScopeEmpty,
+            ),
+            (
+                "XY Scatter",
+                widget_constructor::WidgetConstructor::XYScatter,
+            ),
+            (
+                "State & Fault Lanes",
+                widget_constructor::WidgetConstructor::StateLane,
+            ),
+            (
+                "GPS Track Map",
+                widget_constructor::WidgetConstructor::GpsPlot,
+            ),
         ],
     );
 
@@ -576,14 +586,32 @@ fn show_widgets_tab(
         ui,
         &mut app.action_queue,
         &[
-            ("CAN Viewer Table", widget_constructor::WidgetConstructor::ViewerTable),
-            ("CAN Viewer List", widget_constructor::WidgetConstructor::ViewerList),
+            (
+                "CAN Viewer Table",
+                widget_constructor::WidgetConstructor::ViewerTable,
+            ),
+            (
+                "CAN Viewer List",
+                widget_constructor::WidgetConstructor::ViewerList,
+            ),
             ("Bus Load", widget_constructor::WidgetConstructor::BusLoad),
-            ("Jitter Histogram", widget_constructor::WidgetConstructor::Jitter),
-            ("Message Sender", widget_constructor::WidgetConstructor::SendUi),
+            (
+                "Jitter Histogram",
+                widget_constructor::WidgetConstructor::Jitter,
+            ),
+            (
+                "Message Sender",
+                widget_constructor::WidgetConstructor::SendUi,
+            ),
             ("HIL Runner", widget_constructor::WidgetConstructor::Hil),
-            ("Bootloader", widget_constructor::WidgetConstructor::Bootloader),
-            ("SD Log Importer", widget_constructor::WidgetConstructor::LogParser),
+            (
+                "Bootloader",
+                widget_constructor::WidgetConstructor::Bootloader,
+            ),
+            (
+                "SD Log Importer",
+                widget_constructor::WidgetConstructor::LogParser,
+            ),
         ],
     );
 
@@ -783,7 +811,11 @@ fn show_settings_tab(
                 }
             });
 
-        if ui.button("🔄").on_hover_text("Refresh serial & USB ports").clicked() {
+        if ui
+            .button("🔄")
+            .on_hover_text("Refresh serial & USB ports")
+            .clicked()
+        {
             app.serial_ports = util::get_available_serial_ports();
             app.cannector_available = util::is_cannector_available();
         }

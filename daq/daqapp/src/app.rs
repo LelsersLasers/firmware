@@ -239,8 +239,8 @@ impl DAQApp {
             log_folder: None,
             hil_dir: path::PathBuf::from("hil_config"),
         };
-        let can_thread =
-            daqcore::can_thread::spawn_can_thread(config, can_to_ui_tx).expect("spawn test can_thread");
+        let can_thread = daqcore::can_thread::spawn_can_thread(config, can_to_ui_tx)
+            .expect("spawn test can_thread");
         let router = daqcore::router::VirtualTimelineRouter::live(
             daqcore::time::Time::from_unix_millis(1_794_500_000_000),
             30.0,
@@ -620,9 +620,7 @@ impl DAQApp {
                     .into_iter()
                     .filter(|a| {
                         a.category != "fault"
-                            && active_day_id
-                                .as_deref()
-                                .is_none_or(|d| a.track_day_id == d)
+                            && active_day_id.as_deref().is_none_or(|d| a.track_day_id == d)
                     })
                     .collect();
                 stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
@@ -651,7 +649,9 @@ impl DAQApp {
             }
             action::AppAction::FitDay => {
                 if let Some((day_min, day_max)) = self.router.timeline().day_bounds_ms() {
-                    self.router.timeline_mut().snap_to_range_ms(day_min, day_max);
+                    self.router
+                        .timeline_mut()
+                        .snap_to_range_ms(day_min, day_max);
                 }
             }
             action::AppAction::ToggleFoldGaps => {
@@ -661,11 +661,7 @@ impl DAQApp {
         }
     }
 
-    pub fn set_theme(
-        &mut self,
-        ctx: &eframe::egui::Context,
-        selection: ui::theme::ThemeSelection,
-    ) {
+    pub fn set_theme(&mut self, ctx: &eframe::egui::Context, selection: ui::theme::ThemeSelection) {
         self.theme_selection = selection;
         self.theme = self.theme_selection.get_style();
         ui::theme::store_theme(ctx, self.theme_selection.get_colors());

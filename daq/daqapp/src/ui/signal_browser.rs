@@ -251,8 +251,10 @@ fn show_clean_channel_row(
     let row_h = 20.0_f32;
 
     let dnd_resp = ui.dnd_drag_source(dnd_id, drag_payload.clone(), |ui| {
-        let (rect, _) =
-            ui.allocate_exact_size(eframe::egui::vec2(row_w, row_h), eframe::egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(
+            eframe::egui::vec2(row_w, row_h),
+            eframe::egui::Sense::hover(),
+        );
         if !ui.is_rect_visible(rect) {
             return;
         }
@@ -263,7 +265,11 @@ fn show_clean_channel_row(
             painter.rect_filled(
                 rect,
                 3.0,
-                ui.visuals().widgets.hovered.bg_fill.gamma_multiply(0.65_f32),
+                ui.visuals()
+                    .widgets
+                    .hovered
+                    .bg_fill
+                    .gamma_multiply(0.65_f32),
             );
         }
 
@@ -423,7 +429,9 @@ pub fn show_signal_browser(
                             state.tree_mode,
                             if state.tree_mode { "Tree" } else { "Flat" },
                         )
-                        .on_hover_text("Toggle between Flat channel list (Nominal style) and Message Tree")
+                        .on_hover_text(
+                            "Toggle between Flat channel list (Nominal style) and Message Tree",
+                        )
                         .clicked()
                     {
                         state.tree_mode = !state.tree_mode;
@@ -1055,13 +1063,7 @@ mod tests {
             };
             let _ = ctx.run(raw_input, |ctx| {
                 eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                    show_signal_browser(
-                        ui,
-                        &mut state,
-                        &mut router,
-                        &mut action_queue,
-                        &mut diag,
-                    );
+                    show_signal_browser(ui, &mut state, &mut router, &mut action_queue, &mut diag);
                 });
                 show_formula_editor_modal(
                     ctx,

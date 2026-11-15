@@ -46,11 +46,8 @@ pub struct ScopeChannel {
 
 impl ScopeChannel {
     fn title_label(&self) -> &str {
-        if self.is_derived || self.key.is_none() {
-            &self.signal_id
-        } else {
-            &self.label
-        }
+        let _ = self.key;
+        &self.signal_id
     }
 }
 
@@ -184,15 +181,15 @@ impl Scope {
     ) -> Self {
         let signal_id = daqcore::storage::format_signal_id(&msg_name, &signal_name);
         let channel = ScopeChannel {
-            signal_id,
-            label: signal_name.clone(),
+            signal_id: signal_id.clone(),
+            label: signal_id.clone(),
             unit: String::new(),
             color: CHANNEL_PALETTE[0],
             key: Some(key),
             is_derived: false,
         };
         Self {
-            title: format!("Scope: {signal_name}"),
+            title: format!("Scope: {signal_id}"),
             instance_num,
             custom_title: false,
             channels: vec![channel],
@@ -388,19 +385,14 @@ impl Scope {
                 unit,
             } => {
                 let signal_id = daqcore::storage::format_signal_id(&msg_name, &signal_name);
-                self.add_channel(signal_id, signal_name, unit, key, false);
+                self.add_channel(signal_id.clone(), signal_id, unit, key, false);
             }
             ui::signal_browser::DraggedSignal::Derived {
                 signal_id,
-                label,
+                label: _,
                 unit,
             } => {
-                let display_label = if label.is_empty() {
-                    signal_id.clone()
-                } else {
-                    label
-                };
-                self.add_channel(signal_id, display_label, unit, None, true);
+                self.add_channel(signal_id.clone(), signal_id, unit, None, true);
             }
         }
     }
@@ -432,8 +424,8 @@ impl Scope {
             ui::message_picker::SignalPickerAction::Picked(picked) => match target {
                 ScopePickerTarget::AddChannel => {
                     self.add_channel(
+                        picked.signal_id.clone(),
                         picked.signal_id,
-                        picked.signal_name,
                         picked.unit,
                         picked.key,
                         picked.is_derived,
@@ -636,7 +628,10 @@ impl Scope {
                                 .collect();
                             let decimated = workspace_view::decimate(&pts, pixels);
                             raw_traces.push(PreparedTrace {
-                                name: format!("{} — {} ({:.0}m)", ch.label, ann.name, lap_dist_m),
+                                name: format!(
+                                    "{} — {} ({:.0}m)",
+                                    ch.signal_id, ann.name, lap_dist_m
+                                ),
                                 unit_idx,
                                 color: trace_color,
                                 style,
@@ -665,7 +660,10 @@ impl Scope {
                                 pixels,
                             );
                             raw_traces.push(PreparedTrace {
-                                name: format!("{} — {} ({:.1}s)", ch.label, ann.name, ann_dur_s),
+                                name: format!(
+                                    "{} — {} ({:.1}s)",
+                                    ch.signal_id, ann.name, ann_dur_s
+                                ),
                                 unit_idx,
                                 color: trace_color,
                                 style,
@@ -731,7 +729,7 @@ impl Scope {
                         .collect();
                     let decimated = workspace_view::decimate(&pts, pixels);
                     raw_traces.push(PreparedTrace {
-                        name: ch.label.clone(),
+                        name: ch.signal_id.clone(),
                         unit_idx,
                         color: ch.color,
                         style: egui_plot::LineStyle::Solid,
@@ -752,7 +750,7 @@ impl Scope {
                         series_to_points_and_bands(&series, start_ms, max_gap_ms, pixels);
                     channel_cursor_lookups.push(ChannelCursorLookup::Series(series));
                     raw_traces.push(PreparedTrace {
-                        name: ch.label.clone(),
+                        name: ch.signal_id.clone(),
                         unit_idx,
                         color: ch.color,
                         style: egui_plot::LineStyle::Solid,
@@ -894,6 +892,11 @@ impl Scope {
                     format!(" {}", ch.unit)
                 };
                 let kind_prefix = if ch.is_derived { "ƒ " } else { "" };
+                let label_note = if !ch.label.is_empty() && ch.label != ch.signal_id {
+                    format!(" ({})", ch.label)
+                } else {
+                    String::new()
+                };
                 let (pill_text, tooltip_text) = if let Some(st) = channel_stats[idx] {
                     let cur_str = st
                         .cursor
@@ -901,20 +904,20 @@ impl Scope {
                     let pill = if self.show_inline_stats {
                         format!(
                             "■ {}{} = {} [min {:.2}, max {:.2}, avg {:.2}]",
-                            kind_prefix, ch.label, cur_str, st.min, st.max, st.mean
+                            kind_prefix, ch.signal_id, cur_str, st.min, st.max, st.mean
                         )
                     } else {
-                        format!("■ {}{} = {}", kind_prefix, ch.label, cur_str)
+                        format!("■ {}{} = {}", kind_prefix, ch.signal_id, cur_str)
                     };
                     let tip = format!(
-                        "{}\nCursor: {}\nWindow Min: {:.3}{}\nWindow Max: {:.3}{}\nWindow Avg: {:.3}{}",
-                        ch.signal_id, cur_str, st.min, unit_str, st.max, unit_str, st.mean, unit_str
+                        "{}{}\nCursor: {}\nWindow Min: {:.3}{}\nWindow Max: {:.3}{}\nWindow Avg: {:.3}{}",
+                        ch.signal_id, label_note, cur_str, st.min, unit_str, st.max, unit_str, st.mean, unit_str
                     );
                     (pill, tip)
                 } else {
                     (
-                        format!("■ {}{}", ch.label, unit_str),
-                        format!("{} (no samples in active window)", ch.signal_id),
+                        format!("■ {}{}{}", kind_prefix, ch.signal_id, unit_str),
+                        format!("{}{} (no samples in active window)", ch.signal_id, label_note),
                     )
                 };
 
@@ -970,20 +973,14 @@ impl Scope {
                         ui.close();
                     }
                 }
-                if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
-                    let short_spd = self
-                        .speed_signal_id
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(&self.speed_signal_id);
-                    if ui
-                        .button(format!("Speed Signal: {short_spd}…"))
+                if self.x_axis_mode == ScopeXAxisMode::TrackDistance
+                    && ui
+                        .button(format!("Speed Signal: {}…", self.speed_signal_id))
                         .on_hover_text(&self.speed_signal_id)
                         .clicked()
-                    {
-                        open_picker = Some(ScopePickerTarget::SpeedSignal);
-                        ui.close();
-                    }
+                {
+                    open_picker = Some(ScopePickerTarget::SpeedSignal);
+                    ui.close();
                 }
                 ui.separator();
                 ui.checkbox(
@@ -1267,7 +1264,9 @@ impl Scope {
                         let y_hi = active_y_max.max(y_lo);
                         let cur_span = (y_hi - y_lo).max(1e-6);
                         let new_span = (cur_span * factor).clamp(1e-4, 1e9);
-                        let anchor_y = pointer_plot_y.unwrap_or((y_lo + y_hi) * 0.5).clamp(y_lo, y_hi);
+                        let anchor_y = pointer_plot_y
+                            .unwrap_or((y_lo + y_hi) * 0.5)
+                            .clamp(y_lo, y_hi);
                         let ratio = (anchor_y - y_lo) / cur_span;
                         let new_lo = anchor_y - ratio * new_span;
                         next_y_override = Some((new_lo, new_lo + new_span));

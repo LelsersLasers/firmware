@@ -209,13 +209,16 @@ impl ThemeColors {
     }
 
     pub fn border_color(&self) -> eframe::egui::Color32 {
-        self.border.as_deref().map(Self::parse_hex).unwrap_or_else(|| {
-            if self.is_light {
-                eframe::egui::Color32::from_rgb(226, 232, 240)
-            } else {
-                eframe::egui::Color32::from_rgb(38, 45, 60)
-            }
-        })
+        self.border
+            .as_deref()
+            .map(Self::parse_hex)
+            .unwrap_or_else(|| {
+                if self.is_light {
+                    eframe::egui::Color32::from_rgb(226, 232, 240)
+                } else {
+                    eframe::egui::Color32::from_rgb(38, 45, 60)
+                }
+            })
     }
 
     pub fn muted_text_color(&self) -> eframe::egui::Color32 {

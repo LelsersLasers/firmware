@@ -168,8 +168,7 @@ impl StateLane {
 
     pub fn apply_dragged_signal(&mut self, dragged: ui::signal_browser::DraggedSignal) {
         let signal_id = dragged.signal_id();
-        let label = dragged.display_label();
-        self.add_lane(signal_id, label);
+        self.add_lane(signal_id.clone(), signal_id);
     }
 
     pub fn show(
@@ -271,7 +270,7 @@ impl StateLane {
 
         let mut remove_idx: Option<usize> = None;
         let avail_w = ui.available_width().max(80.0);
-        let label_col_w = (avail_w * 0.24).clamp(80.0, 175.0);
+        let label_col_w = (avail_w * 0.30).clamp(110.0, 225.0);
         let row_h = 22.0_f32;
 
         eframe::egui::ScrollArea::vertical()
@@ -312,21 +311,29 @@ impl StateLane {
                         });
                         let title_response = label_ui.add(
                             eframe::egui::Label::new(
-                                eframe::egui::RichText::new(&lane.label).strong().small(),
+                                eframe::egui::RichText::new(&lane.signal_id)
+                                    .strong()
+                                    .small(),
                             )
                             .truncate(),
                         );
+                        let label_note = if !lane.label.is_empty() && lane.label != lane.signal_id {
+                            format!(" ({})", lane.label)
+                        } else {
+                            String::new()
+                        };
                         if let Some((badge_txt, badge_col)) = &current_badge {
                             title_response.on_hover_text(format!(
-                                "{}\nCursor State: {}",
-                                lane.signal_id, badge_txt
+                                "{}{}\nCursor State: {}",
+                                lane.signal_id, label_note, badge_txt
                             ));
                             label_ui.colored_label(
                                 *badge_col,
                                 eframe::egui::RichText::new(format!("[{badge_txt}]")).small(),
                             );
                         } else {
-                            title_response.on_hover_text(&lane.signal_id);
+                            title_response
+                                .on_hover_text(format!("{}{}", lane.signal_id, label_note));
                         }
 
                         let strip_w = ui.available_width().max(40.0);

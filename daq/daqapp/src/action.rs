@@ -20,10 +20,19 @@ pub enum AppAction {
     IncreaseScale,
     DecreaseScale,
     TogglePlayback,
-    StepPlayhead { direction: i64, fine: bool },
-    PanWindow { direction: i64 },
-    ZoomWindow { factor: f64 },
-    JumpStint { direction: i64 },
+    StepPlayhead {
+        direction: i64,
+        fine: bool,
+    },
+    PanWindow {
+        direction: i64,
+    },
+    ZoomWindow {
+        factor: f64,
+    },
+    JumpStint {
+        direction: i64,
+    },
     FitDay,
     ToggleFoldGaps,
 }

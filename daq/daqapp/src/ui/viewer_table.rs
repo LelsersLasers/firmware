@@ -395,8 +395,13 @@ impl MessageCard<'_> {
                                     },
                                 ));
                             }
+                            let full_sig_name = if self.msg_name == "Error: Unknown" {
+                                (*sig_name).to_owned()
+                            } else {
+                                daqcore::storage::format_signal_id(self.msg_name, sig_name)
+                            };
                             ui.label(
-                                eframe::egui::RichText::new(*sig_name)
+                                eframe::egui::RichText::new(full_sig_name)
                                     .monospace()
                                     .color(signal_color),
                             );

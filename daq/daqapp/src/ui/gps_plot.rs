@@ -131,8 +131,8 @@ impl GpsPlot {
                         .as_ref()
                         .is_some_and(|(id, _)| id == sig_id);
                     if ui
-                        .selectable_label(is_sel, short_lbl)
-                        .on_hover_text(sig_id)
+                        .selectable_label(is_sel, sig_id)
+                        .on_hover_text(format!("{short_lbl} ({sig_id} [{unit}])"))
                         .clicked()
                     {
                         self.set_overlay_signal(sig_id.to_owned(), unit.to_owned());
@@ -254,12 +254,11 @@ impl GpsPlot {
                 } else {
                     format!(" {resolved_unit}")
                 };
-                let short_sig = sig_id.rsplit('.').next().unwrap_or(sig_id);
                 let val_str = cursor_overlay_val
                     .map(|v| format!(" = {v:.1}{u_str}"))
                     .unwrap_or_else(|| u_str.clone());
                 (
-                    format!("Color: {short_sig}{val_str}"),
+                    format!("Color: {sig_id}{val_str}"),
                     format!("Trajectory Color Signal: {sig_id}\n{fix_summary}\nClick to change or drag signal here"),
                 )
             } else {
