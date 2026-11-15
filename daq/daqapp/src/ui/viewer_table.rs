@@ -372,46 +372,99 @@ impl MessageCard<'_> {
                 ui.set_min_width(ui.available_width());
                 ui.vertical(|ui| {
                     for (i, (sig_name, value)) in self.signals.iter().enumerate() {
-                        ui.horizontal_wrapped(|ui| {
-                            let search = self.search.to_lowercase();
-                            let matches_signal =
-                                search.is_empty() || sig_name.to_lowercase().contains(&search);
-                            let signal_color = if matches_signal {
-                                ui.visuals().text_color()
-                            } else {
-                                ui.visuals().weak_text_color()
-                            };
+                        let search = self.search.to_lowercase();
+                        let matches_signal =
+                            search.is_empty() || sig_name.to_lowercase().contains(&search);
+                        let signal_color = if matches_signal {
+                            ui.visuals().text_color()
+                        } else {
+                            ui.visuals().weak_text_color()
+                        };
+                        let full_sig_name = if self.msg_name == "Error: Unknown" {
+                            (*sig_name).to_owned()
+                        } else {
+                            daqcore::storage::format_signal_id(self.msg_name, sig_name)
+                        };
 
-                            if ui
-                                .small_button("📊")
-                                .on_hover_text("Open in Scope")
-                                .clicked()
-                            {
-                                action_queue.push(action::AppAction::SpawnWidget(
-                                    widget_constructor::WidgetConstructor::Scope {
-                                        key: self.key,
-                                        msg_name: self.msg_name.to_string(),
-                                        signal_name: sig_name.to_string(),
+                        let sig_galley = eframe::egui::WidgetText::from(
+                            eframe::egui::RichText::new(&full_sig_name)
+                                .monospace()
+                                .color(signal_color),
+                        )
+                        .into_galley(
+                            ui,
+                            Some(eframe::egui::TextWrapMode::Extend),
+                            f32::INFINITY,
+                            eframe::egui::TextStyle::Monospace,
+                        );
+                        let val_galley = eframe::egui::WidgetText::from(
+                            eframe::egui::RichText::new(value).monospace(),
+                        )
+                        .into_galley(
+                            ui,
+                            Some(eframe::egui::TextWrapMode::Extend),
+                            f32::INFINITY,
+                            eframe::egui::TextStyle::Monospace,
+                        );
+                        let fits_single_line = sig_galley.size().x + val_galley.size().x + 48.0
+                            <= ui.available_width();
+
+                        let mut open_scope = false;
+                        if fits_single_line {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .small_button("📊")
+                                    .on_hover_text("Open in Scope")
+                                    .clicked()
+                                {
+                                    open_scope = true;
+                                }
+                                ui.label(
+                                    eframe::egui::RichText::new(&full_sig_name)
+                                        .monospace()
+                                        .color(signal_color),
+                                );
+                                ui.with_layout(
+                                    eframe::egui::Layout::right_to_left(
+                                        eframe::egui::Align::Center,
+                                    ),
+                                    |ui| {
+                                        ui.label(eframe::egui::RichText::new(value).monospace());
                                     },
-                                ));
-                            }
-                            let full_sig_name = if self.msg_name == "Error: Unknown" {
-                                (*sig_name).to_owned()
-                            } else {
-                                daqcore::storage::format_signal_id(self.msg_name, sig_name)
-                            };
-                            ui.label(
-                                eframe::egui::RichText::new(full_sig_name)
-                                    .monospace()
-                                    .color(signal_color),
-                            );
-                            ui.label(
-                                eframe::egui::RichText::new("=")
-                                    .monospace()
-                                    .color(ui.visuals().weak_text_color()),
-                            );
-                            ui.label(eframe::egui::RichText::new(value).monospace());
-                        });
+                                );
+                            });
+                        } else {
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .small_button("📊")
+                                    .on_hover_text("Open in Scope")
+                                    .clicked()
+                                {
+                                    open_scope = true;
+                                }
+                                ui.label(
+                                    eframe::egui::RichText::new(&full_sig_name)
+                                        .monospace()
+                                        .color(signal_color),
+                                );
+                                ui.label(
+                                    eframe::egui::RichText::new("=")
+                                        .monospace()
+                                        .color(ui.visuals().weak_text_color()),
+                                );
+                                ui.label(eframe::egui::RichText::new(value).monospace());
+                            });
+                        }
+
+                        if open_scope {
+                            action_queue.push(action::AppAction::SpawnWidget(
+                                widget_constructor::WidgetConstructor::Scope {
+                                    key: self.key,
+                                    msg_name: self.msg_name.to_string(),
+                                    signal_name: sig_name.to_string(),
+                                },
+                            ));
+                        }
                         if i < self.signals.len() - 1 {
                             ui.separator();
                         }
