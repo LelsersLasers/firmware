@@ -110,6 +110,57 @@ enum ScopePickerTarget {
     SpeedSignal,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ScopeCacheKey {
+    start_ms: i64,
+    end_ms: i64,
+    pixels: usize,
+    resolution: daqcore::router::Resolution,
+    x_axis_mode: ScopeXAxisMode,
+    speed_signal_id: String,
+    comparison_ids: Vec<String>,
+    channel_specs: Vec<(String, String, String, eframe::egui::Color32)>,
+    data_revision: u64,
+}
+
+enum ChannelCursorLookup {
+    Series(daqcore::router::SignalSeries),
+    Distance(Vec<i64>, Vec<f64>),
+    Fallback,
+}
+
+impl ChannelCursorLookup {
+    fn value_at(&self, target_ms: i64) -> Option<f64> {
+        match self {
+            Self::Series(series) => series.latest_at_or_before(target_ms).map(|(_, v)| v),
+            Self::Distance(ts, vals) => {
+                if ts.is_empty() || vals.is_empty() {
+                    return None;
+                }
+                let pos = ts.partition_point(|&t| t <= target_ms);
+                let idx = pos.saturating_sub(1).min(vals.len() - 1);
+                let v = vals[idx];
+                v.is_finite().then_some(v)
+            }
+            Self::Fallback => None,
+        }
+    }
+}
+
+struct CachedScopeData {
+    key: ScopeCacheKey,
+    unit_groups: Vec<String>,
+    unit_transforms: Vec<UnitAxisTransform>,
+    primary_min: f64,
+    primary_max: f64,
+    max_x_bound: f64,
+    primary_distance_lookup: Option<(i64, Vec<i64>, Vec<f64>)>,
+    channel_minmax_mean: Vec<Option<(f64, f64, f64)>>,
+    channel_cursor_lookups: Vec<ChannelCursorLookup>,
+    mapped_traces: Vec<PreparedTrace>,
+    first_raw_mean_points: Option<Vec<[f64; 2]>>,
+}
+
 pub struct Scope {
     pub title: String,
     instance_num: usize,
@@ -120,6 +171,7 @@ pub struct Scope {
     pub x_axis_mode: ScopeXAxisMode,
     pub speed_signal_id: String,
     y_bounds_override: Option<(f64, f64)>,
+    cached_data: Option<CachedScopeData>,
 }
 
 impl Scope {
@@ -148,6 +200,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             y_bounds_override: None,
+            cached_data: None,
         }
     }
 
@@ -162,6 +215,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             y_bounds_override: None,
+            cached_data: None,
         }
     }
 
@@ -190,6 +244,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             y_bounds_override: None,
+            cached_data: None,
         }
     }
 
@@ -219,6 +274,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             y_bounds_override: None,
+            cached_data: None,
         }
     }
 
@@ -241,6 +297,7 @@ impl Scope {
             x_axis_mode,
             speed_signal_id,
             y_bounds_override,
+            cached_data: None,
         };
         if !custom_title {
             s.refresh_title();
@@ -512,6 +569,7 @@ impl Scope {
         }
         if clear_all {
             self.channels.clear();
+            self.cached_data = None;
             self.custom_title = false;
             self.refresh_title();
             self.picker_target = Some(ScopePickerTarget::AddChannel);
@@ -526,153 +584,187 @@ impl Scope {
             .bucket_width_ms()
             .map_or(base_staleness_ms, |bw| base_staleness_ms.max(bw * 3));
 
-        // Build unit groups in order of appearance so each unique unit gets its own Y-axis.
-        let mut unit_groups: Vec<String> = Vec::new();
-        let mut channel_unit_group: Vec<usize> = Vec::with_capacity(self.channels.len());
-        for ch in &self.channels {
-            let pos = unit_groups
-                .iter()
-                .position(|u| u == &ch.unit)
-                .unwrap_or_else(|| {
-                    unit_groups.push(ch.unit.clone());
-                    unit_groups.len() - 1
-                });
-            channel_unit_group.push(pos);
-        }
-
         let start = view.timeline.start();
         let start_ms = start.unix_millis();
         let end_ms = view.timeline.end_utc_ms();
         let duration_s = view.timeline.end().secs(start).max(0.001);
         let playhead_s = view.timeline.setpoint().secs(start);
 
-        // Query data and compute per-channel statistics & unit bounds.
-        let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
-        let mut unit_bounds: Vec<(f64, f64)> =
-            vec![(f64::INFINITY, f64::NEG_INFINITY); unit_groups.len()];
+        let comparison_ids: Vec<String> = comparison_annotations
+            .iter()
+            .map(|a| format!("{}:{}:{:?}", a.id, a.start_utc_ms, a.end_utc_ms))
+            .collect();
+        let channel_specs: Vec<(String, String, String, eframe::egui::Color32)> = self
+            .channels
+            .iter()
+            .map(|c| {
+                (
+                    c.signal_id.clone(),
+                    c.label.clone(),
+                    c.unit.clone(),
+                    c.color,
+                )
+            })
+            .collect();
+        let cache_key = ScopeCacheKey {
+            start_ms,
+            end_ms,
+            pixels,
+            resolution,
+            x_axis_mode: self.x_axis_mode,
+            speed_signal_id: self.speed_signal_id.clone(),
+            comparison_ids,
+            channel_specs,
+            data_revision: view.data_revision(),
+        };
 
-        // Prepared traces to plot (before unit affine normalization):
-        let mut raw_traces: Vec<PreparedTrace> = Vec::new();
-        let mut max_x_bound = duration_s;
-        let mut primary_distance_lookup: Option<(i64, Vec<i64>, Vec<f64>)> = None;
+        if self
+            .cached_data
+            .as_ref()
+            .is_none_or(|c| c.key != cache_key)
+        {
+            // Build unit groups in order of appearance so each unique unit gets its own Y-axis.
+            let mut unit_groups: Vec<String> = Vec::new();
+            let mut channel_unit_group: Vec<usize> = Vec::with_capacity(self.channels.len());
+            for ch in &self.channels {
+                let pos = unit_groups
+                    .iter()
+                    .position(|u| u == &ch.unit)
+                    .unwrap_or_else(|| {
+                        unit_groups.push(ch.unit.clone());
+                        unit_groups.len() - 1
+                    });
+                channel_unit_group.push(pos);
+            }
 
-        if is_comparison {
-            max_x_bound = 0.001;
-            let line_styles = [
-                egui_plot::LineStyle::Solid,
-                egui_plot::LineStyle::dashed_dense(),
-                egui_plot::LineStyle::dotted_dense(),
-                egui_plot::LineStyle::dashed_loose(),
-            ];
+            // Query data and compute per-channel statistics & unit bounds.
+            let mut channel_minmax_mean: Vec<Option<(f64, f64, f64)>> =
+                vec![None; self.channels.len()];
+            let mut channel_cursor_lookups: Vec<ChannelCursorLookup> =
+                Vec::with_capacity(self.channels.len());
+            let mut unit_bounds: Vec<(f64, f64)> =
+                vec![(f64::INFINITY, f64::NEG_INFINITY); unit_groups.len()];
 
-            for (ch_idx, ch) in self.channels.iter().enumerate() {
-                let unit_idx = channel_unit_group[ch_idx];
-                let mut ch_min = f64::INFINITY;
-                let mut ch_max = f64::NEG_INFINITY;
-                let mut ch_sum = 0.0;
-                let mut ch_cnt = 0usize;
+            // Prepared traces to plot (before unit affine normalization):
+            let mut raw_traces: Vec<PreparedTrace> = Vec::new();
+            let mut max_x_bound = duration_s;
+            let mut primary_distance_lookup: Option<(i64, Vec<i64>, Vec<f64>)> = None;
 
-                for (lap_idx, ann) in comparison_annotations.iter().enumerate() {
-                    let ann_start_ms = ann.start_utc_ms;
-                    let ann_end_ms = ann
-                        .end_utc_ms
-                        .unwrap_or(ann.start_utc_ms + 30_000)
-                        .max(ann.start_utc_ms + 1_000);
-                    let ann_res = daqcore::router::Resolution::for_window_ms(
-                        (ann_end_ms - ann_start_ms).max(1),
-                        width_px,
-                    );
-                    let style = line_styles[lap_idx % line_styles.len()];
-                    let trace_color = if self.channels.len() == 1 {
-                        CHANNEL_PALETTE[lap_idx % CHANNEL_PALETTE.len()]
-                    } else {
-                        ch.color
-                    };
+            if is_comparison {
+                max_x_bound = 0.001;
+                let line_styles = [
+                    egui_plot::LineStyle::Solid,
+                    egui_plot::LineStyle::dashed_dense(),
+                    egui_plot::LineStyle::dotted_dense(),
+                    egui_plot::LineStyle::dashed_loose(),
+                ];
 
-                    if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
-                        let dist_series = view.query_signal_vs_distance(
-                            &ch.signal_id,
-                            &self.speed_signal_id,
-                            ann_start_ms..=ann_end_ms,
-                            ann_res,
+                for (ch_idx, ch) in self.channels.iter().enumerate() {
+                    let unit_idx = channel_unit_group[ch_idx];
+                    let mut ch_min = f64::INFINITY;
+                    let mut ch_max = f64::NEG_INFINITY;
+                    let mut ch_sum = 0.0;
+                    let mut ch_cnt = 0usize;
+
+                    for (lap_idx, ann) in comparison_annotations.iter().enumerate() {
+                        let ann_start_ms = ann.start_utc_ms;
+                        let ann_end_ms = ann
+                            .end_utc_ms
+                            .unwrap_or(ann.start_utc_ms + 30_000)
+                            .max(ann.start_utc_ms + 1_000);
+                        let ann_res = daqcore::router::Resolution::for_window_ms(
+                            (ann_end_ms - ann_start_ms).max(1),
+                            width_px,
                         );
-                        let lap_dist_m = dist_series.total_distance_m().max(1.0);
-                        max_x_bound = max_x_bound.max(lap_dist_m);
-                        for &v in &dist_series.values {
-                            if v.is_finite() {
-                                ch_min = ch_min.min(v);
-                                ch_max = ch_max.max(v);
-                                ch_sum += v;
+                        let style = line_styles[lap_idx % line_styles.len()];
+                        let trace_color = if self.channels.len() == 1 {
+                            CHANNEL_PALETTE[lap_idx % CHANNEL_PALETTE.len()]
+                        } else {
+                            ch.color
+                        };
+
+                        if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+                            let dist_series = view.query_signal_vs_distance(
+                                &ch.signal_id,
+                                &self.speed_signal_id,
+                                ann_start_ms..=ann_end_ms,
+                                ann_res,
+                            );
+                            let lap_dist_m = dist_series.total_distance_m().max(1.0);
+                            max_x_bound = max_x_bound.max(lap_dist_m);
+                            for &v in &dist_series.values {
+                                if v.is_finite() {
+                                    ch_min = ch_min.min(v);
+                                    ch_max = ch_max.max(v);
+                                    ch_sum += v;
+                                    ch_cnt += 1;
+                                }
+                            }
+                            if primary_distance_lookup.is_none()
+                                && !dist_series.distances_m.is_empty()
+                            {
+                                primary_distance_lookup = Some((
+                                    ann_start_ms,
+                                    dist_series.timestamps_ms.clone(),
+                                    dist_series.distances_m.clone(),
+                                ));
+                            }
+                            let pts: Vec<[f64; 2]> = dist_series
+                                .distances_m
+                                .into_iter()
+                                .zip(dist_series.values)
+                                .map(|(d, v)| [d, v])
+                                .collect();
+                            let decimated = workspace_view::decimate(&pts, pixels);
+                            raw_traces.push(PreparedTrace {
+                                name: format!("{} — {} ({:.0}m)", ch.label, ann.name, lap_dist_m),
+                                unit_idx,
+                                color: trace_color,
+                                style,
+                                mean_points: decimated,
+                                envelope_bands: Vec::new(),
+                            });
+                        } else {
+                            let ann_dur_s =
+                                ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
+                            max_x_bound = max_x_bound.max(ann_dur_s);
+                            let series = view.query_signal_range(
+                                &ch.signal_id,
+                                ann_start_ms..=ann_end_ms,
+                                ann_res,
+                            );
+                            if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
+                                ch_min = ch_min.min(s_min);
+                                ch_max = ch_max.max(s_max);
+                                ch_sum += s_mean;
                                 ch_cnt += 1;
                             }
-                        }
-                        if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty()
-                        {
-                            primary_distance_lookup = Some((
+                            let (pts, env_bands) = series_to_points_and_bands(
+                                &series,
                                 ann_start_ms,
-                                dist_series.timestamps_ms.clone(),
-                                dist_series.distances_m.clone(),
-                            ));
+                                max_gap_ms,
+                                pixels,
+                            );
+                            raw_traces.push(PreparedTrace {
+                                name: format!("{} — {} ({:.1}s)", ch.label, ann.name, ann_dur_s),
+                                unit_idx,
+                                color: trace_color,
+                                style,
+                                mean_points: pts,
+                                envelope_bands: env_bands,
+                            });
                         }
-                        let pts: Vec<[f64; 2]> = dist_series
-                            .distances_m
-                            .into_iter()
-                            .zip(dist_series.values)
-                            .map(|(d, v)| [d, v])
-                            .collect();
-                        let decimated = workspace_view::decimate(&pts, pixels);
-                        raw_traces.push(PreparedTrace {
-                            name: format!("{} — {} ({:.0}m)", ch.label, ann.name, lap_dist_m),
-                            unit_idx,
-                            color: trace_color,
-                            style,
-                            mean_points: decimated,
-                            envelope_bands: Vec::new(),
-                        });
-                    } else {
-                        let ann_dur_s = ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
-                        max_x_bound = max_x_bound.max(ann_dur_s);
-                        let series = view.query_signal_range(
-                            &ch.signal_id,
-                            ann_start_ms..=ann_end_ms,
-                            ann_res,
-                        );
-                        if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
-                            ch_min = ch_min.min(s_min);
-                            ch_max = ch_max.max(s_max);
-                            ch_sum += s_mean;
-                            ch_cnt += 1;
-                        }
-                        let (pts, env_bands) =
-                            series_to_points_and_bands(&series, ann_start_ms, max_gap_ms, pixels);
-                        raw_traces.push(PreparedTrace {
-                            name: format!("{} — {} ({:.1}s)", ch.label, ann.name, ann_dur_s),
-                            unit_idx,
-                            color: trace_color,
-                            style,
-                            mean_points: pts,
-                            envelope_bands: env_bands,
-                        });
                     }
-                }
 
-                if ch_cnt > 0 && ch_min.is_finite() && ch_max.is_finite() {
-                    unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(ch_min);
-                    unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(ch_max);
-                    let cursor = view
-                        .latest_signal_value_at_cursor(&ch.signal_id)
-                        .map(|(_, v)| v);
-                    channel_stats[ch_idx] = Some(ChannelStats {
-                        min: ch_min,
-                        max: ch_max,
-                        mean: ch_sum / (ch_cnt as f64),
-                        cursor,
-                    });
+                    if ch_cnt > 0 && ch_min.is_finite() && ch_max.is_finite() {
+                        unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(ch_min);
+                        unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(ch_max);
+                        channel_minmax_mean[ch_idx] =
+                            Some((ch_min, ch_max, ch_sum / (ch_cnt as f64)));
+                    }
+                    channel_cursor_lookups.push(ChannelCursorLookup::Fallback);
                 }
-            }
-        } else {
-            // Single-window mode (UTC Time, Elapsed Time, or Track Distance)
-            if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+            } else if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
                 max_x_bound = 1.0;
                 for (ch_idx, ch) in self.channels.iter().enumerate() {
                     let unit_idx = channel_unit_group[ch_idx];
@@ -698,15 +790,8 @@ impl Scope {
                     if ch_cnt > 0 {
                         unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(ch_min);
                         unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(ch_max);
-                        let cursor = view
-                            .latest_signal_value_at_cursor(&ch.signal_id)
-                            .map(|(_, v)| v);
-                        channel_stats[ch_idx] = Some(ChannelStats {
-                            min: ch_min,
-                            max: ch_max,
-                            mean: ch_sum / (ch_cnt as f64),
-                            cursor,
-                        });
+                        channel_minmax_mean[ch_idx] =
+                            Some((ch_min, ch_max, ch_sum / (ch_cnt as f64)));
                     }
                     if primary_distance_lookup.is_none() && !dist_series.distances_m.is_empty() {
                         primary_distance_lookup = Some((
@@ -715,6 +800,10 @@ impl Scope {
                             dist_series.distances_m.clone(),
                         ));
                     }
+                    channel_cursor_lookups.push(ChannelCursorLookup::Distance(
+                        dist_series.timestamps_ms.clone(),
+                        dist_series.values.clone(),
+                    ));
                     let pts: Vec<[f64; 2]> = dist_series
                         .distances_m
                         .into_iter()
@@ -738,18 +827,11 @@ impl Scope {
                     if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
                         unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(s_min);
                         unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(s_max);
-                        let cursor = view
-                            .latest_signal_value_at_cursor(&ch.signal_id)
-                            .map(|(_, v)| v);
-                        channel_stats[ch_idx] = Some(ChannelStats {
-                            min: s_min,
-                            max: s_max,
-                            mean: s_mean,
-                            cursor,
-                        });
+                        channel_minmax_mean[ch_idx] = Some((s_min, s_max, s_mean));
                     }
                     let (pts, env_bands) =
                         series_to_points_and_bands(&series, start_ms, max_gap_ms, pixels);
+                    channel_cursor_lookups.push(ChannelCursorLookup::Series(series));
                     raw_traces.push(PreparedTrace {
                         name: ch.label.clone(),
                         unit_idx,
@@ -760,21 +842,126 @@ impl Scope {
                     });
                 }
             }
+
+            let first_raw_mean_points = raw_traces.first().map(|t| t.mean_points.clone());
+
+            // Normalize unit bounds and build multi-unit Y transforms.
+            let normalized_bounds: Vec<(f64, f64)> = unit_bounds
+                .iter()
+                .map(|&(lo, hi)| {
+                    if !lo.is_finite() || !hi.is_finite() {
+                        (-1.0, 1.0)
+                    } else if (hi - lo).abs() < 1e-6 {
+                        let pad = (lo.abs() * 0.05).max(1.0);
+                        (lo - pad, hi + pad)
+                    } else {
+                        let pad = (hi - lo) * 0.05;
+                        (lo - pad, hi + pad)
+                    }
+                })
+                .collect();
+
+            let (primary_min, primary_max) =
+                normalized_bounds.first().copied().unwrap_or((-1.0, 1.0));
+            let unit_transforms: Vec<UnitAxisTransform> = normalized_bounds
+                .iter()
+                .enumerate()
+                .map(|(idx, &(lo, hi))| {
+                    if idx == 0 {
+                        UnitAxisTransform::IDENTITY
+                    } else {
+                        UnitAxisTransform::from_ranges(primary_min, primary_max, lo, hi)
+                    }
+                })
+                .collect();
+
+            let mapped_traces: Vec<PreparedTrace> = raw_traces
+                .into_iter()
+                .map(|trace| {
+                    let tf = unit_transforms[trace.unit_idx];
+                    let envelope_bands = trace
+                        .envelope_bands
+                        .into_iter()
+                        .map(|quad| {
+                            [
+                                [quad[0][0], tf.phys_to_plot(quad[0][1])],
+                                [quad[1][0], tf.phys_to_plot(quad[1][1])],
+                                [quad[2][0], tf.phys_to_plot(quad[2][1])],
+                                [quad[3][0], tf.phys_to_plot(quad[3][1])],
+                            ]
+                        })
+                        .collect();
+                    let mean_points = trace
+                        .mean_points
+                        .into_iter()
+                        .map(|[x, y]| [x, tf.phys_to_plot(y)])
+                        .collect();
+                    PreparedTrace {
+                        name: trace.name,
+                        unit_idx: trace.unit_idx,
+                        color: trace.color,
+                        style: trace.style,
+                        mean_points,
+                        envelope_bands,
+                    }
+                })
+                .collect();
+
+            self.cached_data = Some(CachedScopeData {
+                key: cache_key,
+                unit_groups,
+                unit_transforms,
+                primary_min,
+                primary_max,
+                max_x_bound,
+                primary_distance_lookup,
+                channel_minmax_mean,
+                channel_cursor_lookups,
+                mapped_traces,
+                first_raw_mean_points,
+            });
         }
 
         if export_csv
-            && let Some(first_trace) = raw_traces.first()
+            && let Some(first_points) = self
+                .cached_data
+                .as_ref()
+                .and_then(|c| c.first_raw_mean_points.as_ref())
             && let Some(path) = rfd::FileDialog::new()
                 .set_file_name(format!("{}_data.csv", self.title.replace([' ', ':'], "_")))
                 .add_filter("CSV", &["csv"])
                 .save_file()
         {
             let mut text = String::from("X,Value\n");
-            for p in &first_trace.mean_points {
+            for p in first_points {
                 text.push_str(&format!("{},{}\n", p[0], p[1]));
             }
             if let Err(e) = fs::write(path, text) {
                 log::error!("Export failed: {e}");
+            }
+        }
+
+        // Compute fast cursor values from cached series (falling back to router only when needed).
+        let cursor_ms = view.active_cursor_utc_ms();
+        let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
+        if let Some(cached) = &self.cached_data {
+            for (idx, ch) in self.channels.iter().enumerate() {
+                if let Some((min, max, mean)) = cached.channel_minmax_mean.get(idx).copied().flatten() {
+                    let cursor = cached
+                        .channel_cursor_lookups
+                        .get(idx)
+                        .and_then(|lookup| lookup.value_at(cursor_ms))
+                        .or_else(|| {
+                            view.latest_signal_value_at_cursor(&ch.signal_id)
+                                .map(|(_, v)| v)
+                        });
+                    channel_stats[idx] = Some(ChannelStats {
+                        min,
+                        max,
+                        mean,
+                        cursor,
+                    });
+                }
             }
         }
 
@@ -816,41 +1003,20 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        if raw_traces.iter().all(|t| t.mean_points.is_empty()) {
+        let Some(cached) = self.cached_data.as_ref() else {
+            return egui_tiles::UiResponse::None;
+        };
+
+        if cached.mapped_traces.iter().all(|t| t.mean_points.is_empty()) {
             ui.label("No retained samples in the selected interval.");
         }
 
-        // Normalize unit bounds and build multi-unit Y axes.
-        let normalized_bounds: Vec<(f64, f64)> = unit_bounds
-            .iter()
-            .map(|&(lo, hi)| {
-                if !lo.is_finite() || !hi.is_finite() {
-                    (-1.0, 1.0)
-                } else if (hi - lo).abs() < 1e-6 {
-                    let pad = (lo.abs() * 0.05).max(1.0);
-                    (lo - pad, hi + pad)
-                } else {
-                    let pad = (hi - lo) * 0.05;
-                    (lo - pad, hi + pad)
-                }
-            })
-            .collect();
-
-        let (primary_min, primary_max) = normalized_bounds.first().copied().unwrap_or((-1.0, 1.0));
-        let unit_transforms: Vec<UnitAxisTransform> = normalized_bounds
-            .iter()
-            .enumerate()
-            .map(|(idx, &(lo, hi))| {
-                if idx == 0 {
-                    UnitAxisTransform::IDENTITY
-                } else {
-                    UnitAxisTransform::from_ranges(primary_min, primary_max, lo, hi)
-                }
-            })
-            .collect();
-
-        let multi_unit = unit_groups.len() > 1;
-        let y_axes: Vec<egui_plot::AxisHints<'static>> = unit_groups
+        let primary_min = cached.primary_min;
+        let primary_max = cached.primary_max;
+        let max_x_bound = cached.max_x_bound;
+        let multi_unit = cached.unit_groups.len() > 1;
+        let y_axes: Vec<egui_plot::AxisHints<'static>> = cached
+            .unit_groups
             .iter()
             .enumerate()
             .map(|(u_idx, unit_name)| {
@@ -859,7 +1025,7 @@ impl Scope {
                 } else {
                     egui_plot::HPlacement::Right
                 };
-                let tf = unit_transforms[u_idx];
+                let tf = cached.unit_transforms[u_idx];
                 let mut hints = egui_plot::AxisHints::new_y()
                     .placement(placement)
                     .formatter(move |mark, _range| {
@@ -886,18 +1052,19 @@ impl Scope {
         } else {
             match x_axis_mode {
                 ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
-                ScopeXAxisMode::TrackDistance => {
-                    primary_distance_lookup.as_ref().and_then(|(_, ts, ds)| {
+                ScopeXAxisMode::TrackDistance => cached
+                    .primary_distance_lookup
+                    .as_ref()
+                    .and_then(|(_, ts, ds)| {
                         interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())
-                    })
-                }
+                    }),
             }
         };
 
         let hover_x: Option<f64> = match x_axis_mode {
             ScopeXAxisMode::TrackDistance => view.hover_distance_m().or_else(|| {
                 let hover_ms = view.hover_utc_ms()?;
-                let (_, ts, ds) = primary_distance_lookup.as_ref()?;
+                let (_, ts, ds) = cached.primary_distance_lookup.as_ref()?;
                 interpolate_distance_at_ms(ts, ds, hover_ms)
             }),
             ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
@@ -951,37 +1118,27 @@ impl Scope {
             plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
             plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
 
-            for trace in raw_traces {
-                let tf = unit_transforms[trace.unit_idx];
+            for trace in &cached.mapped_traces {
                 let fill_color = trace.color.gamma_multiply(0.22);
                 let band_stroke =
                     eframe::egui::Stroke::new(0.5_f32, trace.color.gamma_multiply(0.35));
 
-                for quad in trace.envelope_bands {
-                    let mapped_quad = vec![
-                        [quad[0][0], tf.phys_to_plot(quad[0][1])],
-                        [quad[1][0], tf.phys_to_plot(quad[1][1])],
-                        [quad[2][0], tf.phys_to_plot(quad[2][1])],
-                        [quad[3][0], tf.phys_to_plot(quad[3][1])],
-                    ];
+                for quad in &trace.envelope_bands {
                     plot_ui.polygon(
-                        egui_plot::Polygon::new("", mapped_quad)
+                        egui_plot::Polygon::new("", quad.to_vec())
                             .fill_color(fill_color)
                             .stroke(band_stroke)
                             .allow_hover(false),
                     );
                 }
 
-                let mapped_pts: Vec<[f64; 2]> = trace
-                    .mean_points
-                    .into_iter()
-                    .map(|[x, y]| [x, tf.phys_to_plot(y)])
-                    .collect();
-
                 plot_ui.line(
-                    egui_plot::Line::new(trace.name, egui_plot::PlotPoints::from(mapped_pts))
-                        .color(trace.color)
-                        .style(trace.style),
+                    egui_plot::Line::new(
+                        trace.name.clone(),
+                        egui_plot::PlotPoints::from(trace.mean_points.clone()),
+                    )
+                    .color(trace.color)
+                    .style(trace.style),
                 );
             }
 
@@ -1016,7 +1173,7 @@ impl Scope {
                 match x_axis_mode {
                     ScopeXAxisMode::TrackDistance => {
                         view.set_hover_distance_m(Some(clamped_x));
-                        if let Some((_, ts, ds)) = &primary_distance_lookup
+                        if let Some((_, ts, ds)) = &cached.primary_distance_lookup
                             && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
                         {
                             view.set_hover_utc_ms(Some(utc_ms));
@@ -1115,6 +1272,7 @@ impl Scope {
     }
 }
 
+#[derive(Clone)]
 struct PreparedTrace {
     name: String,
     unit_idx: usize,
@@ -1208,7 +1366,8 @@ pub fn build_envelope_quads(
         return Vec::new();
     }
 
-    let step = buckets.len().div_ceil(pixels.max(64)).max(1);
+    let target_quads = (pixels / 3).clamp(64, 240);
+    let step = buckets.len().div_ceil(target_quads).max(1);
     let mut sampled: Vec<&daqcore::router::EnvelopePoint> = buckets.iter().step_by(step).collect();
     if let Some(last) = buckets.last()
         && sampled.last().is_none_or(|b| b.utc_ms != last.utc_ms)
@@ -1225,6 +1384,9 @@ pub fn build_envelope_quads(
         }
         if !b0.min.is_finite() || !b0.max.is_finite() || !b1.min.is_finite() || !b1.max.is_finite()
         {
+            continue;
+        }
+        if (b0.max - b0.min).abs() <= 1e-9 && (b1.max - b1.min).abs() <= 1e-9 {
             continue;
         }
         let t0 = ((b0.utc_ms - start_ms) as f64) / 1000.0;
