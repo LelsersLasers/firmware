@@ -3,6 +3,11 @@ use std::{fs, path};
 
 pub const SETTINGS_PATH: &str = "settings.json";
 pub const DEFAULT_LOG_FOLDER: &str = "logs";
+pub const DEFAULT_CLOUD_URL: &str = "http://127.0.0.1:3000";
+
+fn default_cloud_url() -> String {
+    DEFAULT_CLOUD_URL.to_owned()
+}
 
 pub fn database_dir() -> Option<path::PathBuf> {
     let path = path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../superdbc");
@@ -24,6 +29,10 @@ pub struct Settings {
     pub pixels_per_point: Option<f32>,
     pub log_folder: Option<path::PathBuf>,
     pub window_secs: f64,
+    #[serde(default = "default_cloud_url")]
+    pub cloud_url: String,
+    #[serde(default)]
+    pub cloud_auto_connect: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_view: Option<workspace_io::WorkspaceView>,
 }
@@ -40,6 +49,8 @@ impl Default for Settings {
             pixels_per_point: None,
             log_folder: None,
             window_secs: 30.0,
+            cloud_url: default_cloud_url(),
+            cloud_auto_connect: false,
             workspace_view: None,
         }
     }

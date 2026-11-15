@@ -295,6 +295,82 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     app.is_sidebar_open = true;
                 }
 
+                match app.router.cloud_status() {
+                    daqcore::storage::CloudSyncStatus::Connected {
+                        pending_downloads,
+                        pending_uploads,
+                        ws_connected,
+                        ..
+                    } => {
+                        let (cloud_label, cloud_color) =
+                            if pending_downloads > 0 || pending_uploads > 0 {
+                                (
+                                    format!(
+                                        "☁ Syncing (↓{} ↑{})",
+                                        pending_downloads, pending_uploads
+                                    ),
+                                    accent_color,
+                                )
+                            } else if ws_connected {
+                                (
+                                    "☁ Cloud Live".to_owned(),
+                                    eframe::egui::Color32::from_rgb(34, 197, 94),
+                                )
+                            } else {
+                                ("☁ Cloud HTTP".to_owned(), muted_color)
+                            };
+                        if ui
+                            .add(
+                                eframe::egui::Button::new(
+                                    eframe::egui::RichText::new(cloud_label)
+                                        .small()
+                                        .color(cloud_color),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text("daqcloud sync active — click to open settings")
+                            .clicked()
+                        {
+                            app.sidebar_tab = SidebarTab::Settings;
+                            app.is_sidebar_open = true;
+                        }
+                    }
+                    daqcore::storage::CloudSyncStatus::Connecting { .. } => {
+                        if ui
+                            .add(
+                                eframe::egui::Button::new(
+                                    eframe::egui::RichText::new("☁ Connecting…")
+                                        .small()
+                                        .color(muted_color),
+                                )
+                                .frame(false),
+                            )
+                            .clicked()
+                        {
+                            app.sidebar_tab = SidebarTab::Settings;
+                            app.is_sidebar_open = true;
+                        }
+                    }
+                    daqcore::storage::CloudSyncStatus::Error { error, .. } => {
+                        if ui
+                            .add(
+                                eframe::egui::Button::new(
+                                    eframe::egui::RichText::new("☁ Cloud Error")
+                                        .small()
+                                        .color(eframe::egui::Color32::from_rgb(239, 68, 68)),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text(error)
+                            .clicked()
+                        {
+                            app.sidebar_tab = SidebarTab::Settings;
+                            app.is_sidebar_open = true;
+                        }
+                    }
+                    daqcore::storage::CloudSyncStatus::Disconnected => {}
+                }
+
                 // Right: Theme selector, Export, and Nominal-style SHARE button
                 ui.with_layout(
                     eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
@@ -886,6 +962,100 @@ fn show_settings_tab(
             .wrap(),
         );
     });
+
+    ui.separator();
+    ui.label(
+        eframe::egui::RichText::new("DAQCLOUD SERVER SYNC")
+            .small()
+            .strong()
+            .color(muted_color),
+    );
+    ui.add_space(2.0);
+
+    ui.horizontal(|ui| {
+        ui.label("Server URL:");
+        let resp = ui.add(
+            eframe::egui::TextEdit::singleline(&mut app.cloud_url)
+                .hint_text("http://127.0.0.1:3000")
+                .desired_width(ui.available_width().max(80.0)),
+        );
+        if resp.lost_focus() {
+            app.save_settings();
+        }
+    });
+
+    if ui
+        .checkbox(&mut app.cloud_auto_connect, "Auto-connect on startup")
+        .changed()
+    {
+        app.save_settings();
+    }
+
+    let cloud_status = app.router.cloud_status();
+    ui.horizontal_wrapped(|ui| {
+        let is_active = !matches!(
+            cloud_status,
+            daqcore::storage::CloudSyncStatus::Disconnected
+        );
+        if is_active {
+            if ui.button("🔌 Disconnect").clicked() {
+                app.action_queue.push(action::AppAction::DisconnectCloud);
+            }
+            if ui
+                .button("🔄 Sync Now")
+                .on_hover_text(
+                    "Fetch catalog, upload new local SD partitions, and sync annotations",
+                )
+                .clicked()
+            {
+                app.action_queue.push(action::AppAction::SyncCloudNow);
+            }
+        } else if ui.button("☁ Connect to daqcloud").clicked() {
+            app.action_queue
+                .push(action::AppAction::ConnectCloud(app.cloud_url.clone()));
+        }
+    });
+
+    match cloud_status {
+        daqcore::storage::CloudSyncStatus::Disconnected => {
+            ui.label(
+                eframe::egui::RichText::new("■ Cloud Disconnected")
+                    .small()
+                    .color(eframe::egui::Color32::GRAY),
+            );
+        }
+        daqcore::storage::CloudSyncStatus::Connecting { url } => {
+            ui.label(
+                eframe::egui::RichText::new(format!("⏳ Connecting to {url}…"))
+                    .small()
+                    .color(muted_color),
+            );
+        }
+        daqcore::storage::CloudSyncStatus::Connected {
+            url,
+            synced_partitions,
+            pending_downloads,
+            pending_uploads,
+            ws_connected,
+        } => {
+            let ws_badge = if ws_connected { "WS Live" } else { "HTTP Only" };
+            ui.label(
+                eframe::egui::RichText::new(format!(
+                    "✔ Connected ({ws_badge}) — {synced_partitions} partitions synced (↓{pending_downloads} ↑{pending_uploads})"
+                ))
+                .small()
+                .color(eframe::egui::Color32::GREEN),
+            )
+            .on_hover_text(url);
+        }
+        daqcore::storage::CloudSyncStatus::Error { url, error } => {
+            ui.label(
+                eframe::egui::RichText::new(format!("🔴 Cloud Error ({url}): {error}"))
+                    .small()
+                    .color(eframe::egui::Color32::RED),
+            );
+        }
+    }
 
     ui.separator();
     if ui.small_button("Reload formatter").clicked() {

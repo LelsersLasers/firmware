@@ -67,6 +67,18 @@ enum Command {
         #[arg(short = 'o', long = "output")]
         output: path::PathBuf,
     },
+    /// Synchronize a local Parquet partition store directory with a remote daqcloud server
+    Sync {
+        /// Path to the local Parquet partition store directory
+        #[arg(long)]
+        store_dir: path::PathBuf,
+        /// Base URL of the daqcloud server (e.g. "http://127.0.0.1:3000")
+        #[arg(long, default_value = "http://127.0.0.1:3000")]
+        cloud_url: String,
+        /// Also download all remote full_res.parquet and overview_10hz.parquet files upfront
+        #[arg(long, default_value_t = false)]
+        download_full: bool,
+    },
 }
 
 /// Configuration for executing a headless CLI dataset export.
@@ -141,6 +153,32 @@ fn main() -> process::ExitCode {
                 }
             }
         }
+        Command::Sync {
+            store_dir,
+            cloud_url,
+            download_full,
+        } => match daqcore::storage::sync_store_with_cloud_blocking(
+            &store_dir,
+            &cloud_url,
+            download_full,
+        ) {
+            Ok(summary) => {
+                log::info!(
+                    "Cloud sync complete ({}): {} remote track days, {} remote partitions ({} full-res downloaded), {} local partitions uploaded, {} annotations pulled",
+                    cloud_url,
+                    summary.remote_track_days,
+                    summary.remote_partitions,
+                    summary.full_partitions_downloaded,
+                    summary.partitions_uploaded,
+                    summary.annotations_pulled
+                );
+                process::ExitCode::SUCCESS
+            }
+            Err(err) => {
+                log::error!("Cloud sync failed: {err}");
+                process::ExitCode::FAILURE
+            }
+        },
     }
 }
 

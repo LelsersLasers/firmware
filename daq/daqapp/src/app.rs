@@ -72,6 +72,8 @@ pub struct DAQApp {
     active_source: Option<daqcore::connection::ConnectionSource>,
     pub diagnostic: Option<String>,
     pub log_folder: Option<path::PathBuf>,
+    pub cloud_url: String,
+    pub cloud_auto_connect: bool,
     pub timeline_ui: ui::timeline::TimelineUiState,
     pub signal_browser: ui::signal_browser::SignalBrowserState,
     pub workspace_presets: workspace_io::WorkspacePresetRegistry,
@@ -98,6 +100,8 @@ impl DAQApp {
             pixels_per_point: self.pixels_per_point,
             log_folder: self.log_folder.clone(),
             window_secs: self.router.timeline().window_secs(),
+            cloud_url: self.cloud_url.clone(),
+            cloud_auto_connect: self.cloud_auto_connect,
             workspace_view: workspace_io::WorkspaceView::capture_from_app(
                 self,
                 "Last Session Workspace",
@@ -197,6 +201,8 @@ impl DAQApp {
             active_source: None,
             diagnostic: None,
             log_folder: settings.log_folder,
+            cloud_url: settings.cloud_url.clone(),
+            cloud_auto_connect: settings.cloud_auto_connect,
             timeline_ui: ui::timeline::TimelineUiState::default(),
             signal_browser: ui::signal_browser::SignalBrowserState::default(),
             workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
@@ -224,6 +230,10 @@ impl DAQApp {
         });
         if let Some(path) = default_dbc_path {
             app.request_database(&path, preferred_selection);
+        }
+        if app.cloud_auto_connect && !app.cloud_url.trim().is_empty() {
+            app.action_queue
+                .push(action::AppAction::ConnectCloud(app.cloud_url.clone()));
         }
         Ok(app)
     }
@@ -280,6 +290,8 @@ impl DAQApp {
             active_source: None,
             diagnostic: None,
             log_folder: None,
+            cloud_url: settings::DEFAULT_CLOUD_URL.to_owned(),
+            cloud_auto_connect: false,
             timeline_ui: ui::timeline::TimelineUiState::default(),
             signal_browser: ui::signal_browser::SignalBrowserState::default(),
             workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
@@ -503,6 +515,36 @@ impl DAQApp {
                         ));
                     }
                 }
+            }
+            action::AppAction::ConnectCloud(url) => {
+                if self.router.store_dir().is_none() {
+                    let fallback_dir = self
+                        .log_folder
+                        .clone()
+                        .unwrap_or_else(|| path::PathBuf::from(settings::DEFAULT_LOG_FOLDER));
+                    if let Err(err) = self.router.attach_store(&fallback_dir) {
+                        self.diagnostic = Some(format!(
+                            "Failed to initialize local store {} for daqcloud sync: {err}",
+                            fallback_dir.display()
+                        ));
+                        return;
+                    }
+                    self.log_folder = Some(fallback_dir);
+                }
+                self.cloud_url = url.clone();
+                if let Err(err) = self.router.connect_cloud(url) {
+                    self.diagnostic = Some(format!("Failed to connect to daqcloud: {err}"));
+                } else {
+                    self.diagnostic = None;
+                    self.save_settings();
+                }
+            }
+            action::AppAction::DisconnectCloud => {
+                self.router.disconnect_cloud();
+                self.save_settings();
+            }
+            action::AppAction::SyncCloudNow => {
+                self.router.trigger_cloud_sync();
             }
             action::AppAction::OpenAnnotationModal => {
                 self.timeline_ui.open_new_at_playhead(&self.router, true);
@@ -787,6 +829,7 @@ impl eframe::App for DAQApp {
             }
         }
         self.router.poll_background_tiles();
+        self.router.poll_cloud_sync();
         if let Some(ppp) = self.pixels_per_point {
             ctx.set_pixels_per_point(ppp);
         }

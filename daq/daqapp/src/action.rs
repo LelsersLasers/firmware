@@ -5,6 +5,9 @@ use std::path;
 pub enum AppAction {
     SpawnWidget(widget_constructor::WidgetConstructor),
     AttachStore(path::PathBuf),
+    ConnectCloud(String),
+    DisconnectCloud,
+    SyncCloudNow,
     OpenAnnotationModal,
     LoadWorkspacePreset {
         preset_id: String,
