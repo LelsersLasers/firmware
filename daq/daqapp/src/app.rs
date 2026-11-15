@@ -74,6 +74,9 @@ pub struct DAQApp {
     pub workspace_presets: workspace_io::WorkspacePresetRegistry,
     pub workspace_view_modal: workspace_io::WorkspaceViewModalState,
     pub export_modal: ui::export_modal::ExportModalState,
+    frame_times: std::collections::VecDeque<std::time::Instant>,
+    pub fps: f32,
+    pub frame_time_ms: f32,
 }
 
 impl DAQApp {
@@ -193,6 +196,9 @@ impl DAQApp {
             workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
             workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
             export_modal: ui::export_modal::ExportModalState::default(),
+            frame_times: std::collections::VecDeque::with_capacity(256),
+            fps: 0.0,
+            frame_time_ms: 0.0,
         };
         if let Some(saved_view) = &settings.workspace_view {
             let has_local_store = app.router.partitions().iter().any(|p| p.is_local);
@@ -515,10 +521,41 @@ impl DAQApp {
             }
         }
     }
+
+    pub fn record_frame(&mut self, ctx: &eframe::egui::Context) {
+        let now = std::time::Instant::now();
+        self.frame_times.push_back(now);
+        while self.frame_times.len() > 240
+            || self
+                .frame_times
+                .front()
+                .is_some_and(|&front| now.duration_since(front).as_secs_f32() > 0.5)
+        {
+            if self.frame_times.len() <= 2 {
+                break;
+            }
+            self.frame_times.pop_front();
+        }
+        if self.frame_times.len() >= 2
+            && let (Some(&first), Some(&last)) = (self.frame_times.front(), self.frame_times.back())
+        {
+            let span_s = last.duration_since(first).as_secs_f32();
+            let intervals = (self.frame_times.len() - 1) as f32;
+            if span_s > 1e-4 {
+                self.fps = intervals / span_s;
+                self.frame_time_ms = (span_s * 1000.0) / intervals;
+                return;
+            }
+        }
+        let dt = ctx.input(|i| i.predicted_dt).max(1e-4);
+        self.fps = 1.0 / dt;
+        self.frame_time_ms = dt * 1000.0;
+    }
 }
 
 impl eframe::App for DAQApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _: &mut eframe::Frame) {
+        self.record_frame(ctx);
         while let Ok(event) = self.can_to_ui_rx.try_recv() {
             for tile in self.tile_tree.tiles.tiles_mut() {
                 if let egui_tiles::Tile::Pane(widget) = tile {

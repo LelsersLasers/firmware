@@ -20,6 +20,28 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         .show_animated(ctx, app.is_sidebar_open, |ui| {
             let panel_width = ui.available_width();
             ui.set_max_width(panel_width);
+            eframe::egui::TopBottomPanel::bottom("sidebar_fps_footer")
+                .exact_height(22.0)
+                .show_inside(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        let fps_color = if app.fps >= 50.0 {
+                            eframe::egui::Color32::from_rgb(90, 205, 120)
+                        } else if app.fps >= 25.0 {
+                            eframe::egui::Color32::from_rgb(235, 190, 75)
+                        } else {
+                            eframe::egui::Color32::from_rgb(235, 95, 95)
+                        };
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "FPS: {:.1} ({:.1} ms)",
+                                app.fps, app.frame_time_ms
+                            ))
+                            .monospace()
+                            .small()
+                            .color(fps_color),
+                        );
+                    });
+                });
             eframe::egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
