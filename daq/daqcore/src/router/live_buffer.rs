@@ -1,7 +1,7 @@
 use crate::{
     frame::ParsedFrame,
     router::types::{
-        BUCKET_1HZ_MS, BUCKET_10HZ_MS, Resolution, SignalSeries, StateInterval,
+        ActiveSignalMeta, BUCKET_1HZ_MS, BUCKET_10HZ_MS, Resolution, SignalSeries, StateInterval,
         build_envelope_buckets,
     },
     storage::{self, SignalId},
@@ -26,6 +26,7 @@ pub const DEFAULT_MAX_INSPECTOR_FRAMES: usize = 60_000;
 /// plus a latest-frame map and bounded frame ring for CAN packet inspector widgets.
 pub struct LiveColumnBuffer {
     signal_columns: HashMap<SignalId, VecDeque<(i64, f64)>>,
+    signal_meta: HashMap<SignalId, ActiveSignalMeta>,
     state_columns: HashMap<SignalId, VecDeque<StateInterval>>,
     activity_1hz: BTreeMap<i64, u32>,
     latest_frames: HashMap<MessageKey, ParsedFrame>,
@@ -48,6 +49,7 @@ impl LiveColumnBuffer {
     pub fn new(max_samples_per_signal: usize, max_inspector_frames: usize) -> Self {
         Self {
             signal_columns: HashMap::new(),
+            signal_meta: HashMap::new(),
             state_columns: HashMap::new(),
             activity_1hz: BTreeMap::new(),
             latest_frames: HashMap::new(),
@@ -63,6 +65,7 @@ impl LiveColumnBuffer {
 
     pub fn clear(&mut self) {
         self.signal_columns.clear();
+        self.signal_meta.clear();
         self.state_columns.clear();
         self.activity_1hz.clear();
         self.latest_frames.clear();
@@ -125,9 +128,24 @@ impl LiveColumnBuffer {
             *entry = entry.saturating_add(sig_count);
 
             let msg_name = decoded.name();
+            let key = decoded.key();
             for (sig_name, sig_value) in decoded.iter() {
                 let signal_id = storage::format_signal_id(msg_name, sig_name);
                 let physical = sig_value.physical();
+
+                self.signal_meta
+                    .entry(signal_id.clone())
+                    .or_insert_with(|| ActiveSignalMeta {
+                        signal_id: signal_id.clone(),
+                        unit: sig_value.unit().to_owned(),
+                        is_discrete: sig_value.is_discrete() || sig_value.enum_label().is_some(),
+                        bus_name: decoded.bus_name().to_owned(),
+                        bus_id: key.bus_id,
+                        can_id: key.identity,
+                        transmitter: decoded.tx_node().to_owned(),
+                        nominal_period_ms: decoded.nominal_period_ms(),
+                        description: sig_value.description().to_owned(),
+                    });
 
                 let col = self.signal_columns.entry(signal_id.clone()).or_default();
                 let in_order = col.back().is_none_or(|&(last_ms, _)| utc_ms >= last_ms);
@@ -293,6 +311,68 @@ impl LiveColumnBuffer {
     /// Iterate over all signal IDs currently retained in the live buffer.
     pub fn signal_ids(&self) -> impl Iterator<Item = &SignalId> {
         self.signal_columns.keys()
+    }
+
+    /// Look up captured metadata for a signal in the live buffer.
+    pub fn signal_meta(&self, signal_id: &str) -> Option<&ActiveSignalMeta> {
+        self.signal_meta.get(signal_id)
+    }
+
+    /// Check whether `signal_id` has at least one sample in `range` (`[start_utc_ms..=end_utc_ms]`).
+    pub fn has_samples_in_range(&self, signal_id: &str, range: ops::RangeInclusive<i64>) -> bool {
+        if range.is_empty() {
+            return false;
+        }
+        let Some(col) = self.signal_columns.get(signal_id) else {
+            return false;
+        };
+        let lo = col.partition_point(|&(t, _)| t < *range.start());
+        let hi = col.partition_point(|&(t, _)| t <= *range.end());
+        lo < hi
+    }
+
+    /// Return metadata for all signals that have at least one sample in `range`.
+    pub fn active_signals_in_range(&self, range: ops::RangeInclusive<i64>) -> Vec<ActiveSignalMeta> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for (sig_id, col) in &self.signal_columns {
+            let lo = col.partition_point(|&(t, _)| t < *range.start());
+            let hi = col.partition_point(|&(t, _)| t <= *range.end());
+            if lo < hi {
+                if let Some(meta) = self.signal_meta.get(sig_id) {
+                    out.push(meta.clone());
+                } else {
+                    out.push(ActiveSignalMeta {
+                        signal_id: sig_id.clone(),
+                        unit: String::new(),
+                        is_discrete: self.state_columns.contains_key(sig_id),
+                        bus_name: String::new(),
+                        bus_id: 0,
+                        can_id: 0,
+                        transmitter: String::new(),
+                        nominal_period_ms: None,
+                        description: String::new(),
+                    });
+                }
+            }
+        }
+        out.sort_by(|a, b| a.signal_id.cmp(&b.signal_id));
+        out
+    }
+
+    /// Find the latest sample `(utc_ms, value)` for `signal_id` within `range` (`[start..=end]`).
+    pub fn latest_signal_value_in_range(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+    ) -> Option<(i64, f64)> {
+        if range.is_empty() {
+            return None;
+        }
+        let (t, v) = self.latest_signal_value_at(signal_id, *range.end())?;
+        (t >= *range.start()).then_some((t, v))
     }
 
     fn compact_inspector_if_needed(&mut self) {

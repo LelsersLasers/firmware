@@ -1,5 +1,7 @@
 use crate::{
-    router::types::{EnvelopePoint, Resolution, SignalSeries, StateInterval},
+    router::types::{
+        BUCKET_1HZ_MS, BUCKET_10HZ_MS, EnvelopePoint, Resolution, SignalSeries, StateInterval,
+    },
     storage::{self, RegisteredPartition, SignalId},
 };
 use arrow::array::{
@@ -683,6 +685,120 @@ impl TileCache {
             .get(partition_id)
             .and_then(|map| map.get(signal_id))
             .and_then(|series| series.latest_at_or_before(target_utc_ms))
+    }
+
+    /// Check whether `sig_entry` in `partition_id` has at least one sample overlapping `range`
+    /// (`[start_utc_ms..=end_utc_ms]`) using manifest bounds and resident series in RAM.
+    pub fn partition_signal_has_samples_in_range(
+        &self,
+        partition_id: &str,
+        sig_entry: &storage::SignalManifestEntry,
+        range: std::ops::RangeInclusive<i64>,
+    ) -> bool {
+        if range.is_empty() || sig_entry.sample_count == 0 {
+            return false;
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+        if sig_entry.min_utc_ms > end_ms || sig_entry.max_utc_ms < start_ms {
+            return false;
+        }
+
+        let signal_id = &sig_entry.signal_id;
+        let full_key = TileKey {
+            partition_id: partition_id.to_owned(),
+            signal_id: signal_id.clone(),
+            resolution: Resolution::FullRes,
+        };
+        let key_10hz = TileKey {
+            partition_id: partition_id.to_owned(),
+            signal_id: signal_id.clone(),
+            resolution: Resolution::Overview10Hz,
+        };
+
+        if let Ok(dyn_guard) = self.dynamic.lock() {
+            if let Some(series) = dyn_guard.lru.peek(&full_key) {
+                return series.has_points_in_range(start_ms..=end_ms);
+            }
+            if let Some(series) = dyn_guard.lru.peek(&key_10hz) {
+                let lo_10hz = start_ms
+                    .div_euclid(BUCKET_10HZ_MS)
+                    .saturating_mul(BUCKET_10HZ_MS);
+                return series.has_points_in_range(lo_10hz..=end_ms);
+            }
+        }
+
+        if let Some(map_1hz) = self.resident_1hz.get(partition_id) {
+            let lo_1hz = start_ms
+                .div_euclid(BUCKET_1HZ_MS)
+                .saturating_mul(BUCKET_1HZ_MS);
+            if let Some(series) = map_1hz.get(signal_id)
+                && series.has_points_in_range(lo_1hz..=end_ms)
+            {
+                return true;
+            }
+            if let Some(states) = self
+                .resident_states
+                .get(partition_id)
+                .and_then(|m| m.get(signal_id))
+                && states.iter().any(|iv| iv.overlaps(&range))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        true
+    }
+
+    /// Peek the newest sample `(utc_ms, value)` within `range` (`[start_utc_ms..=end_utc_ms]`)
+    /// using the highest-resolution resident series currently in RAM without blocking.
+    pub fn latest_resident_in_range(
+        &self,
+        partition_id: &str,
+        signal_id: &str,
+        range: std::ops::RangeInclusive<i64>,
+    ) -> Option<(i64, f64)> {
+        if range.is_empty() {
+            return None;
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+
+        let full_key = TileKey {
+            partition_id: partition_id.to_owned(),
+            signal_id: signal_id.to_owned(),
+            resolution: Resolution::FullRes,
+        };
+        let key_10hz = TileKey {
+            partition_id: partition_id.to_owned(),
+            signal_id: signal_id.to_owned(),
+            resolution: Resolution::Overview10Hz,
+        };
+
+        if let Ok(dyn_guard) = self.dynamic.lock() {
+            if let Some(series) = dyn_guard.lru.peek(&full_key) {
+                let (t, v) = series.latest_at_or_before(end_ms)?;
+                return (t >= start_ms).then_some((t, v));
+            }
+            if let Some(series) = dyn_guard.lru.peek(&key_10hz) {
+                let lo_10hz = start_ms
+                    .div_euclid(BUCKET_10HZ_MS)
+                    .saturating_mul(BUCKET_10HZ_MS);
+                let (t, v) = series.latest_at_or_before(end_ms)?;
+                return (t >= lo_10hz).then_some((t.max(start_ms), v));
+            }
+        }
+
+        let lo_1hz = start_ms
+            .div_euclid(BUCKET_1HZ_MS)
+            .saturating_mul(BUCKET_1HZ_MS);
+        let (t, v) = self
+            .resident_1hz
+            .get(partition_id)
+            .and_then(|map| map.get(signal_id))
+            .and_then(|series| series.latest_at_or_before(end_ms))?;
+        (t >= lo_1hz).then_some((t.max(start_ms), v))
     }
 }
 
