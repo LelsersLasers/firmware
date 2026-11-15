@@ -458,23 +458,14 @@ impl DAQApp {
                 self.workspace_view_modal.open();
             }
             action::AppAction::CopyWorkspaceShareString => {
-                match workspace_io::WorkspaceView::capture_from_workspace(
-                    &self.tile_tree,
-                    &self.router,
-                    &self.workspace_view_modal.view_name,
-                    &self.workspace_view_modal.view_description,
-                    self.workspace_view_modal.include_time_context,
-                )
-                .and_then(|view| view.to_share_string())
+                if let Err(err) =
+                    self.workspace_view_modal
+                        .generate_and_copy(ctx, &self.tile_tree, &self.router)
                 {
-                    Ok(share) => {
-                        ctx.copy_text(share.clone());
-                        self.workspace_view_modal.generated_share_string = share;
-                    }
-                    Err(err) => {
-                        self.diagnostic =
-                            Some(format!("Failed to copy workspace share string: {err}"));
-                    }
+                    self.diagnostic =
+                        Some(format!("Failed to generate workspace share string: {err}"));
+                } else if !self.is_sidebar_open {
+                    self.workspace_view_modal.open();
                 }
             }
             action::AppAction::OpenExportDataModal => {

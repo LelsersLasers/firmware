@@ -222,12 +222,53 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     if ui
         .button("📋 Copy Share String (daqview1:...)")
         .on_hover_text(
-            "Encode current workspace layout, custom formulas, and time range to clipboard",
+            "Encode current workspace layout, custom formulas, and time range (shows raw code for manual copy if clipboard is blocked)",
         )
         .clicked()
     {
         app.action_queue
             .push(action::AppAction::CopyWorkspaceShareString);
+    }
+
+    if app.workspace_view_modal.show_sidebar_share_code
+        && !app.workspace_view_modal.generated_share_string.is_empty()
+    {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                eframe::egui::RichText::new("Raw Share Code (Ctrl+C):")
+                    .small()
+                    .weak(),
+            );
+            if ui.small_button("Select All").clicked() {
+                app.workspace_view_modal.select_all_share_code = true;
+            }
+            if ui.small_button("Hide").clicked() {
+                app.workspace_view_modal.show_sidebar_share_code = false;
+            }
+        });
+        let text_output =
+            eframe::egui::TextEdit::multiline(&mut app.workspace_view_modal.generated_share_string)
+                .font(eframe::egui::TextStyle::Monospace)
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .show(ui);
+        if app.workspace_view_modal.select_all_share_code && !app.workspace_view_modal.is_open {
+            app.workspace_view_modal.select_all_share_code = false;
+            text_output.response.request_focus();
+            let mut state = text_output.state;
+            let char_len = app
+                .workspace_view_modal
+                .generated_share_string
+                .chars()
+                .count();
+            state
+                .cursor
+                .set_char_range(Some(eframe::egui::text::CCursorRange::two(
+                    eframe::egui::text::CCursor::new(0),
+                    eframe::egui::text::CCursor::new(char_len),
+                )));
+            state.store(ui.ctx(), text_output.response.id);
+        }
     }
 
     if ui

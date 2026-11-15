@@ -1095,6 +1095,10 @@ pub struct WorkspaceViewModalState {
     pub save_file_path: String,
     pub import_payload: String,
     pub generated_share_string: String,
+    pub generated_raw_json: String,
+    pub show_raw_json_code: bool,
+    pub show_sidebar_share_code: bool,
+    pub select_all_share_code: bool,
     pub status_banner: Option<Result<String, String>>,
 }
 
@@ -1109,6 +1113,10 @@ impl Default for WorkspaceViewModalState {
             save_file_path: "/tmp/custom_view.daqview.json".to_owned(),
             import_payload: String::new(),
             generated_share_string: String::new(),
+            generated_raw_json: String::new(),
+            show_raw_json_code: false,
+            show_sidebar_share_code: false,
+            select_all_share_code: false,
             status_banner: None,
         }
     }
@@ -1118,6 +1126,45 @@ impl WorkspaceViewModalState {
     pub fn open(&mut self) {
         self.is_open = true;
         self.status_banner = None;
+    }
+
+    pub fn refresh_generated_codes(
+        &mut self,
+        tile_tree: &egui_tiles::Tree<widgets::Widget>,
+        router: &daqcore::router::VirtualTimelineRouter,
+    ) -> Result<(), WorkspaceIoError> {
+        let view = WorkspaceView::capture_from_workspace(
+            tile_tree,
+            router,
+            self.view_name.trim(),
+            self.view_description.trim(),
+            self.include_time_context,
+        )?;
+        self.generated_share_string = view.to_share_string()?;
+        self.generated_raw_json = view.to_json_pretty()?;
+        Ok(())
+    }
+
+    pub fn generate_and_copy(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        tile_tree: &egui_tiles::Tree<widgets::Widget>,
+        router: &daqcore::router::VirtualTimelineRouter,
+    ) -> Result<(), WorkspaceIoError> {
+        self.refresh_generated_codes(tile_tree, router)?;
+        let active_code = if self.show_raw_json_code {
+            &self.generated_raw_json
+        } else {
+            &self.generated_share_string
+        };
+        ctx.copy_text(active_code.clone());
+        self.show_sidebar_share_code = true;
+        self.select_all_share_code = true;
+        self.status_banner = Some(Ok(
+            "Generated share code below (sent to clipboard — or press Ctrl+C / Cmd+C to copy manually)."
+                .to_owned(),
+        ));
+        Ok(())
     }
 
     pub fn show(
@@ -1132,6 +1179,10 @@ impl WorkspaceViewModalState {
             return false;
         }
 
+        if self.generated_share_string.is_empty() && !tile_tree.is_empty() {
+            let _ = self.refresh_generated_codes(tile_tree, router);
+        }
+
         let mut keep_open = self.is_open;
         let mut do_save_file = false;
         let mut do_copy_share = false;
@@ -1142,27 +1193,42 @@ impl WorkspaceViewModalState {
             .open(&mut keep_open)
             .collapsible(false)
             .resizable(true)
-            .default_width(540.0)
+            .default_width(560.0)
             .show(ctx, |ui| {
                 ui.heading("Export / Share Current Workspace");
                 ui.horizontal(|ui| {
                     ui.label("View Name:");
-                    ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.view_name)
-                            .desired_width(340.0),
-                    );
+                    if ui
+                        .add(
+                            eframe::egui::TextEdit::singleline(&mut self.view_name)
+                                .desired_width(340.0),
+                        )
+                        .changed()
+                    {
+                        let _ = self.refresh_generated_codes(tile_tree, router);
+                    }
                 });
                 ui.horizontal(|ui| {
                     ui.label("Description:");
-                    ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.view_description)
-                            .desired_width(340.0),
-                    );
+                    if ui
+                        .add(
+                            eframe::egui::TextEdit::singleline(&mut self.view_description)
+                                .desired_width(340.0),
+                        )
+                        .changed()
+                    {
+                        let _ = self.refresh_generated_codes(tile_tree, router);
+                    }
                 });
-                ui.checkbox(
-                    &mut self.include_time_context,
-                    "Include timeline window, playhead timestamp & comparison stints",
-                );
+                if ui
+                    .checkbox(
+                        &mut self.include_time_context,
+                        "Include timeline window, playhead timestamp & comparison stints",
+                    )
+                    .changed()
+                {
+                    let _ = self.refresh_generated_codes(tile_tree, router);
+                }
 
                 ui.horizontal(|ui| {
                     ui.label("File Path:");
@@ -1183,24 +1249,62 @@ impl WorkspaceViewModalState {
                     }
                 });
 
-                ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(eframe::egui::RichText::new("Raw Copy Code:").strong());
                     if ui
-                        .button("📋 Generate & Copy Slack/Discord Share String")
+                        .selectable_label(
+                            !self.show_raw_json_code,
+                            "Compact Share String (daqview1:...)",
+                        )
                         .clicked()
                     {
+                        self.show_raw_json_code = false;
+                        self.select_all_share_code = true;
+                    }
+                    if ui
+                        .selectable_label(self.show_raw_json_code, "Raw JSON (.daqview.json)")
+                        .clicked()
+                    {
+                        self.show_raw_json_code = true;
+                        self.select_all_share_code = true;
+                    }
+                    if ui.button("📋 Copy / Refresh Code").clicked() {
                         do_copy_share = true;
+                    }
+                    if ui
+                        .button("Select All (for Ctrl+C)")
+                        .on_hover_text("Highlight the entire code below so you can press Ctrl+C / Cmd+C manually")
+                        .clicked()
+                    {
+                        self.select_all_share_code = true;
                     }
                 });
 
-                if !self.generated_share_string.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.label("Share String:");
-                        let mut preview = self.generated_share_string.clone();
-                        ui.add(
-                            eframe::egui::TextEdit::singleline(&mut preview)
-                                .desired_width(380.0),
-                        );
-                    });
+                let active_code_buf = if self.show_raw_json_code {
+                    &mut self.generated_raw_json
+                } else {
+                    &mut self.generated_share_string
+                };
+                let rows = if self.show_raw_json_code { 6 } else { 3 };
+                let text_output = eframe::egui::TextEdit::multiline(active_code_buf)
+                    .font(eframe::egui::TextStyle::Monospace)
+                    .hint_text("Click 'Copy / Refresh Code' to generate the raw workspace code...")
+                    .desired_rows(rows)
+                    .desired_width(f32::INFINITY)
+                    .show(ui);
+                if self.select_all_share_code && !active_code_buf.is_empty() {
+                    self.select_all_share_code = false;
+                    text_output.response.request_focus();
+                    let mut state = text_output.state;
+                    let char_len = active_code_buf.chars().count();
+                    state
+                        .cursor
+                        .set_char_range(Some(eframe::egui::text::CCursorRange::two(
+                            eframe::egui::text::CCursor::new(0),
+                            eframe::egui::text::CCursor::new(char_len),
+                        )));
+                    state.store(ui.ctx(), text_output.response.id);
                 }
 
                 ui.separator();
@@ -1315,27 +1419,8 @@ impl WorkspaceViewModalState {
             }
         }
 
-        if do_copy_share {
-            match WorkspaceView::capture_from_workspace(
-                tile_tree,
-                router,
-                self.view_name.trim(),
-                self.view_description.trim(),
-                self.include_time_context,
-            )
-            .and_then(|view| view.to_share_string())
-            {
-                Ok(share) => {
-                    ctx.copy_text(share.clone());
-                    self.generated_share_string = share;
-                    self.status_banner = Some(Ok(
-                        "Copied `daqview1:...` share string to clipboard.".to_owned(),
-                    ));
-                }
-                Err(err) => {
-                    self.status_banner = Some(Err(err.to_string()));
-                }
-            }
+        if do_copy_share && let Err(err) = self.generate_and_copy(ctx, tile_tree, router) {
+            self.status_banner = Some(Err(err.to_string()));
         }
 
         if let Some(apply_time_context) = do_import_with_context {
