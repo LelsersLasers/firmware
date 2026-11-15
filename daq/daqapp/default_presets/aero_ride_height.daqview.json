@@ -1,0 +1,72 @@
+{
+  "id": "aero_ride_height",
+  "schema_version": 1,
+  "name": "Aerodynamics — Heave, Roll, Pitch & Ride Height",
+  "description": "Aerodynamics and suspension ride-height analysis across speed and track distance: front/rear heave, roll displacement, damper velocities, and shockpot deflections.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.6, 0.4],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Front & Rear Heave & Roll vs Distance",
+            "x_mode": "track_distance",
+            "speed_signal_id": "gps_speed_heading.gps_speed",
+            "channels": [
+              { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
+              { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
+              { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
+              { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" },
+              { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Damper Velocities vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "vd.fl_damper_vel_mms", "label": "FL Damper Vel", "unit": "mm/s" },
+              { "signal_id": "vd.fr_damper_vel_mms", "label": "FR Damper Vel", "unit": "mm/s" },
+              { "signal_id": "vd.rl_damper_vel_mms", "label": "RL Damper Vel", "unit": "mm/s" },
+              { "signal_id": "vd.rr_damper_vel_mms", "label": "RR Damper Vel", "unit": "mm/s" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "xy_scatter",
+            "title": "Front Heave vs Ground Speed",
+            "x_signal": "gps_speed_heading.gps_speed",
+            "y_signal": "vd.front_heave_mm",
+            "z_color_signal": "IMU_acceleration.X_axis",
+            "equal_aspect": false,
+            "show_g_rings": false
+          },
+          {
+            "type": "pane",
+            "widget": "gps_plot",
+            "title": "GPS Track Colored by Speed",
+            "color_signal": "gps_speed_heading.gps_speed",
+            "color_unit": "m/s",
+            "max_distance_meters": 500.0
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,218 @@
+{
+  "id": "vd_handling_suspension",
+  "schema_version": 1,
+  "name": "Vehicle Dynamics — Handling, Suspension & G-G",
+  "description": "Full vehicle dynamics workspace replacing plot_factory/configs/vehicle_dynamics/*.toml: Handling Response, G-G Diagram, Understeer & Yaw Scatters, Shockpots, and GPS Track Overlays.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.58, 0.42],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.38, 0.34, 0.28],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Handling Response",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "LWS_Standard.LWS_ANGLE", "label": "Steering Angle", "unit": "deg" },
+                  { "signal_id": "IMU_angular_rate.Z_axis", "label": "Yaw Rate", "unit": "deg/s" },
+                  { "signal_id": "IMU_acceleration.Y_axis", "label": "Lateral Acceleration", "unit": "g" },
+                  { "signal_id": "vd.understeer_gradient", "label": "Understeer Gradient", "unit": "deg/g" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "GPS Ground Speed",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Ground Speed", "unit": "m/s" },
+                  { "signal_id": "vd.wheel_speed_avg_rpm", "label": "Wheel Speed Avg", "unit": "rpm" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Shockpot Displacements vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "front_shockpots.left", "label": "FL Shockpot", "unit": "mm" },
+                  { "signal_id": "front_shockpots.right", "label": "FR Shockpot", "unit": "mm" },
+                  { "signal_id": "rear_shockpots.left", "label": "RL Shockpot", "unit": "mm" },
+                  { "signal_id": "rear_shockpots.right", "label": "RR Shockpot", "unit": "mm" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Heave & Roll Displacement (Distance Mode)",
+                "x_mode": "track_distance",
+                "speed_signal_id": "gps_speed_heading.gps_speed",
+                "channels": [
+                  { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
+                  { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
+                  { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
+                  { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "state_lane",
+            "title": "Vehicle State & Fault Lanes",
+            "lanes": [
+              { "signal_id": "main_hb.car_state", "label": "Car State" },
+              { "signal_id": "vcu_driver_request.vcu_mode", "label": "VCU Mode" },
+              { "signal_id": "inva_diagnostics.amk_state", "label": "Inverter A State" },
+              { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.52, 0.48],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "G-G Diagram",
+                "x_signal": "IMU_acceleration.Y_axis",
+                "y_signal": "IMU_acceleration.X_axis",
+                "z_color_signal": "gps_speed_heading.gps_speed",
+                "equal_aspect": true,
+                "show_g_rings": true
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Yaw Rate vs Lateral Acceleration",
+                "x_signal": "IMU_acceleration.Y_axis",
+                "y_signal": "IMU_angular_rate.Z_axis",
+                "z_color_signal": "gps_speed_heading.gps_speed",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Yaw Rate vs Steering Angle",
+                "x_signal": "LWS_Standard.LWS_ANGLE",
+                "y_signal": "IMU_angular_rate.Z_axis",
+                "z_color_signal": "gps_speed_heading.gps_speed",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Steering Angle vs Lateral Acceleration",
+                "x_signal": "IMU_acceleration.Y_axis",
+                "y_signal": "LWS_Standard.LWS_ANGLE",
+                "z_color_signal": "gps_speed_heading.gps_speed",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Steering Angle vs GPS Ground Speed",
+                "x_signal": "gps_speed_heading.gps_speed",
+                "y_signal": "LWS_Standard.LWS_ANGLE",
+                "z_color_signal": "IMU_acceleration.Y_axis",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Shockpot Displacement vs Lateral Acceleration",
+                "x_signal": "IMU_acceleration.Y_axis",
+                "y_signal": "front_shockpots.left",
+                "z_color_signal": "front_shockpots.right",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "GPS Track Colored by Speed",
+                "color_signal": "gps_speed_heading.gps_speed",
+                "color_unit": "m/s",
+                "max_distance_meters": 500.0
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "Longitudinal Acceleration on GPS Track",
+                "color_signal": "IMU_acceleration.X_axis",
+                "color_unit": "g",
+                "max_distance_meters": 500.0
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "Lateral Acceleration on GPS Track",
+                "color_signal": "IMU_acceleration.Y_axis",
+                "color_unit": "g",
+                "max_distance_meters": 500.0
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "Yaw Rate on GPS Track",
+                "color_signal": "IMU_angular_rate.Z_axis",
+                "color_unit": "deg/s",
+                "max_distance_meters": 500.0
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "Throttle Position on GPS Track",
+                "color_signal": "pedals.throttle",
+                "color_unit": "%",
+                "max_distance_meters": 500.0
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "Brake Position on GPS Track",
+                "color_signal": "pedals.brake",
+                "color_unit": "%",
+                "max_distance_meters": 500.0
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

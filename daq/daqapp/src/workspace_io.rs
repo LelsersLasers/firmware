@@ -10,9 +10,33 @@ use std::{
     sync::mpsc,
 };
 
-/// Embedded JSON configuration from `daq/config/workspace_presets.json`.
-pub const BUILTIN_WORKSPACE_PRESETS_JSON: &str =
-    include_str!("../../config/workspace_presets.json");
+/// Built-in default workspace presets checked into `daq/daqapp/default_presets/*.daqview.json`.
+pub const DEFAULT_WORKSPACE_PRESET_FILES: &[(&str, &str)] = &[
+    (
+        "vd_handling_suspension",
+        include_str!("../default_presets/vd_handling_suspension.daqview.json"),
+    ),
+    (
+        "powertrain_accumulator",
+        include_str!("../default_presets/powertrain_accumulator.daqview.json"),
+    ),
+    (
+        "thermals_cooling",
+        include_str!("../default_presets/thermals_cooling.daqview.json"),
+    ),
+    (
+        "aero_ride_height",
+        include_str!("../default_presets/aero_ride_height.daqview.json"),
+    ),
+    (
+        "sensors_controls",
+        include_str!("../default_presets/sensors_controls.daqview.json"),
+    ),
+    (
+        "trackside_live_debug",
+        include_str!("../default_presets/trackside_live_debug.daqview.json"),
+    ),
+];
 
 /// Current schema version for `.daqview.json` files.
 pub const DAQVIEW_SCHEMA_VERSION: u32 = 1;
@@ -288,11 +312,6 @@ pub struct WorkspaceView {
     pub panes: IndexMap<String, PaneSpec>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WorkspacePresetsFile {
-    pub presets: Vec<WorkspaceView>,
-}
-
 /// Registry of built-in and repo-bundled `.daqview.json` workspace presets.
 #[derive(Debug, Clone)]
 pub struct WorkspacePresetRegistry {
@@ -307,11 +326,21 @@ impl Default for WorkspacePresetRegistry {
 
 impl WorkspacePresetRegistry {
     pub fn with_builtin() -> Self {
-        let parsed: WorkspacePresetsFile = serde_json::from_str(BUILTIN_WORKSPACE_PRESETS_JSON)
-            .expect("embedded daq/config/workspace_presets.json must be valid JSON");
-        Self {
-            presets: parsed.presets,
-        }
+        let presets = DEFAULT_WORKSPACE_PRESET_FILES
+            .iter()
+            .map(|&(preset_id, raw_json)| {
+                let mut view = WorkspaceView::from_str_flexible(raw_json).unwrap_or_else(|e| {
+                    panic!(
+                        "embedded daq/daqapp/default_presets/{preset_id}.daqview.json must be valid .daqview.json: {e}"
+                    )
+                });
+                if view.id.as_deref().is_none_or(|s| s.trim().is_empty()) {
+                    view.id = Some(preset_id.to_owned());
+                }
+                view
+            })
+            .collect();
+        Self { presets }
     }
 
     pub fn presets(&self) -> &[WorkspaceView] {
