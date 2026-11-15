@@ -462,7 +462,6 @@ impl WorkspaceView {
     }
 
     /// Capture the current `DAQApp` workspace layout, custom formulas, and timeline state into a [`WorkspaceView`].
-    #[allow(dead_code)]
     pub fn capture_from_app(
         app: &app::DAQApp,
         name: impl Into<String>,
@@ -531,7 +530,6 @@ impl WorkspaceView {
 
     /// Apply this [`WorkspaceView`] to `app`, rebuilding `app.tile_tree`, merging `custom_formulas`,
     /// and optionally jumping the timeline to `self.context` when `apply_time_context` is true.
-    #[allow(dead_code)]
     pub fn apply_to_app(
         &self,
         app: &mut app::DAQApp,
@@ -1129,15 +1127,16 @@ impl WorkspaceViewModalState {
         widget_ids: &mut widget_ids::WidgetIds,
         router: &mut daqcore::router::VirtualTimelineRouter,
         ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
-    ) {
+    ) -> bool {
         if !self.is_open {
-            return;
+            return false;
         }
 
         let mut keep_open = self.is_open;
         let mut do_save_file = false;
         let mut do_copy_share = false;
         let mut do_import_with_context: Option<bool> = None;
+        let mut workspace_changed = false;
 
         eframe::egui::Window::new("📁 Workspace Views (.daqview.json & Share Strings)")
             .open(&mut keep_open)
@@ -1352,6 +1351,7 @@ impl WorkspaceViewModalState {
                 .map(|()| name)
             }) {
                 Ok(name) => {
+                    workspace_changed = true;
                     self.status_banner = Some(Ok(format!(
                         "Loaded workspace view '{name}' ({}).",
                         if apply_time_context {
@@ -1366,6 +1366,8 @@ impl WorkspaceViewModalState {
                 }
             }
         }
+
+        workspace_changed
     }
 }
 
@@ -1734,5 +1736,108 @@ mod tests {
             assert!(summary.row_count > 500);
             assert!(out_path.is_file());
         }
+    }
+
+    #[test]
+    fn settings_persists_and_reopens_workspace_across_sessions() {
+        let registry = WorkspacePresetRegistry::with_builtin();
+        let preset = registry
+            .get("powertrain_accumulator")
+            .expect("powertrain preset");
+
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            Time::from_unix_millis(1_788_719_800_000),
+            30.0,
+        )
+        .expect("live router");
+        router
+            .timeline_mut()
+            .snap_to_range_ms(1_788_719_762_000, 1_788_719_782_000);
+        router
+            .timeline_mut()
+            .set_setpoint(Time::from_unix_millis(1_788_719_770_000));
+        router
+            .formula_engine_mut()
+            .merge_defs(&[DerivedSignalDef {
+                id: "battery.custom_resistance_mohm".to_owned(),
+                label: "Pack Internal Resistance".to_owned(),
+                expression: "abs(pack_stats.pack_current) * 10.0".to_owned(),
+                unit: "mOhm".to_owned(),
+            }])
+            .expect("merge custom formula");
+
+        let mut ids = widget_ids::WidgetIds::new();
+        let (tx, _rx) = mpsc::channel();
+        let mut tree = egui_tiles::Tree::empty("session_1");
+        preset
+            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
+            .expect("apply preset in session 1");
+        let expected_panes = tree
+            .tiles
+            .tiles()
+            .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
+            .count();
+        assert!(expected_panes >= 4);
+
+        // Save Settings to a temporary settings.json as DAQApp::save_settings() does on close
+        let tmp_dir = tempfile::tempdir().expect("tempdir");
+        let settings_path = tmp_dir.path().join("settings.json");
+        let settings = crate::settings::Settings {
+            window_secs: router.timeline().window_secs(),
+            workspace_view: WorkspaceView::capture_from_workspace(
+                &tree,
+                &router,
+                "Last Session Workspace",
+                "Auto-saved workspace",
+                true,
+            )
+            .ok(),
+            ..Default::default()
+        };
+        assert!(settings.workspace_view.is_some());
+        settings.save_to(&settings_path);
+
+        // Reopen in a fresh session from settings.json
+        let reopened_settings =
+            crate::settings::Settings::load_from(&settings_path).expect("load saved settings.json");
+        let saved_view = reopened_settings
+            .workspace_view
+            .expect("workspace_view present in settings.json");
+
+        let mut reopened_router = daqcore::router::VirtualTimelineRouter::live(
+            Time::from_unix_millis(1_788_720_000_000),
+            reopened_settings.window_secs,
+        )
+        .expect("reopened router");
+        let mut reopened_ids = widget_ids::WidgetIds::new();
+        let mut reopened_tree = egui_tiles::Tree::empty("session_2");
+        saved_view
+            .apply_to_workspace(
+                &mut reopened_tree,
+                &mut reopened_ids,
+                &mut reopened_router,
+                tx,
+                true,
+            )
+            .expect("restore workspace view from settings");
+
+        let restored_panes = reopened_tree
+            .tiles
+            .tiles()
+            .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
+            .count();
+        assert_eq!(restored_panes, expected_panes);
+        assert_eq!(reopened_router.timeline().start_utc_ms(), 1_788_719_762_000);
+        assert_eq!(reopened_router.timeline().end_utc_ms(), 1_788_719_782_000);
+        assert_eq!(
+            reopened_router.timeline().setpoint_utc_ms(),
+            1_788_719_770_000
+        );
+        assert!(
+            reopened_router
+                .formula_engine()
+                .get("battery.custom_resistance_mohm")
+                .is_some()
+        );
     }
 }

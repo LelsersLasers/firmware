@@ -1,4 +1,4 @@
-use crate::ui;
+use crate::{ui, workspace_io};
 use std::{fs, path};
 
 pub const SETTINGS_PATH: &str = "settings.json";
@@ -24,6 +24,8 @@ pub struct Settings {
     pub pixels_per_point: Option<f32>,
     pub log_folder: Option<path::PathBuf>,
     pub window_secs: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_view: Option<workspace_io::WorkspaceView>,
 }
 
 impl Default for Settings {
@@ -38,6 +40,7 @@ impl Default for Settings {
             pixels_per_point: None,
             log_folder: None,
             window_secs: 30.0,
+            workspace_view: None,
         }
     }
 }
@@ -49,16 +52,23 @@ impl Settings {
 
     pub fn load() -> Self {
         let path = Self::path();
-        if let Ok(json) = fs::read_to_string(&path) {
-            serde_json::from_str(&json).unwrap_or_default()
-        } else {
+        Self::load_from(&path).unwrap_or_else(|| {
             let default = Settings::default();
             default.save();
             default
-        }
+        })
+    }
+
+    pub fn load_from(path: &path::Path) -> Option<Self> {
+        let json = fs::read_to_string(path).ok()?;
+        serde_json::from_str(&json).ok()
     }
 
     pub fn save(&self) {
+        self.save_to(&Self::path());
+    }
+
+    pub fn save_to(&self, path: &path::Path) {
         let json = match serde_json::to_string_pretty(self) {
             Ok(json) => json,
             Err(error) => {
@@ -67,8 +77,7 @@ impl Settings {
             }
         };
 
-        let path = Self::path();
-        if let Err(error) = fs::write(&path, json) {
+        if let Err(error) = fs::write(path, json) {
             log::error!("Failed to write {}: {error}", path.display());
         }
     }

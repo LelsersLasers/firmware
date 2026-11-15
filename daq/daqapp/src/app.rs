@@ -77,8 +77,8 @@ pub struct DAQApp {
 }
 
 impl DAQApp {
-    pub fn save_settings(&self) {
-        let settings = settings::Settings {
+    pub fn build_settings(&self) -> settings::Settings {
+        settings::Settings {
             superdbc_path: self
                 .database
                 .as_ref()
@@ -92,8 +92,18 @@ impl DAQApp {
             pixels_per_point: self.pixels_per_point,
             log_folder: self.log_folder.clone(),
             window_secs: self.router.timeline().window_secs(),
-        };
-        settings.save();
+            workspace_view: workspace_io::WorkspaceView::capture_from_app(
+                self,
+                "Last Session Workspace",
+                "Auto-saved workspace",
+                true,
+            )
+            .ok(),
+        }
+    }
+
+    pub fn save_settings(&self) {
+        self.build_settings().save();
     }
 
     pub fn new(
@@ -184,6 +194,12 @@ impl DAQApp {
             workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
             export_modal: ui::export_modal::ExportModalState::default(),
         };
+        if let Some(saved_view) = &settings.workspace_view {
+            let has_local_store = app.router.partitions().iter().any(|p| p.is_local);
+            if let Err(err) = saved_view.apply_to_app(&mut app, has_local_store) {
+                log::warn!("Failed to restore workspace view from settings: {err}");
+            }
+        }
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;
             for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {
@@ -304,7 +320,13 @@ impl DAQApp {
                 return false;
             }
         }
-        self.router.reset_live(daqcore::time::Time::now());
+        if self.connection_status == ConnectionStatus::Connected
+            || self.router.partitions().is_empty()
+        {
+            self.router.reset_live(daqcore::time::Time::now());
+        } else {
+            self.router.live_buffer_mut().clear();
+        }
         self.bus_load_samples.clear();
         self.hil_snapshot = daqcore::hil::engine::HilSnapshot::idle();
         self.diagnostic = None;
@@ -383,6 +405,7 @@ impl DAQApp {
                         ));
                         self.add_widget_to_tree(widget);
                     }
+                    self.save_settings();
                 }
             }
             action::AppAction::AttachStore(store_dir) => {
@@ -424,6 +447,8 @@ impl DAQApp {
                         self.diagnostic = Some(format!(
                             "Failed to apply workspace preset '{preset_id}': {err}"
                         ));
+                    } else {
+                        self.save_settings();
                     }
                 } else {
                     self.diagnostic = Some(format!("Unknown workspace preset: {preset_id}"));
@@ -463,6 +488,7 @@ impl DAQApp {
             }
             action::AppAction::CloseActiveWidget => {
                 self.close_active_widget();
+                self.save_settings();
             }
             action::AppAction::IncreaseScale => {
                 let current_scale = self
@@ -572,16 +598,22 @@ impl eframe::App for DAQApp {
         // Render the most recent state of the UI
         ui::sidebar::show(self, ctx);
         workspace::show(self, ctx);
-        self.workspace_view_modal.show(
+        if self.workspace_view_modal.show(
             ctx,
             &mut self.tile_tree,
             &mut self.widget_ids,
             &mut self.router,
             self.ui_to_can_tx.clone(),
-        );
+        ) {
+            self.save_settings();
+        }
         self.export_modal
             .show(ctx, &mut self.router, self.database.as_ref());
         ctx.request_repaint();
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_settings();
     }
 }
 
@@ -600,6 +632,7 @@ pub fn load_formatter() -> Option<daqcore::formatter::Formatter> {
 
 impl Drop for DAQApp {
     fn drop(&mut self) {
+        self.save_settings();
         if self.can_thread.stop().is_err() {
             log::error!("CAN worker panicked during shutdown");
         }
