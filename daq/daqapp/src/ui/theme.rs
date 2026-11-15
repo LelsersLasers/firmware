@@ -1,10 +1,14 @@
 use crate::paths;
 use std::path;
 
+const NOMINAL_DARK_THEME_PATH: &str = "themes/nominal_dark.toml";
+const NOMINAL_LIGHT_THEME_PATH: &str = "themes/nominal_light.toml";
 const NORD_THEME_PATH: &str = "themes/nord.toml";
 const CATPPUCCIN_THEME_PATH: &str = "themes/catppuccin.toml";
 const ONEDARK_THEME_PATH: &str = "themes/onedark.toml";
 
+const NOMINAL_DARK_THEME_SOURCE: &str = include_str!("../../themes/nominal_dark.toml");
+const NOMINAL_LIGHT_THEME_SOURCE: &str = include_str!("../../themes/nominal_light.toml");
 const NORD_THEME_SOURCE: &str = include_str!("../../themes/nord.toml");
 const CATPPUCCIN_THEME_SOURCE: &str = include_str!("../../themes/catppuccin.toml");
 const ONEDARK_THEME_SOURCE: &str = include_str!("../../themes/onedark.toml");
@@ -12,33 +16,49 @@ const ONEDARK_THEME_SOURCE: &str = include_str!("../../themes/onedark.toml");
 #[derive(Copy, Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub enum ThemeSelection {
     #[default]
+    #[serde(alias = "NominalDark", alias = "nominal_dark")]
     Default,
+    #[serde(alias = "nominal_light", alias = "Light")]
+    NominalLight,
     Nord,
     Catppuccin,
     OneDark,
 }
 
 impl ThemeSelection {
+    pub const ALL: [Self; 5] = [
+        Self::Default,
+        Self::NominalLight,
+        Self::Nord,
+        Self::Catppuccin,
+        Self::OneDark,
+    ];
+
     pub fn get_name(&self) -> &'static str {
         match self {
-            Self::Default => "Default",
+            Self::Default => "Nominal Dark",
+            Self::NominalLight => "Nominal Light",
             Self::Nord => "Nord",
             Self::Catppuccin => "Catppuccin",
             Self::OneDark => "One Dark",
         }
     }
 
+    pub fn is_light(&self) -> bool {
+        matches!(self, Self::NominalLight)
+    }
+
     pub fn get_style(&self) -> eframe::egui::Style {
-        match self {
-            Self::Default => eframe::egui::Style::default(),
-            _ => self.get_colors().to_egui_style(),
-        }
+        self.get_colors().to_egui_style()
     }
 
     /// Load the colors for this selection for widgets that draw custom content.
     pub fn get_colors(&self) -> ThemeColors {
         match self {
-            Self::Default => ThemeColors::default(),
+            Self::Default => load_builtin_theme(NOMINAL_DARK_THEME_PATH, NOMINAL_DARK_THEME_SOURCE),
+            Self::NominalLight => {
+                load_builtin_theme(NOMINAL_LIGHT_THEME_PATH, NOMINAL_LIGHT_THEME_SOURCE)
+            }
             Self::Nord => load_builtin_theme(NORD_THEME_PATH, NORD_THEME_SOURCE),
             Self::Catppuccin => load_builtin_theme(CATPPUCCIN_THEME_PATH, CATPPUCCIN_THEME_SOURCE),
             Self::OneDark => load_builtin_theme(ONEDARK_THEME_PATH, ONEDARK_THEME_SOURCE),
@@ -47,7 +67,8 @@ impl ThemeSelection {
 
     pub fn next(&self) -> Self {
         match self {
-            Self::Default => Self::Nord,
+            Self::Default => Self::NominalLight,
+            Self::NominalLight => Self::Nord,
             Self::Nord => Self::Catppuccin,
             Self::Catppuccin => Self::OneDark,
             Self::OneDark => Self::Default,
@@ -99,6 +120,10 @@ pub struct ThemeColors {
     pub button_hover: String,
     pub button_text: String,
     #[serde(default)]
+    pub border: Option<String>,
+    #[serde(default)]
+    pub muted_text: Option<String>,
+    #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
     pub warning: Option<String>,
@@ -106,22 +131,27 @@ pub struct ThemeColors {
     pub success: Option<String>,
     #[serde(default)]
     pub info: Option<String>,
+    #[serde(default)]
+    pub is_light: bool,
 }
 
 impl Default for ThemeColors {
     fn default() -> Self {
         Self {
-            background: "#1e1e1e".to_string(),
-            panel_bg: "#252526".to_string(),
-            text: "#d4d4d4".to_string(),
-            accent: "#3c3c3c".to_string(),
-            button: "#3c3c3c".to_string(),
-            button_hover: "#505050".to_string(),
-            button_text: "#cccccc".to_string(),
-            error: Some("#f44747".to_string()),
-            warning: Some("#ce9178".to_string()),
-            success: Some("#6a9955".to_string()),
-            info: Some("#569cd6".to_string()),
+            background: "#0d1017".to_string(),
+            panel_bg: "#131720".to_string(),
+            text: "#e6edf3".to_string(),
+            accent: "#38bdf8".to_string(),
+            button: "#1c2230".to_string(),
+            button_hover: "#283044".to_string(),
+            button_text: "#d8e1eb".to_string(),
+            border: Some("#232a38".to_string()),
+            muted_text: Some("#7d8590".to_string()),
+            error: Some("#f85149".to_string()),
+            warning: Some("#d29922".to_string()),
+            success: Some("#3fb950".to_string()),
+            info: Some("#58a6ff".to_string()),
+            is_light: false,
         }
     }
 }
@@ -160,6 +190,45 @@ impl ThemeColors {
         eframe::egui::Color32::from_rgba_unmultiplied(r, g, b, a)
     }
 
+    pub fn canvas_color(&self) -> eframe::egui::Color32 {
+        Self::parse_hex(&self.background)
+    }
+
+    pub fn panel_color(&self) -> eframe::egui::Color32 {
+        Self::parse_hex(&self.panel_bg)
+    }
+
+    pub fn text_color(&self) -> eframe::egui::Color32 {
+        Self::parse_hex(&self.text)
+    }
+
+    pub fn accent_color(&self) -> eframe::egui::Color32 {
+        Self::parse_hex(&self.accent)
+    }
+
+    pub fn border_color(&self) -> eframe::egui::Color32 {
+        self.border.as_deref().map(Self::parse_hex).unwrap_or_else(|| {
+            if self.is_light {
+                eframe::egui::Color32::from_rgb(226, 232, 240)
+            } else {
+                eframe::egui::Color32::from_rgb(38, 45, 60)
+            }
+        })
+    }
+
+    pub fn muted_text_color(&self) -> eframe::egui::Color32 {
+        self.muted_text
+            .as_deref()
+            .map(Self::parse_hex)
+            .unwrap_or_else(|| {
+                if self.is_light {
+                    eframe::egui::Color32::from_rgb(100, 116, 139)
+                } else {
+                    eframe::egui::Color32::from_rgb(125, 133, 144)
+                }
+            })
+    }
+
     pub fn error_color(&self) -> eframe::egui::Color32 {
         self.error
             .as_deref()
@@ -174,48 +243,89 @@ impl ThemeColors {
             .unwrap_or(eframe::egui::Color32::from_rgb(209, 154, 102))
     }
 
-    pub fn to_egui_style(&self) -> eframe::egui::Style {
-        let mut style = eframe::egui::Style::default();
+    pub fn success_color(&self) -> eframe::egui::Color32 {
+        self.success
+            .as_deref()
+            .map(Self::parse_hex)
+            .unwrap_or(eframe::egui::Color32::from_rgb(63, 185, 80))
+    }
 
-        let background = Self::parse_hex(&self.background);
-        let panel = Self::parse_hex(&self.panel_bg);
-        let text = Self::parse_hex(&self.text);
-        let accent = Self::parse_hex(&self.accent);
+    pub fn to_egui_style(&self) -> eframe::egui::Style {
+        let mut style = eframe::egui::Style {
+            visuals: if self.is_light {
+                eframe::egui::Visuals::light()
+            } else {
+                eframe::egui::Visuals::dark()
+            },
+            ..Default::default()
+        };
+
+        // Crisp, compact spacing inspired by Nominal.io
+        style.spacing.item_spacing = eframe::egui::vec2(5.0, 3.0);
+        style.spacing.button_padding = eframe::egui::vec2(5.0, 2.0);
+        style.spacing.window_margin = eframe::egui::Margin::same(6);
+        style.spacing.indent = 12.0;
+
+        let background = self.canvas_color();
+        let panel = self.panel_color();
+        let text = self.text_color();
+        let accent = self.accent_color();
         let button = Self::parse_hex(&self.button);
         let button_hover = Self::parse_hex(&self.button_hover);
         let button_text = Self::parse_hex(&self.button_text);
+        let border = self.border_color();
 
-        style.visuals.window_fill = background;
+        style.visuals.window_fill = panel;
         style.visuals.panel_fill = panel;
-        style.visuals.faint_bg_color = panel.gamma_multiply(1.15);
+        style.visuals.faint_bg_color = if self.is_light {
+            eframe::egui::Color32::from_rgb(241, 245, 249)
+        } else {
+            panel.gamma_multiply(1.12)
+        };
         style.visuals.extreme_bg_color = background;
-        style.visuals.code_bg_color = panel;
+        style.visuals.code_bg_color = background;
         style.visuals.override_text_color = Some(text);
         style.visuals.hyperlink_color = accent;
         style.visuals.warn_fg_color = self.warning_color();
         style.visuals.error_fg_color = self.error_color();
-        style.visuals.selection.bg_fill = accent;
-        style.visuals.text_edit_bg_color = Some(if background == panel {
-            background.gamma_multiply(0.5)
-        } else {
-            background
-        });
-        style.visuals.window_stroke.color = accent.linear_multiply(0.5);
+        style.visuals.selection.bg_fill =
+            accent.gamma_multiply(if self.is_light { 0.18_f32 } else { 0.28_f32 });
+        style.visuals.selection.stroke = eframe::egui::Stroke::new(1.0_f32, accent);
+        style.visuals.text_edit_bg_color = Some(background);
+        style.visuals.window_stroke = eframe::egui::Stroke::new(1.0_f32, border);
+        style.visuals.window_corner_radius = eframe::egui::CornerRadius::same(4);
 
+        let cr = eframe::egui::CornerRadius::same(3);
         style.visuals.widgets.noninteractive.bg_fill = panel;
         style.visuals.widgets.noninteractive.weak_bg_fill = panel;
-        style.visuals.widgets.noninteractive.fg_stroke.color = text;
-        style.visuals.widgets.noninteractive.bg_stroke.color = accent.linear_multiply(0.3);
+        style.visuals.widgets.noninteractive.fg_stroke = eframe::egui::Stroke::new(1.0_f32, text);
+        style.visuals.widgets.noninteractive.bg_stroke = eframe::egui::Stroke::new(1.0_f32, border);
+        style.visuals.widgets.noninteractive.corner_radius = cr;
 
         style.visuals.widgets.inactive.bg_fill = button;
-        style.visuals.widgets.inactive.weak_bg_fill = button;
-        style.visuals.widgets.inactive.fg_stroke.color = button_text;
+        style.visuals.widgets.inactive.weak_bg_fill = eframe::egui::Color32::TRANSPARENT;
+        style.visuals.widgets.inactive.fg_stroke = eframe::egui::Stroke::new(1.0_f32, button_text);
+        style.visuals.widgets.inactive.bg_stroke = eframe::egui::Stroke::new(1.0_f32, border);
+        style.visuals.widgets.inactive.corner_radius = cr;
+
         style.visuals.widgets.hovered.bg_fill = button_hover;
         style.visuals.widgets.hovered.weak_bg_fill = button_hover;
-        style.visuals.widgets.hovered.fg_stroke.color = button_text;
+        style.visuals.widgets.hovered.fg_stroke = eframe::egui::Stroke::new(1.0_f32, text);
+        style.visuals.widgets.hovered.bg_stroke =
+            eframe::egui::Stroke::new(1.0_f32, accent.gamma_multiply(0.65_f32));
+        style.visuals.widgets.hovered.corner_radius = cr;
+
         style.visuals.widgets.active.bg_fill = button_hover;
         style.visuals.widgets.active.weak_bg_fill = button_hover;
-        style.visuals.widgets.active.fg_stroke.color = button_text;
+        style.visuals.widgets.active.fg_stroke = eframe::egui::Stroke::new(1.0_f32, text);
+        style.visuals.widgets.active.bg_stroke = eframe::egui::Stroke::new(1.0_f32, accent);
+        style.visuals.widgets.active.corner_radius = cr;
+
+        style.visuals.widgets.open.bg_fill = button_hover;
+        style.visuals.widgets.open.weak_bg_fill = button_hover;
+        style.visuals.widgets.open.fg_stroke = eframe::egui::Stroke::new(1.0_f32, text);
+        style.visuals.widgets.open.bg_stroke = eframe::egui::Stroke::new(1.0_f32, border);
+        style.visuals.widgets.open.corner_radius = cr;
 
         style
     }
@@ -226,5 +336,24 @@ impl ThemeColors {
 
     fn from_toml(data: &str) -> Option<Self> {
         toml::from_str::<Self>(data).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_themes_load_and_convert_to_style_cleanly() {
+        for theme in ThemeSelection::ALL {
+            let colors = theme.get_colors();
+            let style = theme.get_style();
+            assert_eq!(style.visuals.dark_mode, !colors.is_light);
+            assert!(!theme.get_name().is_empty());
+            let _ = (colors.muted_text_color(), colors.success_color());
+        }
+        assert!(!ThemeSelection::Default.is_light());
+        assert!(ThemeSelection::NominalLight.is_light());
+        assert_eq!(ThemeSelection::Default.next(), ThemeSelection::NominalLight);
     }
 }
