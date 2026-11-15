@@ -963,32 +963,42 @@ impl Scope {
                 self.x_axis_mode = ScopeXAxisMode::UtcTime;
             }
 
-            ui.menu_button("…", |ui| {
-                ui.set_min_width(195.0);
-                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.title)
-                            .desired_width(140.0)
-                            .hint_text("Tab title…"),
-                    );
-                    if resp.changed() {
-                        self.custom_title = !self.title.trim().is_empty();
-                    }
-                    if resp.lost_focus() && self.title.trim().is_empty() {
-                        self.custom_title = false;
-                        self.refresh_title();
-                    }
-                    if self.custom_title
-                        && ui
-                            .small_button("Auto")
-                            .on_hover_text("Reset to automatic channel title")
-                            .clicked()
-                    {
-                        self.custom_title = false;
-                        self.refresh_title();
-                    }
-                });
+            eframe::egui::containers::menu::MenuButton::new("…")
+                .config(
+                    eframe::egui::containers::menu::MenuConfig::new()
+                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                )
+                .ui(ui, |ui| {
+                    ui.set_min_width(195.0);
+                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            eframe::egui::TextEdit::singleline(&mut self.title)
+                                .desired_width(140.0)
+                                .hint_text("Tab title…"),
+                        );
+                        if resp.changed() {
+                            self.custom_title = !self.title.trim().is_empty();
+                        }
+                        if resp.lost_focus() {
+                            if self.title.trim().is_empty() {
+                                self.custom_title = false;
+                                self.refresh_title();
+                            }
+                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                ui.close();
+                            }
+                        }
+                        if self.custom_title
+                            && ui
+                                .small_button("Auto")
+                                .on_hover_text("Reset to automatic channel title")
+                                .clicked()
+                        {
+                            self.custom_title = false;
+                            self.refresh_title();
+                        }
+                    });
                 ui.separator();
                 ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
                 for mode in [
@@ -1240,9 +1250,11 @@ impl Scope {
                 );
             }
 
+            let popup_open = eframe::egui::Popup::is_any_open(plot_ui.ctx());
             let mut pointer_utc_ms: Option<i64> = None;
             let mut pointer_plot_y: Option<f64> = None;
-            if plot_ui.response().hovered()
+            if !popup_open
+                && plot_ui.response().hovered()
                 && let Some(coord) = plot_ui.pointer_coordinate()
             {
                 pointer_plot_y = Some(coord.y);
@@ -1280,12 +1292,12 @@ impl Scope {
 
             // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
             // selected window; it never changes the MasterTimeline X range.
-            if plot_ui.response().double_clicked() {
+            if !popup_open && plot_ui.response().double_clicked() {
                 next_y_override = None;
                 plot_ui.set_plot_bounds_y(primary_min..=primary_max);
             }
 
-            if !is_comparison {
+            if !is_comparison && !popup_open {
                 let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
                 let anchor_ms = pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
 
@@ -1325,7 +1337,7 @@ impl Scope {
                     .dragged_by(eframe::egui::PointerButton::Primary)
                 {
                     plot_ui.response().drag_delta().x
-                } else {
+                } else if plot_ui.response().hovered() {
                     plot_ui.ctx().input(|i| {
                         if i.pointer.primary_down()
                             && i.pointer
@@ -1337,6 +1349,8 @@ impl Scope {
                             0.0
                         }
                     })
+                } else {
+                    0.0
                 };
                 if drag_dx.abs() > 0.0 {
                     let delta_ms =

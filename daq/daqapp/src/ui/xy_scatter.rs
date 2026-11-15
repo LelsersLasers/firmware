@@ -469,72 +469,82 @@ impl XYScatter {
                 clear_z = true;
             }
 
-            ui.menu_button("…", |ui| {
-                ui.set_min_width(195.0);
-                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.title)
-                            .desired_width(140.0)
-                            .hint_text("Tab title…"),
+            eframe::egui::containers::menu::MenuButton::new("…")
+                .config(
+                    eframe::egui::containers::menu::MenuConfig::new()
+                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                )
+                .ui(ui, |ui| {
+                    ui.set_min_width(195.0);
+                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            eframe::egui::TextEdit::singleline(&mut self.title)
+                                .desired_width(140.0)
+                                .hint_text("Tab title…"),
+                        );
+                        if resp.changed() {
+                            self.custom_title = !self.title.trim().is_empty();
+                        }
+                        if resp.lost_focus() {
+                            if self.title.trim().is_empty() {
+                                self.custom_title = false;
+                                self.refresh_title();
+                            }
+                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                ui.close();
+                            }
+                        }
+                        if self.custom_title
+                            && ui
+                                .small_button("Auto")
+                                .on_hover_text("Reset to automatic XY title")
+                                .clicked()
+                        {
+                            self.custom_title = false;
+                            self.refresh_title();
+                        }
+                    });
+                    ui.separator();
+                    ui.label(
+                        eframe::egui::RichText::new("Scatter Presets")
+                            .weak()
+                            .small(),
                     );
-                    if resp.changed() {
-                        self.custom_title = !self.title.trim().is_empty();
+                    if ui.button("G-G Diagram").clicked() {
+                        preset_choice = Some(0);
+                        ui.close();
                     }
-                    if resp.lost_focus() && self.title.trim().is_empty() {
-                        self.custom_title = false;
-                        self.refresh_title();
+                    if ui.button("Understeer Diagram").clicked() {
+                        preset_choice = Some(1);
+                        ui.close();
                     }
-                    if self.custom_title
-                        && ui
-                            .small_button("Auto")
-                            .on_hover_text("Reset to automatic XY title")
-                            .clicked()
+                    if ui.button("Pack Temp / Voltage").clicked() {
+                        preset_choice = Some(2);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui
+                        .checkbox(&mut self.equal_aspect, "1:1 Aspect Ratio")
+                        .changed()
                     {
-                        self.custom_title = false;
-                        self.refresh_title();
+                        self.bounds_override = None;
+                    }
+                    if ui
+                        .checkbox(&mut self.show_g_rings, "Show G-Rings")
+                        .changed()
+                    {
+                        self.bounds_override = None;
+                    }
+                    if self.bounds_override.is_some() && ui.button("Reset Axis Zoom").clicked() {
+                        self.bounds_override = None;
+                        ui.close();
+                    }
+                    if self.z_color_signal.is_some() && ui.button("Clear Color (Z)").clicked() {
+                        clear_z = true;
+                        ui.close();
                     }
                 });
-                ui.separator();
-                ui.label(
-                    eframe::egui::RichText::new("Scatter Presets")
-                        .weak()
-                        .small(),
-                );
-                if ui.button("G-G Diagram").clicked() {
-                    preset_choice = Some(0);
-                    ui.close();
-                }
-                if ui.button("Understeer Diagram").clicked() {
-                    preset_choice = Some(1);
-                    ui.close();
-                }
-                if ui.button("Pack Temp / Voltage").clicked() {
-                    preset_choice = Some(2);
-                    ui.close();
-                }
-                ui.separator();
-                if ui
-                    .checkbox(&mut self.equal_aspect, "1:1 Aspect Ratio")
-                    .changed()
-                {
-                    self.bounds_override = None;
-                }
-                if ui
-                    .checkbox(&mut self.show_g_rings, "Show G-Rings")
-                    .changed()
-                {
-                    self.bounds_override = None;
-                }
-                if self.bounds_override.is_some() && ui.button("Reset Axis Zoom").clicked() {
-                    self.bounds_override = None;
-                    ui.close();
-                }
-                if self.z_color_signal.is_some() && ui.button("Clear Color (Z)").clicked() {
-                    clear_z = true;
-                    ui.close();
-                }
-            });
         });
 
         match preset_choice {
@@ -702,14 +712,15 @@ impl XYScatter {
                 );
             }
 
-            if plot_ui.response().double_clicked() {
+            let popup_open = eframe::egui::Popup::is_any_open(plot_ui.ctx());
+            if !popup_open && plot_ui.response().double_clicked() {
                 next_bounds_override = None;
             }
 
             let x_span = (active_x_max - active_x_min).abs().max(1e-9);
             let y_span = (active_y_max - active_y_min).abs().max(1e-9);
 
-            if plot_ui.response().hovered() {
+            if !popup_open && plot_ui.response().hovered() {
                 let (scroll_y, zoom_delta) = plot_ui
                     .ctx()
                     .input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -738,9 +749,10 @@ impl XYScatter {
                 }
             }
 
-            if plot_ui
-                .response()
-                .dragged_by(eframe::egui::PointerButton::Primary)
+            if !popup_open
+                && plot_ui
+                    .response()
+                    .dragged_by(eframe::egui::PointerButton::Primary)
             {
                 let delta = plot_ui.response().drag_delta();
                 if delta.x.abs() > 0.0 || delta.y.abs() > 0.0 {

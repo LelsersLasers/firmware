@@ -221,50 +221,60 @@ impl StateLane {
             {
                 self.show_picker = !self.show_picker;
             }
-            ui.menu_button("…", |ui| {
-                ui.set_min_width(195.0);
-                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.title)
-                            .desired_width(140.0)
-                            .hint_text("Tab title…"),
-                    );
-                    if resp.changed() {
-                        self.custom_title = !self.title.trim().is_empty();
-                    }
-                    if resp.lost_focus() && self.title.trim().is_empty() {
-                        self.custom_title = false;
-                        self.refresh_title();
-                    }
-                    if self.custom_title
-                        && ui
-                            .small_button("Auto")
-                            .on_hover_text("Reset to automatic lane title")
-                            .clicked()
-                    {
-                        self.custom_title = false;
-                        self.refresh_title();
-                    }
-                });
-                ui.separator();
-                ui.label(eframe::egui::RichText::new("Lane Presets").weak().small());
-                if ui.button("Load Vehicle States").clicked() {
-                    load_std = true;
-                    ui.close();
-                }
-                if ui.button("Load BMS / SDC Faults").clicked() {
-                    load_bms = true;
-                    ui.close();
-                }
-                if !self.lanes.is_empty() {
+            eframe::egui::containers::menu::MenuButton::new("…")
+                .config(
+                    eframe::egui::containers::menu::MenuConfig::new()
+                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                )
+                .ui(ui, |ui| {
+                    ui.set_min_width(195.0);
+                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            eframe::egui::TextEdit::singleline(&mut self.title)
+                                .desired_width(140.0)
+                                .hint_text("Tab title…"),
+                        );
+                        if resp.changed() {
+                            self.custom_title = !self.title.trim().is_empty();
+                        }
+                        if resp.lost_focus() {
+                            if self.title.trim().is_empty() {
+                                self.custom_title = false;
+                                self.refresh_title();
+                            }
+                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                ui.close();
+                            }
+                        }
+                        if self.custom_title
+                            && ui
+                                .small_button("Auto")
+                                .on_hover_text("Reset to automatic lane title")
+                                .clicked()
+                        {
+                            self.custom_title = false;
+                            self.refresh_title();
+                        }
+                    });
                     ui.separator();
-                    if ui.button("Clear All Lanes").clicked() {
-                        clear_all = true;
+                    ui.label(eframe::egui::RichText::new("Lane Presets").weak().small());
+                    if ui.button("Load Vehicle States").clicked() {
+                        load_std = true;
                         ui.close();
                     }
-                }
-            });
+                    if ui.button("Load BMS / SDC Faults").clicked() {
+                        load_bms = true;
+                        ui.close();
+                    }
+                    if !self.lanes.is_empty() {
+                        ui.separator();
+                        if ui.button("Clear All Lanes").clicked() {
+                            clear_all = true;
+                            ui.close();
+                        }
+                    }
+                });
         });
 
         if load_std {
@@ -457,7 +467,10 @@ impl StateLane {
                             );
                         }
 
-                        if strip_resp.dragged_by(eframe::egui::PointerButton::Primary) {
+                        let popup_open = eframe::egui::Popup::is_any_open(ui.ctx());
+                        if !popup_open
+                            && strip_resp.dragged_by(eframe::egui::PointerButton::Primary)
+                        {
                             let drag_dx = strip_resp.drag_delta().x;
                             if drag_dx.abs() > 0.0 {
                                 let delta_ms = (-(drag_dx as f64)
@@ -468,7 +481,7 @@ impl StateLane {
                             }
                         }
 
-                        if let Some(pos) = strip_resp.hover_pos() {
+                        if !popup_open && let Some(pos) = strip_resp.hover_pos() {
                             let frac = ((pos.x - strip_rect.left()) / strip_rect.width().max(1.0))
                                 .clamp(0.0, 1.0) as f64;
                             let ptr_ms = start_ms + (frac * span_ms).round() as i64;

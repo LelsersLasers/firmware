@@ -387,38 +387,50 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
             let mut reset_auto = false;
             let mut close_pane = false;
 
-            button_response.context_menu(|ui| {
-                ui.set_min_width(195.0);
-                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                let mut draft = current_title.clone();
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        eframe::egui::TextEdit::singleline(&mut draft)
-                            .desired_width(140.0)
-                            .hint_text("Tab title…"),
-                    );
-                    if resp.changed() {
-                        pending_title = Some(draft.clone());
-                    }
-                    if resp.lost_focus() && draft.trim().is_empty() {
-                        reset_auto = true;
-                    }
-                    if has_custom_title
-                        && ui
-                            .small_button("Auto")
-                            .on_hover_text("Reset to automatic title")
-                            .clicked()
-                    {
-                        reset_auto = true;
+            let just_opened = button_response.secondary_clicked();
+            eframe::egui::Popup::context_menu(&button_response)
+                .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside)
+                .sense(eframe::egui::Sense::click_and_drag())
+                .show(|ui| {
+                    ui.set_min_width(195.0);
+                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                    let mut draft = current_title.clone();
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            eframe::egui::TextEdit::singleline(&mut draft)
+                                .desired_width(140.0)
+                                .hint_text("Tab title…"),
+                        );
+                        if just_opened {
+                            resp.request_focus();
+                        }
+                        if resp.changed() {
+                            pending_title = Some(draft.clone());
+                        }
+                        if resp.lost_focus() {
+                            if draft.trim().is_empty() {
+                                reset_auto = true;
+                            }
+                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                ui.close();
+                            }
+                        }
+                        if has_custom_title
+                            && ui
+                                .small_button("Auto")
+                                .on_hover_text("Reset to automatic title")
+                                .clicked()
+                        {
+                            reset_auto = true;
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui.button("× Close View").clicked() {
+                        close_pane = true;
                         ui.close();
                     }
                 });
-                ui.separator();
-                if ui.button("× Close View").clicked() {
-                    close_pane = true;
-                    ui.close();
-                }
-            });
 
             if reset_auto {
                 self.action_queue

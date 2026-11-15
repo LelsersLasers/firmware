@@ -820,6 +820,9 @@ impl eframe::App for DAQApp {
             self.save_settings();
         }
         self.export_modal.show(ctx, &mut self.router);
+        for action in mem::take(&mut self.action_queue) {
+            self.handle_action(action, ctx);
+        }
         ctx.request_repaint();
     }
 

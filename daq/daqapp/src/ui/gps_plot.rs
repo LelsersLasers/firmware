@@ -325,28 +325,38 @@ impl GpsPlot {
                 self.map_memory.follow_my_position();
             }
 
-            ui.menu_button("…", |ui| {
-                ui.set_min_width(195.0);
-                let default_title = self.default_title();
-                ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        eframe::egui::TextEdit::singleline(&mut self.title)
-                            .desired_width(140.0)
-                            .hint_text("Tab title…"),
-                    );
-                    if resp.lost_focus() && self.title.trim().is_empty() {
-                        self.title = default_title.clone();
-                    }
-                    if self.title != default_title
-                        && ui
-                            .small_button("Auto")
-                            .on_hover_text("Reset to default GPS title")
-                            .clicked()
-                    {
-                        self.title = default_title;
-                    }
-                });
+            eframe::egui::containers::menu::MenuButton::new("…")
+                .config(
+                    eframe::egui::containers::menu::MenuConfig::new()
+                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                )
+                .ui(ui, |ui| {
+                    ui.set_min_width(195.0);
+                    let default_title = self.default_title();
+                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            eframe::egui::TextEdit::singleline(&mut self.title)
+                                .desired_width(140.0)
+                                .hint_text("Tab title…"),
+                        );
+                        if resp.lost_focus() {
+                            if self.title.trim().is_empty() {
+                                self.title = default_title.clone();
+                            }
+                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                ui.close();
+                            }
+                        }
+                        if self.title != default_title
+                            && ui
+                                .small_button("Auto")
+                                .on_hover_text("Reset to default GPS title")
+                                .clicked()
+                        {
+                            self.title = default_title;
+                        }
+                    });
                 ui.separator();
                 ui.label(eframe::egui::RichText::new(&fix_summary).monospace().small());
                 ui.separator();
