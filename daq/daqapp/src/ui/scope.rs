@@ -652,6 +652,8 @@ impl Scope {
                             let ann_dur_s =
                                 ((ann_end_ms - ann_start_ms) as f64 / 1000.0).max(0.001);
                             max_x_bound = max_x_bound.max(ann_dur_s);
+                            let ch_max_gap_ms =
+                                channel_max_gap_ms(view.router, &ch.signal_id, max_gap_ms);
                             let series = view.query_signal_range(
                                 &ch.signal_id,
                                 ann_start_ms..=ann_end_ms,
@@ -666,7 +668,7 @@ impl Scope {
                             let (pts, env_bands) = series_to_points_and_bands(
                                 &series,
                                 ann_start_ms,
-                                max_gap_ms,
+                                ch_max_gap_ms,
                                 pixels,
                             );
                             raw_traces.push(PreparedTrace {
@@ -750,14 +752,20 @@ impl Scope {
             } else {
                 for (ch_idx, ch) in self.channels.iter().enumerate() {
                     let unit_idx = channel_unit_group[ch_idx];
-                    let series = view.query_signal(&ch.signal_id, resolution);
-                    if let Some((s_min, s_max, s_mean)) = series_window_stats(&series) {
+                    let ch_max_gap_ms = channel_max_gap_ms(view.router, &ch.signal_id, max_gap_ms);
+                    let padded_range = start_ms.saturating_sub(ch_max_gap_ms)
+                        ..=end_ms.saturating_add(ch_max_gap_ms);
+                    let series = view.query_signal_range(&ch.signal_id, padded_range, resolution);
+                    let in_window = series.slice_range(start_ms..=end_ms);
+                    if let Some((s_min, s_max, s_mean)) =
+                        series_window_stats(&in_window).or_else(|| series_window_stats(&series))
+                    {
                         unit_bounds[unit_idx].0 = unit_bounds[unit_idx].0.min(s_min);
                         unit_bounds[unit_idx].1 = unit_bounds[unit_idx].1.max(s_max);
                         channel_minmax_mean[ch_idx] = Some((s_min, s_max, s_mean));
                     }
                     let (pts, env_bands) =
-                        series_to_points_and_bands(&series, start_ms, max_gap_ms, pixels);
+                        series_to_points_and_bands(&series, start_ms, ch_max_gap_ms, pixels);
                     channel_cursor_lookups.push(ChannelCursorLookup::Series(series));
                     raw_traces.push(PreparedTrace {
                         name: ch.signal_id.clone(),
@@ -1410,6 +1418,36 @@ fn series_window_stats(series: &daqcore::router::SignalSeries) -> Option<(f64, f
     }
 }
 
+/// Compute the gap-break threshold in milliseconds for `signal_id`, scaling up from
+/// `base_max_gap_ms` for low-rate signals (e.g. 2 Hz -> `nominal_period_ms = 500` -> `1500 ms`)
+/// so zooming into `Overview10Hz` or `FullRes` does not insert `NaN` breaks between every sample.
+fn channel_max_gap_ms(
+    router: &daqcore::router::VirtualTimelineRouter,
+    signal_id: &str,
+    base_max_gap_ms: i64,
+) -> i64 {
+    let clean_id = signal_id.trim().strip_prefix('-').unwrap_or(signal_id).trim();
+    let mut max_period_ms = router
+        .signal_meta(clean_id)
+        .and_then(|m| m.nominal_period_ms)
+        .map(i64::from)
+        .unwrap_or(0);
+
+    if let Some(compiled) = router.formula_engine().get(clean_id) {
+        for dep in &compiled.dependencies {
+            if let Some(period) = router
+                .signal_meta(dep)
+                .and_then(|m| m.nominal_period_ms)
+                .map(i64::from)
+            {
+                max_period_ms = max_period_ms.max(period);
+            }
+        }
+    }
+
+    base_max_gap_ms.max(max_period_ms.saturating_mul(3))
+}
+
 /// Convert a [`daqcore::router::SignalSeries`] into decimated mean line points AND convex
 /// trapezoid `[min, max]` polygon quads for shaded envelope rendering.
 pub fn series_to_points_and_bands(
@@ -1644,5 +1682,96 @@ mod tests {
                 });
             });
         }
+    }
+
+    #[test]
+    fn low_rate_2hz_signal_does_not_break_when_zoomed_in() {
+        use daqcore::frame::{FrameKind, ParsedFrame};
+        use daqcore::superdbc::database::Database;
+
+        let db_json = r#"{
+          "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "versions": { "schema_version": "1.1", "hash": "test_2hz" },
+          "buses": {
+            "VCAN": {
+              "bus_id": 0,
+              "baud_rate": 500000,
+              "nodes": [],
+              "messages": [
+                {
+                  "id": 513,
+                  "is_extended_id": false,
+                  "message_name": "INVA_INFO",
+                  "transmitter": "INVERTER_A",
+                  "receivers": ["MAIN_MODULE"],
+                  "length_bytes": 4,
+                  "nominal_period_ms": 500,
+                  "priority": 2,
+                  "description": "",
+                  "signals": [
+                    {
+                      "signal_name": "AMK_DCBusVoltage",
+                      "description": "",
+                      "data_type": "unsigned",
+                      "raw_type": "unsigned",
+                      "start_bit": 0,
+                      "bit_length": 16,
+                      "byte_order": "little_endian",
+                      "scale": 0.1,
+                      "offset": 0.0,
+                      "limits": null,
+                      "unit": "V",
+                      "choices": null,
+                      "display_format": null
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }"#;
+        let db = Database::from_json(db_json).expect("parse test db");
+
+        let base_ms = 1_788_719_789_000;
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(base_ms + 5_000),
+            5.0,
+        )
+        .expect("live router");
+
+        // Push a 2 Hz signal (500 ms nominal period) for 10 seconds
+        for i in 0..=20 {
+            let ts = base_ms + i * 500;
+            let payload = db
+                .encode(0, 513, &[("AMK_DCBusVoltage", 520.0 + (i as f64) * 0.5)])
+                .expect("encode frame");
+            let decoded = db.decode(0, 513, &payload).ok();
+            router.ingest_frame(ParsedFrame {
+                timestamp: daqcore::time::Time::from_unix_millis(ts),
+                bus_id: 0,
+                kind: FrameKind::Data,
+                dlc: payload.len() as u8,
+                identity: 513,
+                raw_bytes: payload,
+                decoded,
+            });
+        }
+
+        let base_staleness = router.formula_engine().max_staleness_ms();
+        let ch_gap = channel_max_gap_ms(&router, "INVA_INFO.AMK_DCBusVoltage", base_staleness);
+        assert_eq!(ch_gap, 1_500);
+
+        let full_res = router.query_signal(
+            "INVA_INFO.AMK_DCBusVoltage",
+            base_ms..=(base_ms + 5_000),
+            daqcore::router::Resolution::FullRes,
+        );
+        let (pts, _) = series_to_points_and_bands(&full_res, base_ms, ch_gap, 800);
+        // Must have NO NaN gap breaks between consecutive 500 ms samples!
+        assert!(pts.len() >= 10);
+        assert!(
+            pts.iter().all(|p| p[0].is_finite() && p[1].is_finite()),
+            "2 Hz signal must not have NaN breaks at FullRes: {pts:?}"
+        );
     }
 }
