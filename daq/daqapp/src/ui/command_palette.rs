@@ -30,7 +30,7 @@ impl CommandPalette {
 
         let mut action_queue = Vec::new();
 
-        let cmd_list = action::AppAction::cmd_palette_list();
+        let cmd_list = action::AppAction::cmd_palette_actions();
 
         // filtering Logic
         let filtered_options: Vec<_> = cmd_list
@@ -62,9 +62,7 @@ impl CommandPalette {
             }
 
             if i.key_pressed(eframe::egui::Key::Enter) && !filtered_options.is_empty() {
-                action_queue.push(action::AppAction::SpawnWidget(
-                    filtered_options[self.palette_index].1.clone(),
-                ));
+                action_queue.push(filtered_options[self.palette_index].1.clone());
                 self.show_command_palette = false;
             }
 
@@ -79,7 +77,7 @@ impl CommandPalette {
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .fixed_size([300.0, 400.0])
+            .fixed_size([400.0, 420.0])
             .show(ctx, |ui| {
                 // Search Input
                 ui.horizontal(|ui| {
@@ -105,7 +103,7 @@ impl CommandPalette {
                             if filtered_options.is_empty() {
                                 ui.label("No commands found");
                             } else {
-                                for (i, (label, widget_type)) in filtered_options.iter().enumerate()
+                                for (i, (label, cmd_action)) in filtered_options.iter().enumerate()
                                 {
                                     let is_selected = i == self.palette_index;
                                     let selection = ui.visuals().selection;
@@ -126,9 +124,7 @@ impl CommandPalette {
 
                                     let response = ui.add(button);
                                     if response.clicked() {
-                                        action_queue.push(action::AppAction::SpawnWidget(
-                                            (*widget_type).clone(),
-                                        ));
+                                        action_queue.push(cmd_action.clone());
                                         self.show_command_palette = false;
                                     }
                                 }

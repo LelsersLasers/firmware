@@ -1,5 +1,6 @@
 use crate::{
-    action, paths, settings, shortcuts, ui, util, widget_ids, widgets, workspace, workspace_view,
+    action, paths, settings, shortcuts, ui, util, widget_ids, widgets, workspace, workspace_io,
+    workspace_view,
 };
 use std::{error, mem, path, sync::mpsc};
 
@@ -70,11 +71,17 @@ pub struct DAQApp {
     pub log_folder: Option<path::PathBuf>,
     pub timeline_ui: ui::timeline::TimelineUiState,
     pub signal_browser: ui::signal_browser::SignalBrowserState,
+    pub workspace_presets: workspace_io::WorkspacePresetRegistry,
+    pub workspace_view_modal: workspace_io::WorkspaceViewModalState,
+    pub export_modal: ui::export_modal::ExportModalState,
+    frame_times: std::collections::VecDeque<std::time::Instant>,
+    pub fps: f32,
+    pub frame_time_ms: f32,
 }
 
 impl DAQApp {
-    pub fn save_settings(&self) {
-        let settings = settings::Settings {
+    pub fn build_settings(&self) -> settings::Settings {
+        settings::Settings {
             superdbc_path: self
                 .database
                 .as_ref()
@@ -88,8 +95,18 @@ impl DAQApp {
             pixels_per_point: self.pixels_per_point,
             log_folder: self.log_folder.clone(),
             window_secs: self.router.timeline().window_secs(),
-        };
-        settings.save();
+            workspace_view: workspace_io::WorkspaceView::capture_from_app(
+                self,
+                "Last Session Workspace",
+                "Auto-saved workspace",
+                true,
+            )
+            .ok(),
+        }
+    }
+
+    pub fn save_settings(&self) {
+        self.build_settings().save();
     }
 
     pub fn new(
@@ -176,7 +193,19 @@ impl DAQApp {
             log_folder: settings.log_folder,
             timeline_ui: ui::timeline::TimelineUiState::default(),
             signal_browser: ui::signal_browser::SignalBrowserState::default(),
+            workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
+            workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
+            export_modal: ui::export_modal::ExportModalState::default(),
+            frame_times: std::collections::VecDeque::with_capacity(256),
+            fps: 0.0,
+            frame_time_ms: 0.0,
         };
+        if let Some(saved_view) = &settings.workspace_view {
+            let has_local_store = app.router.partitions().iter().any(|p| p.is_local);
+            if let Err(err) = saved_view.apply_to_app(&mut app, has_local_store) {
+                log::warn!("Failed to restore workspace view from settings: {err}");
+            }
+        }
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;
             for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {
@@ -297,7 +326,13 @@ impl DAQApp {
                 return false;
             }
         }
-        self.router.reset_live(daqcore::time::Time::now());
+        if self.connection_status == ConnectionStatus::Connected
+            || self.router.partitions().is_empty()
+        {
+            self.router.reset_live(daqcore::time::Time::now());
+        } else {
+            self.router.live_buffer_mut().clear();
+        }
         self.bus_load_samples.clear();
         self.hil_snapshot = daqcore::hil::engine::HilSnapshot::idle();
         self.diagnostic = None;
@@ -376,6 +411,7 @@ impl DAQApp {
                         ));
                         self.add_widget_to_tree(widget);
                     }
+                    self.save_settings();
                 }
             }
             action::AppAction::AttachStore(store_dir) => {
@@ -402,6 +438,45 @@ impl DAQApp {
             action::AppAction::OpenAnnotationModal => {
                 self.timeline_ui.open_new_at_playhead(&self.router, true);
             }
+            action::AppAction::LoadWorkspacePreset {
+                preset_id,
+                apply_time_context,
+            } => {
+                if let Some(preset) = self.workspace_presets.get(&preset_id).cloned() {
+                    if let Err(err) = preset.apply_to_workspace(
+                        &mut self.tile_tree,
+                        &mut self.widget_ids,
+                        &mut self.router,
+                        self.ui_to_can_tx.clone(),
+                        apply_time_context,
+                    ) {
+                        self.diagnostic = Some(format!(
+                            "Failed to apply workspace preset '{preset_id}': {err}"
+                        ));
+                    } else {
+                        self.save_settings();
+                    }
+                } else {
+                    self.diagnostic = Some(format!("Unknown workspace preset: {preset_id}"));
+                }
+            }
+            action::AppAction::OpenWorkspaceViewModal => {
+                self.workspace_view_modal.open();
+            }
+            action::AppAction::CopyWorkspaceShareString => {
+                if let Err(err) =
+                    self.workspace_view_modal
+                        .generate_and_copy(ctx, &self.tile_tree, &self.router)
+                {
+                    self.diagnostic =
+                        Some(format!("Failed to generate workspace share string: {err}"));
+                } else if !self.is_sidebar_open {
+                    self.workspace_view_modal.open();
+                }
+            }
+            action::AppAction::OpenExportDataModal => {
+                self.export_modal.open(&self.router, self.database.as_ref());
+            }
             action::AppAction::ToggleSidebar => {
                 self.is_sidebar_open = !self.is_sidebar_open;
             }
@@ -410,6 +485,7 @@ impl DAQApp {
             }
             action::AppAction::CloseActiveWidget => {
                 self.close_active_widget();
+                self.save_settings();
             }
             action::AppAction::IncreaseScale => {
                 let current_scale = self
@@ -445,10 +521,41 @@ impl DAQApp {
             }
         }
     }
+
+    pub fn record_frame(&mut self, ctx: &eframe::egui::Context) {
+        let now = std::time::Instant::now();
+        self.frame_times.push_back(now);
+        while self.frame_times.len() > 240
+            || self
+                .frame_times
+                .front()
+                .is_some_and(|&front| now.duration_since(front).as_secs_f32() > 0.5)
+        {
+            if self.frame_times.len() <= 2 {
+                break;
+            }
+            self.frame_times.pop_front();
+        }
+        if self.frame_times.len() >= 2
+            && let (Some(&first), Some(&last)) = (self.frame_times.front(), self.frame_times.back())
+        {
+            let span_s = last.duration_since(first).as_secs_f32();
+            let intervals = (self.frame_times.len() - 1) as f32;
+            if span_s > 1e-4 {
+                self.fps = intervals / span_s;
+                self.frame_time_ms = (span_s * 1000.0) / intervals;
+                return;
+            }
+        }
+        let dt = ctx.input(|i| i.predicted_dt).max(1e-4);
+        self.fps = 1.0 / dt;
+        self.frame_time_ms = dt * 1000.0;
+    }
 }
 
 impl eframe::App for DAQApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _: &mut eframe::Frame) {
+        self.record_frame(ctx);
         while let Ok(event) = self.can_to_ui_rx.try_recv() {
             for tile in self.tile_tree.tiles.tiles_mut() {
                 if let egui_tiles::Tile::Pane(widget) = tile {
@@ -519,7 +626,22 @@ impl eframe::App for DAQApp {
         // Render the most recent state of the UI
         ui::sidebar::show(self, ctx);
         workspace::show(self, ctx);
+        if self.workspace_view_modal.show(
+            ctx,
+            &mut self.tile_tree,
+            &mut self.widget_ids,
+            &mut self.router,
+            self.ui_to_can_tx.clone(),
+        ) {
+            self.save_settings();
+        }
+        self.export_modal
+            .show(ctx, &mut self.router, self.database.as_ref());
         ctx.request_repaint();
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_settings();
     }
 }
 
@@ -538,6 +660,7 @@ pub fn load_formatter() -> Option<daqcore::formatter::Formatter> {
 
 impl Drop for DAQApp {
     fn drop(&mut self) {
+        self.save_settings();
         if self.can_thread.stop().is_err() {
             log::error!("CAN worker panicked during shutdown");
         }

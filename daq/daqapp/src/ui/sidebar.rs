@@ -20,6 +20,28 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         .show_animated(ctx, app.is_sidebar_open, |ui| {
             let panel_width = ui.available_width();
             ui.set_max_width(panel_width);
+            eframe::egui::TopBottomPanel::bottom("sidebar_fps_footer")
+                .exact_height(22.0)
+                .show_inside(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        let fps_color = if app.fps >= 50.0 {
+                            eframe::egui::Color32::from_rgb(90, 205, 120)
+                        } else if app.fps >= 25.0 {
+                            eframe::egui::Color32::from_rgb(235, 190, 75)
+                        } else {
+                            eframe::egui::Color32::from_rgb(235, 95, 95)
+                        };
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "FPS: {:.1} ({:.1} ms)",
+                                app.fps, app.frame_time_ms
+                            ))
+                            .monospace()
+                            .small()
+                            .color(fps_color),
+                        );
+                    });
+                });
             eframe::egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -149,24 +171,135 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     }
 
     ui.separator();
-    ui.heading("Subteam Presets");
+    ui.heading("Subteam Workspaces & Presets");
 
-    if ui.button("Preset: G-G Diagram").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetGgDiagram,
-        ));
+    ui.checkbox(
+        &mut app.workspace_view_modal.jump_to_saved_time_range,
+        "Jump to saved time range on load",
+    );
+
+    let preset_summaries: Vec<(String, String, String)> = app
+        .workspace_presets
+        .presets()
+        .iter()
+        .map(|p| {
+            (
+                p.id.clone().unwrap_or_else(|| p.name.clone()),
+                p.name.clone(),
+                p.description.clone(),
+            )
+        })
+        .collect();
+    for (preset_id, preset_name, preset_desc) in preset_summaries {
+        if ui
+            .button(format!("📁 {preset_name}"))
+            .on_hover_text(preset_desc)
+            .clicked()
+        {
+            app.action_queue
+                .push(action::AppAction::LoadWorkspacePreset {
+                    preset_id,
+                    apply_time_context: app.workspace_view_modal.jump_to_saved_time_range,
+                });
+        }
     }
 
-    if ui.button("Preset: Handling Understeer").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
-        ));
+    eframe::egui::CollapsingHeader::new("Quick Single-Pane Presets")
+        .id_salt("sidebar_single_pane_presets")
+        .default_open(false)
+        .show(ui, |ui| {
+            if ui.button("Preset: G-G Diagram").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetGgDiagram,
+                ));
+            }
+
+            if ui.button("Preset: Handling Understeer").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+                ));
+            }
+
+            if ui.button("Preset: Battery Pack Overview").clicked() {
+                app.action_queue.push(action::AppAction::SpawnWidget(
+                    widget_constructor::WidgetConstructor::PresetBatteryOverview,
+                ));
+            }
+        });
+
+    ui.separator();
+    ui.heading("Shared Views & Export");
+
+    if ui
+        .button("📁 Save / Import View (.daqview.json)...")
+        .on_hover_text(
+            "Save or load a .daqview.json workspace layout or paste a daqview1:... share string",
+        )
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::OpenWorkspaceViewModal);
     }
 
-    if ui.button("Preset: Battery Pack Overview").clicked() {
-        app.action_queue.push(action::AppAction::SpawnWidget(
-            widget_constructor::WidgetConstructor::PresetBatteryOverview,
-        ));
+    if ui
+        .button("📋 Copy Share String (daqview1:...)")
+        .on_hover_text(
+            "Encode current workspace layout, custom formulas, and time range (shows raw code for manual copy if clipboard is blocked)",
+        )
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::CopyWorkspaceShareString);
+    }
+
+    if app.workspace_view_modal.show_sidebar_share_code
+        && !app.workspace_view_modal.generated_share_string.is_empty()
+    {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                eframe::egui::RichText::new("Raw Share Code (Ctrl+C):")
+                    .small()
+                    .weak(),
+            );
+            if ui.small_button("Select All").clicked() {
+                app.workspace_view_modal.select_all_share_code = true;
+            }
+            if ui.small_button("Hide").clicked() {
+                app.workspace_view_modal.show_sidebar_share_code = false;
+            }
+        });
+        let text_output =
+            eframe::egui::TextEdit::multiline(&mut app.workspace_view_modal.generated_share_string)
+                .font(eframe::egui::TextStyle::Monospace)
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .show(ui);
+        if app.workspace_view_modal.select_all_share_code && !app.workspace_view_modal.is_open {
+            app.workspace_view_modal.select_all_share_code = false;
+            text_output.response.request_focus();
+            let mut state = text_output.state;
+            let char_len = app
+                .workspace_view_modal
+                .generated_share_string
+                .chars()
+                .count();
+            state
+                .cursor
+                .set_char_range(Some(eframe::egui::text::CCursorRange::two(
+                    eframe::egui::text::CCursor::new(0),
+                    eframe::egui::text::CCursor::new(char_len),
+                )));
+            state.store(ui.ctx(), text_output.response.id);
+        }
+    }
+
+    if ui
+        .button("📤 Export Dataset (Parquet / CSV / .mat)...")
+        .on_hover_text("Export physical signals and derived formulas for MATLAB or Python")
+        .clicked()
+    {
+        app.action_queue
+            .push(action::AppAction::OpenExportDataModal);
     }
 
     ui.separator();

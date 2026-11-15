@@ -50,11 +50,6 @@ venv
 .envrc
 .direnv
 
-# plot factory
-/plot_factory/data/**
-!/plot_factory/data/README.md
-/plot_factory/output/
-
 # SQLite registry files
 *.sqlite
 *.sqlite-shm

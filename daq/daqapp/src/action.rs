@@ -1,10 +1,18 @@
 use crate::widget_constructor;
 use std::path;
 
+#[derive(Clone)]
 pub enum AppAction {
     SpawnWidget(widget_constructor::WidgetConstructor),
     AttachStore(path::PathBuf),
     OpenAnnotationModal,
+    LoadWorkspacePreset {
+        preset_id: String,
+        apply_time_context: bool,
+    },
+    OpenWorkspaceViewModal,
+    CopyWorkspaceShareString,
+    OpenExportDataModal,
     ToggleSidebar,
     ToggleCommandPalette,
     CloseActiveWidget,
@@ -13,65 +21,122 @@ pub enum AppAction {
 }
 
 impl AppAction {
-    pub fn cmd_palette_list() -> Vec<(&'static str, widget_constructor::WidgetConstructor)> {
+    pub fn cmd_palette_actions() -> Vec<(&'static str, Self)> {
         vec![
             (
+                "Workspace: VD — Handling, Suspension & G-G",
+                Self::LoadWorkspacePreset {
+                    preset_id: "vd_handling_suspension".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Workspace: Powertrain — Accumulator, Torque & Motor Speeds",
+                Self::LoadWorkspacePreset {
+                    preset_id: "powertrain_accumulator".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Workspace: Thermals — Inverters, Motors, IGBTs & Pack",
+                Self::LoadWorkspacePreset {
+                    preset_id: "thermals_cooling".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Workspace: Aerodynamics — Heave, Roll, Pitch & Ride Height",
+                Self::LoadWorkspacePreset {
+                    preset_id: "aero_ride_height".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Workspace: Sensors & Controls — IMU, GPS, Pedals & Steering",
+                Self::LoadWorkspacePreset {
+                    preset_id: "sensors_controls".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Workspace: Trackside Live Debug — States, Faults & CAN Bus",
+                Self::LoadWorkspacePreset {
+                    preset_id: "trackside_live_debug".to_owned(),
+                    apply_time_context: true,
+                },
+            ),
+            (
+                "Export Dataset (Parquet / CSV / MATLAB .mat)...",
+                Self::OpenExportDataModal,
+            ),
+            (
+                "Save / Import Workspace View (.daqview.json / Share String)...",
+                Self::OpenWorkspaceViewModal,
+            ),
+            (
+                "Copy Workspace Share String (daqview1:...)",
+                Self::CopyWorkspaceShareString,
+            ),
+            (
                 "Spawn Scope",
-                widget_constructor::WidgetConstructor::ScopeEmpty,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::ScopeEmpty),
             ),
             (
                 "Spawn State Lanes",
-                widget_constructor::WidgetConstructor::StateLane,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::StateLane),
             ),
             (
                 "Spawn XY Scatter",
-                widget_constructor::WidgetConstructor::XYScatter,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::XYScatter),
             ),
             (
                 "Spawn GPS Plot",
-                widget_constructor::WidgetConstructor::GpsPlot,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::GpsPlot),
             ),
             (
                 "Preset: G-G Diagram",
-                widget_constructor::WidgetConstructor::PresetGgDiagram,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::PresetGgDiagram),
             ),
             (
                 "Preset: Handling Understeer",
-                widget_constructor::WidgetConstructor::PresetHandlingUndersteer,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::PresetHandlingUndersteer),
             ),
             (
                 "Preset: Battery Pack Overview",
-                widget_constructor::WidgetConstructor::PresetBatteryOverview,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::PresetBatteryOverview),
             ),
             (
                 "Spawn CAN Table",
-                widget_constructor::WidgetConstructor::ViewerTable,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::ViewerTable),
             ),
             (
                 "Spawn CAN List",
-                widget_constructor::WidgetConstructor::ViewerList,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::ViewerList),
             ),
             (
                 "Spawn Bootloader",
-                widget_constructor::WidgetConstructor::Bootloader,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::Bootloader),
             ),
             (
                 "Spawn Log Parser",
-                widget_constructor::WidgetConstructor::LogParser,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::LogParser),
             ),
             (
                 "Spawn Send UI",
-                widget_constructor::WidgetConstructor::SendUi,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::SendUi),
             ),
             (
                 "Spawn Bus Load",
-                widget_constructor::WidgetConstructor::BusLoad,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::BusLoad),
             ),
             (
                 "Spawn Jitter",
-                widget_constructor::WidgetConstructor::Jitter,
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::Jitter),
             ),
-            ("Spawn HIL", widget_constructor::WidgetConstructor::Hil),
+            (
+                "Spawn HIL",
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::Hil),
+            ),
         ]
     }
 }

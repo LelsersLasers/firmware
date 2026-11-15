@@ -1,14 +1,14 @@
 use crate::{app, ui, workspace_view};
 
 const STATE_PALETTE: [eframe::egui::Color32; 8] = [
-    eframe::egui::Color32::from_rgb(65, 150, 230),  // Blue
-    eframe::egui::Color32::from_rgb(155, 95, 220),  // Purple
-    eframe::egui::Color32::from_rgb(45, 185, 185),  // Teal
-    eframe::egui::Color32::from_rgb(225, 130, 55),  // Orange
-    eframe::egui::Color32::from_rgb(120, 185, 65),  // Olive Green
-    eframe::egui::Color32::from_rgb(215, 90, 160),  // Magenta
-    eframe::egui::Color32::from_rgb(95, 125, 235),  // Indigo
-    eframe::egui::Color32::from_rgb(195, 165, 55),  // Gold
+    eframe::egui::Color32::from_rgb(65, 150, 230), // Blue
+    eframe::egui::Color32::from_rgb(155, 95, 220), // Purple
+    eframe::egui::Color32::from_rgb(45, 185, 185), // Teal
+    eframe::egui::Color32::from_rgb(225, 130, 55), // Orange
+    eframe::egui::Color32::from_rgb(120, 185, 65), // Olive Green
+    eframe::egui::Color32::from_rgb(215, 90, 160), // Magenta
+    eframe::egui::Color32::from_rgb(95, 125, 235), // Indigo
+    eframe::egui::Color32::from_rgb(195, 165, 55), // Gold
 ];
 
 pub const STANDARD_VEHICLE_STATE_LANES: &[(&str, &str)] = &[
@@ -24,8 +24,14 @@ pub const BATTERY_FAULT_STATE_LANES: &[(&str, &str)] = &[
     ("main_hb_amk.precharge_state", "Precharge State"),
     ("a_box_fault_sync.IMD", "Fault: IMD"),
     ("a_box_fault_sync.PACK_OVERTEMP", "Fault: Pack Overtemp"),
-    ("a_box_fault_sync.CELL_UNDERVOLTAGE", "Fault: Cell Undervoltage"),
-    ("a_box_fault_sync.CELL_OVERVOLTAGE", "Fault: Cell Overvoltage"),
+    (
+        "a_box_fault_sync.CELL_UNDERVOLTAGE",
+        "Fault: Cell Undervoltage",
+    ),
+    (
+        "a_box_fault_sync.CELL_OVERVOLTAGE",
+        "Fault: Cell Overvoltage",
+    ),
     ("main_module_fault_sync.SDC1_IMD", "SDC1 IMD"),
 ];
 
@@ -95,9 +101,12 @@ impl StateLane {
         }
     }
 
-    #[cfg(test)]
     pub fn lanes(&self) -> &[StateLaneEntry] {
         &self.lanes
+    }
+
+    pub fn is_custom_title(&self) -> bool {
+        self.custom_title
     }
 
     pub fn load_standard_vehicle_lanes(&mut self) {
@@ -283,11 +292,9 @@ impl StateLane {
                             eframe::egui::Sense::hover(),
                         );
                         let mut label_ui = ui.new_child(
-                            eframe::egui::UiBuilder::new()
-                                .max_rect(label_rect)
-                                .layout(eframe::egui::Layout::left_to_right(
-                                    eframe::egui::Align::Center,
-                                )),
+                            eframe::egui::UiBuilder::new().max_rect(label_rect).layout(
+                                eframe::egui::Layout::left_to_right(eframe::egui::Align::Center),
+                            ),
                         );
                         label_ui.set_clip_rect(label_rect.intersect(ui.clip_rect()));
                         if label_ui
@@ -300,7 +307,8 @@ impl StateLane {
                         let current_badge = active_interval.map(|iv| {
                             let resolved =
                                 resolve_state_label(&lane.signal_id, iv, is_fault_sig, database);
-                            let color = state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let color =
+                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
                             (resolved, color)
                         });
                         let title_response = label_ui.add(
@@ -341,14 +349,17 @@ impl StateLane {
 
                         for iv in &intervals {
                             let x0 = time_to_x(iv.start_utc_ms);
-                            let x1 = time_to_x(iv.end_utc_ms).max(x0 + 2.0).min(strip_rect.right());
+                            let x1 = time_to_x(iv.end_utc_ms)
+                                .max(x0 + 2.0)
+                                .min(strip_rect.right());
                             let bar_rect = eframe::egui::Rect::from_min_max(
                                 eframe::egui::pos2(x0, strip_rect.top() + 2.0),
                                 eframe::egui::pos2(x1, strip_rect.bottom() - 2.0),
                             );
                             let resolved =
                                 resolve_state_label(&lane.signal_id, iv, is_fault_sig, database);
-                            let fill = state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let fill =
+                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
                             painter.rect_filled(bar_rect, 2.5, fill.gamma_multiply(0.82));
                             painter.rect_stroke(
                                 bar_rect,
@@ -364,13 +375,15 @@ impl StateLane {
 
                             if bar_rect.width() >= 34.0 {
                                 let text_clip = bar_rect.shrink2(eframe::egui::vec2(3.0, 1.0));
-                                painter.with_clip_rect(text_clip.intersect(strip_rect)).text(
-                                    text_clip.left_center(),
-                                    eframe::egui::Align2::LEFT_CENTER,
-                                    &resolved,
-                                    eframe::egui::FontId::proportional(11.0),
-                                    eframe::egui::Color32::WHITE,
-                                );
+                                painter
+                                    .with_clip_rect(text_clip.intersect(strip_rect))
+                                    .text(
+                                        text_clip.left_center(),
+                                        eframe::egui::Align2::LEFT_CENTER,
+                                        &resolved,
+                                        eframe::egui::FontId::proportional(11.0),
+                                        eframe::egui::Color32::WHITE,
+                                    );
                             }
                         }
 
@@ -382,10 +395,7 @@ impl StateLane {
                                     eframe::egui::pos2(px, strip_rect.top()),
                                     eframe::egui::pos2(px, strip_rect.bottom()),
                                 ],
-                                eframe::egui::Stroke::new(
-                                    1.6_f32,
-                                    eframe::egui::Color32::YELLOW,
-                                ),
+                                eframe::egui::Stroke::new(1.6_f32, eframe::egui::Color32::YELLOW),
                             );
                         }
 
@@ -454,7 +464,8 @@ impl StateLane {
                                     is_fault_sig,
                                     database,
                                 );
-                                let dur_s = ((iv.end_utc_ms - iv.start_utc_ms).max(0) as f64) / 1000.0;
+                                let dur_s =
+                                    ((iv.end_utc_ms - iv.start_utc_ms).max(0) as f64) / 1000.0;
                                 strip_resp.on_hover_text(format!(
                                     "{} ({})\nState: {} (raw = {})\nDuration: {:.2}s\nAt: {}",
                                     lane.label,
@@ -669,7 +680,10 @@ mod tests {
             signal_id: "main_hb.car_state".to_owned(),
             label: "Car State".to_owned(),
         };
-        assert_eq!(ctor.kind(), crate::widget_constructor::WidgetKind::StateLane);
+        assert_eq!(
+            ctor.kind(),
+            crate::widget_constructor::WidgetKind::StateLane
+        );
 
         let ctx = eframe::egui::Context::default();
         ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());

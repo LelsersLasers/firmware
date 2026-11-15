@@ -723,13 +723,14 @@ impl MasterTimeline {
     }
 
     /// Snap the active viewport `[start, end]` and `setpoint` to a specific historical interval
-    /// (e.g. an imported partition or an Event Annotation pill) and freeze live marching.
+    /// (e.g. an imported partition or an Event Annotation pill) and freeze live marching,
+    /// placing `setpoint` at the start of the interval.
     pub fn snap_to_range_ms(&mut self, start_utc_ms: i64, end_utc_ms: i64) {
         let lo = start_utc_ms;
         let hi = end_utc_ms.max(lo);
         self.start = time::Time::from_unix_millis(lo);
         self.end = time::Time::from_unix_millis(hi);
-        self.setpoint = self.end;
+        self.setpoint = self.start;
         self.start_track = Track::Frozen;
         self.end_track = Track::Frozen;
         self.setpoint_track = Track::Frozen;
@@ -894,6 +895,7 @@ mod tests {
         let t0 = time::Time::from_unix_millis(1_700_000_000_000);
         let mut tl = MasterTimeline::live(t0, 30.0).unwrap();
         tl.snap_to_range_ms(1_000_000, 1_060_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_000_000);
         tl.set_day_bounds_ms(Some((1_000_000, 1_120_000)));
 
         // Position playhead inside the window, then play across the window end:
@@ -932,6 +934,7 @@ mod tests {
         assert!(!tl.is_comparison_mode());
         assert_eq!(tl.start_utc_ms(), 1_010_000);
         assert_eq!(tl.end_utc_ms(), 1_025_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_010_000);
 
         tl.toggle_comparison_annotation("stint_2".to_owned(), 1_040_000, Some(1_055_000));
         assert!(tl.is_comparison_mode());

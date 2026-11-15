@@ -75,9 +75,23 @@ impl GpsPlot {
         self.show_picker = false;
     }
 
-    #[cfg(test)]
+    pub fn clear_overlay_signal(&mut self) {
+        self.overlay_signal = None;
+        self.show_picker = false;
+    }
+
     pub fn overlay_signal(&self) -> Option<&(String, String)> {
         self.overlay_signal.as_ref()
+    }
+
+    pub fn max_distance_meters(&self) -> f64 {
+        self.max_distance_meters
+    }
+
+    pub fn set_max_distance_meters(&mut self, meters: f64) {
+        if meters.is_finite() && meters >= 10.0 {
+            self.max_distance_meters = meters;
+        }
     }
 
     pub fn show(
@@ -251,8 +265,8 @@ impl GpsPlot {
         let hover_ms = view.hover_utc_ms();
         let cursor_ms = view.active_cursor_utc_ms();
 
-        let playhead_fix = find_gps_at_or_before(&gps_points, setpoint_ms)
-            .or_else(|| gps_points.last().copied());
+        let playhead_fix =
+            find_gps_at_or_before(&gps_points, setpoint_ms).or_else(|| gps_points.last().copied());
         let hover_fix = hover_ms.and_then(|h_ms| find_gps_at_or_before(&gps_points, h_ms));
         let cursor_overlay_val = (!overlay_samples.is_empty()).then(|| {
             let idx = overlay_samples
@@ -549,9 +563,8 @@ pub fn filter_and_align_gps_points(
         return Vec::new();
     };
 
-    let longitude_scale = (std::f64::consts::PI / 180.0)
-        * EARTH_RADIUS_METERS
-        * latitude_origin.to_radians().cos();
+    let longitude_scale =
+        (std::f64::consts::PI / 180.0) * EARTH_RADIUS_METERS * latitude_origin.to_radians().cos();
     let latitude_scale = (std::f64::consts::PI / 180.0) * EARTH_RADIUS_METERS;
 
     let mut out: Vec<(i64, f64, f64)> = Vec::with_capacity(candidates.len());
@@ -582,10 +595,7 @@ pub fn filter_and_align_gps_points(
     out
 }
 
-fn find_gps_at_or_before(
-    points: &[(i64, f64, f64)],
-    target_ms: i64,
-) -> Option<(i64, f64, f64)> {
+fn find_gps_at_or_before(points: &[(i64, f64, f64)], target_ms: i64) -> Option<(i64, f64, f64)> {
     if points.is_empty() {
         return None;
     }
@@ -776,16 +786,11 @@ mod tests {
             ],
         };
         let lon_series = daqcore::router::SignalSeries::Exact {
-            timestamps_ms: vec![1_000, 1_050, 1_100, 1_200, 1_300, 1_400, 1_500, 1_550, 1_600],
+            timestamps_ms: vec![
+                1_000, 1_050, 1_100, 1_200, 1_300, 1_400, 1_500, 1_550, 1_600,
+            ],
             values: vec![
-                0.0,
-                0.0,
-                -86.91830,
-                -86.91828,
-                -86.91826,
-                -86.91830,
-                -86.91824,
-                -86.91824,
+                0.0, 0.0, -86.91830, -86.91828, -86.91826, -86.91830, -86.91824, -86.91824,
                 -86.91822,
             ],
         };

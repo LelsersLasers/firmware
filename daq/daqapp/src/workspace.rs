@@ -20,51 +20,52 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     eframe::egui::CentralPanel::default()
         .frame(central_frame)
         .show(ctx, |ui| {
-        if app.tile_tree.is_empty() {
-            ui.vertical_centered(|ui| {
-                ui.label("No widgets in workspace yet.");
-                ui.label("CMD+S to toggle the sidebar.");
-                ui.label("CMD+P to toggle the command palette.");
-                ui.label("Drag any signal from the Signal Browser to open a Scope.");
-            });
-        } else {
-            let mut behavior = WorkspaceTileBehavior {
-                view: &view,
-                bus_load: &app.bus_load_samples,
-                action_queue: &mut app.action_queue,
-                database: app.database.as_ref(),
-                ui_to_can_tx: app.ui_to_can_tx.clone(),
-                formatter: &app.value_formatter,
-            };
-            ui.add_enabled_ui(!selection_pending, |ui| {
-                app.tile_tree.ui(&mut behavior, ui);
-            });
-        }
-
-        let workspace_rect = ui.max_rect();
-        if eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ctx).is_some()
-            && ui.rect_contains_pointer(workspace_rect)
-        {
-            ui.painter().rect_stroke(
-                workspace_rect.shrink(1.0),
-                4.0,
-                eframe::egui::Stroke::new(
-                    1.5_f32,
-                    eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 160),
-                ),
-                eframe::egui::StrokeKind::Inside,
-            );
-            if ui.input(|i| i.pointer.any_released())
-                && let Some(payload) = eframe::egui::DragAndDrop::take_payload::<
-                    ui::signal_browser::DraggedSignal,
-                >(ctx)
-            {
-                app.action_queue.push(action::AppAction::SpawnWidget(
-                    payload.to_widget_constructor(),
-                ));
+            if app.tile_tree.is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.label("No widgets in workspace yet.");
+                    ui.label("CMD+S to toggle the sidebar.");
+                    ui.label("CMD+P to toggle the command palette.");
+                    ui.label("Drag any signal from the Signal Browser to open a Scope.");
+                });
+            } else {
+                let mut behavior = WorkspaceTileBehavior {
+                    view: &view,
+                    bus_load: &app.bus_load_samples,
+                    action_queue: &mut app.action_queue,
+                    database: app.database.as_ref(),
+                    ui_to_can_tx: app.ui_to_can_tx.clone(),
+                    formatter: &app.value_formatter,
+                };
+                ui.add_enabled_ui(!selection_pending, |ui| {
+                    app.tile_tree.ui(&mut behavior, ui);
+                });
             }
-        }
-    });
+
+            let workspace_rect = ui.max_rect();
+            if eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ctx)
+                .is_some()
+                && ui.rect_contains_pointer(workspace_rect)
+            {
+                ui.painter().rect_stroke(
+                    workspace_rect.shrink(1.0),
+                    4.0,
+                    eframe::egui::Stroke::new(
+                        1.5_f32,
+                        eframe::egui::Color32::from_rgba_unmultiplied(80, 190, 255, 160),
+                    ),
+                    eframe::egui::StrokeKind::Inside,
+                );
+                if ui.input(|i| i.pointer.any_released())
+                    && let Some(payload) = eframe::egui::DragAndDrop::take_payload::<
+                        ui::signal_browser::DraggedSignal,
+                    >(ctx)
+                {
+                    app.action_queue.push(action::AppAction::SpawnWidget(
+                        payload.to_widget_constructor(),
+                    ));
+                }
+            }
+        });
 
     let hover_touched = view.hover_touched();
     let next_hover_ms = view.hover_utc_ms();
@@ -375,10 +376,12 @@ mod tests {
     }
 
     #[test]
-    fn per26_m6_analysis_widgets_v2_multi_axis_distance_overlay_state_lane_xy_scatter_and_gps_e2e() {
+    fn per26_m6_analysis_widgets_v2_multi_axis_distance_overlay_state_lane_xy_scatter_and_gps_e2e()
+    {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let log_1 = manifest_dir.join("../../PER26/2026-09-06/1_tv/raw/log-2026-09-06--17-42-22.log");
+        let log_1 = manifest_dir
+            .join("../../PER26/2026-09-06/1_no_cooling/raw/log-2026-09-06--18-36-02.log");
         let log_2 =
             manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-16-37.log");
         if !dbc_path.is_file() || !log_1.is_file() || !log_2.is_file() {
@@ -387,15 +390,18 @@ mod tests {
 
         let db = sample_database().expect("load PER26 database");
         let tmp_raw = tempfile::tempdir().expect("temp raw dir");
-        std::fs::copy(&log_1, tmp_raw.path().join("log-2026-09-06--17-42-22.log"))
+        std::fs::copy(&log_1, tmp_raw.path().join("log-2026-09-06--18-36-02.log"))
             .expect("copy log 1");
         std::fs::copy(&log_2, tmp_raw.path().join("log-2026-09-06--20-16-37.log"))
             .expect("copy log 2");
 
         let tmp_store = tempfile::tempdir().expect("temp store dir");
-        let summary =
-            daqcore::log_parse::import_logs_to_store(tmp_raw.path(), tmp_store.path(), &db.database)
-                .expect("import PER26 logs");
+        let summary = daqcore::log_parse::import_logs_to_store(
+            tmp_raw.path(),
+            tmp_store.path(),
+            &db.database,
+        )
+        .expect("import PER26 logs");
         assert!(summary.partitions_written >= 2);
 
         let m1 = &summary.manifests[0];
@@ -418,19 +424,11 @@ mod tests {
             0,
         );
         assert_eq!(gg_widgets.len(), 1);
-        let understeer_widgets =
-            widget_constructor::WidgetConstructor::PresetHandlingUndersteer.create_all(
-                &mut ids,
-                tx.clone(),
-                0,
-            );
+        let understeer_widgets = widget_constructor::WidgetConstructor::PresetHandlingUndersteer
+            .create_all(&mut ids, tx.clone(), 0);
         assert_eq!(understeer_widgets.len(), 2);
-        let battery_widgets =
-            widget_constructor::WidgetConstructor::PresetBatteryOverview.create_all(
-                &mut ids,
-                tx.clone(),
-                0,
-            );
+        let battery_widgets = widget_constructor::WidgetConstructor::PresetBatteryOverview
+            .create_all(&mut ids, tx.clone(), 0);
         assert_eq!(battery_widgets.len(), 3);
 
         // 2. Focus on Stint 1 and prefetch key columns so FullRes / Overview queries have resident data
@@ -463,8 +461,7 @@ mod tests {
         }
 
         // Verify discrete state intervals exist in PER26 partitions
-        let car_states =
-            router.query_states("main_hb.car_state", m1.start_utc_ms..=m2.end_utc_ms);
+        let car_states = router.query_states("main_hb.car_state", m1.start_utc_ms..=m2.end_utc_ms);
         assert!(
             !car_states.is_empty(),
             "PER26 store should yield discrete car_state intervals"
@@ -557,12 +554,12 @@ mod tests {
             };
             let _ = ctx.run(raw_input, |ctx| {
                 let central_frame = eframe::egui::Frame::central_panel(&ctx.style())
-        .inner_margin(eframe::egui::Margin::same(2));
-    eframe::egui::CentralPanel::default()
-        .frame(central_frame)
-        .show(ctx, |ui| {
-                    let _ = scope.show(ui, Some(&db), &view);
-                });
+                    .inner_margin(eframe::egui::Margin::same(2));
+                eframe::egui::CentralPanel::default()
+                    .frame(central_frame)
+                    .show(ctx, |ui| {
+                        let _ = scope.show(ui, Some(&db), &view);
+                    });
             });
         }
 
@@ -584,8 +581,7 @@ mod tests {
         let mut tree = egui_tiles::Tree::new("m6_e2e_grid", grid_id, tiles);
 
         let mid_ms = (m1.start_utc_ms + m1.end_utc_ms) / 2;
-        let view =
-            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), Some(30.0));
+        let view = workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), Some(30.0));
         let bus_load = Vec::new();
         let formatter = app::load_formatter();
         let mut action_queue = Vec::new();
@@ -626,10 +622,8 @@ mod tests {
         }
 
         // Verify scrolling over the Scope pane zooms the MasterTimeline
-        let initial_span_ms =
-            router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
-        let zoom_view =
-            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let initial_span_ms = router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
+        let zoom_view = workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
         let zoom_input = eframe::egui::RawInput {
             screen_rect: Some(screen_rect),
             events: vec![
@@ -662,16 +656,14 @@ mod tests {
             .expect("Scrolling on Scope should request MasterTimeline zoom");
         assert!(factor < 1.0, "Positive scroll wheel should zoom in");
         router.timeline_mut().zoom_around_ms(anchor_ms, factor);
-        let zoomed_span_ms =
-            router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
+        let zoomed_span_ms = router.timeline().end_utc_ms() - router.timeline().start_utc_ms();
         assert!(
             zoomed_span_ms < initial_span_ms,
             "MasterTimeline span should shrink after zooming on Scope ({zoomed_span_ms} vs {initial_span_ms})"
         );
 
         // Verify left-clicking and dragging horizontally on Scope pans the MasterTimeline
-        let press_view =
-            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let press_view = workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
         let press_input = eframe::egui::RawInput {
             screen_rect: Some(screen_rect),
             events: vec![
@@ -701,8 +693,7 @@ mod tests {
                 });
         });
 
-        let pan_view =
-            workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
+        let pan_view = workspace_view::WorkspaceDataView::with_hover(&router, Some(mid_ms), None);
         let drag_input = eframe::egui::RawInput {
             screen_rect: Some(screen_rect),
             events: vec![eframe::egui::Event::PointerMoved(eframe::egui::pos2(

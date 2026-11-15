@@ -229,9 +229,14 @@ impl VirtualTimelineRouter {
         if range.is_empty() {
             return Ok(SignalSeries::empty_for(resolution));
         }
+        let raw_resolution = if self.formula_engine.plan_contains_series_fn(expr) {
+            Resolution::FullRes
+        } else {
+            resolution
+        };
         self.formula_engine
             .evaluate_expr_with(expr, &TargetGrid::Union, resolution, |raw_id| {
-                self.query_raw_signal(raw_id, range.clone(), resolution)
+                self.query_raw_signal(raw_id, range.clone(), raw_resolution)
             })
     }
 
@@ -251,9 +256,15 @@ impl VirtualTimelineRouter {
             .execution_plan_for_expr(expr)
             .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))?;
 
+        let raw_resolution = if self.formula_engine.plan_contains_series_fn(expr) {
+            Resolution::FullRes
+        } else {
+            resolution
+        };
+
         let mut prefetched = std::collections::BTreeMap::new();
         for raw_id in raw_ids {
-            let series = self.query_raw_signal_blocking(&raw_id, range.clone(), resolution)?;
+            let series = self.query_raw_signal_blocking(&raw_id, range.clone(), raw_resolution)?;
             prefetched.insert(raw_id, series);
         }
 
@@ -262,7 +273,7 @@ impl VirtualTimelineRouter {
                 prefetched
                     .get(raw_id)
                     .cloned()
-                    .unwrap_or_else(|| SignalSeries::empty_for(resolution))
+                    .unwrap_or_else(|| SignalSeries::empty_for(raw_resolution))
             })
             .map_err(|e| RouterError::Io(io::Error::other(e.to_string())))
     }

@@ -157,8 +157,9 @@ impl BusLoad {
                     }
                 }
                 if plot.response().hovered() {
-                    let (scroll, zoom_delta) =
-                        plot.ctx().input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+                    let (scroll, zoom_delta) = plot
+                        .ctx()
+                        .input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
                     if (zoom_delta - 1.0).abs() > 1e-3 {
                         let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
                         view.request_zoom_around_ms(anchor_ms, factor);

@@ -213,6 +213,20 @@ impl FormulaEngine {
         Ok((ordered_derived, leaf_raw_ids.into_iter().collect()))
     }
 
+    /// Return `true` if `expr` or any derived channel in its execution plan uses a stateful
+    /// time-series calculus/window function (`integral`, `derivative`, `lowpass`, `rolling_mean`).
+    pub fn plan_contains_series_fn(&self, expr: &Expr) -> bool {
+        if expr.contains_series_fn() {
+            return true;
+        }
+        let Ok((derived_plan, _)) = self.execution_plan_for_expr(expr) else {
+            return false;
+        };
+        derived_plan
+            .iter()
+            .any(|step| step.ast.contains_series_fn())
+    }
+
     /// Evaluate a registered derived channel by `channel_id` using `fetch_raw` to retrieve
     /// any underlying raw CAN signals.
     pub fn evaluate_channel_with<F>(
@@ -265,10 +279,8 @@ impl FormulaEngine {
                 .filter(|s| !s.is_empty())
                 .all(|s| matches!(s, SignalSeries::Envelope(_)));
 
-        let effective_staleness_ms = if resolution == Resolution::Overview1Hz || any_envelope {
+        let effective_staleness_ms = if any_envelope {
             self.max_staleness_ms.max(BUCKET_1HZ_MS * 2)
-        } else if resolution == Resolution::Overview10Hz {
-            self.max_staleness_ms.max(BUCKET_10HZ_MS * 2)
         } else {
             self.max_staleness_ms
         };
@@ -305,26 +317,27 @@ impl FormulaEngine {
                 );
 
                 for step in &derived_plan {
-                    if let Ok(v) =
-                        step.ast
-                            .eval_aligned(&timestamps_ms, &min_cols, effective_staleness_ms)
-                    {
-                        min_cols.insert(step.def.id.clone(), v);
-                    }
-                    if let Ok(v) =
-                        step.ast
-                            .eval_aligned(&timestamps_ms, &max_cols, effective_staleness_ms)
-                    {
-                        max_cols.insert(step.def.id.clone(), v);
+                    if let Ok((lo, hi)) = step.ast.eval_bounds_aligned(
+                        &timestamps_ms,
+                        &mean_cols,
+                        &min_cols,
+                        &max_cols,
+                        effective_staleness_ms,
+                    ) {
+                        min_cols.insert(step.def.id.clone(), lo);
+                        max_cols.insert(step.def.id.clone(), hi);
                     }
                 }
 
-                let low_out = expr
-                    .eval_aligned(&timestamps_ms, &min_cols, effective_staleness_ms)
-                    .unwrap_or_else(|_| mean_out.clone());
-                let high_out = expr
-                    .eval_aligned(&timestamps_ms, &max_cols, effective_staleness_ms)
-                    .unwrap_or_else(|_| mean_out.clone());
+                let (low_out, high_out) = expr
+                    .eval_bounds_aligned(
+                        &timestamps_ms,
+                        &mean_cols,
+                        &min_cols,
+                        &max_cols,
+                        effective_staleness_ms,
+                    )
+                    .unwrap_or_else(|_| (mean_out.clone(), mean_out.clone()));
 
                 let mut buckets = Vec::with_capacity(timestamps_ms.len());
                 for i in 0..timestamps_ms.len() {
@@ -527,5 +540,111 @@ mod tests {
                 "mismatch at idx={idx}: got {val}, expected {expected_w}",
             );
         }
+    }
+
+    #[test]
+    fn integrated_signal_at_overview_resolutions_integrates_then_downscales_without_diverging_bounds()
+     {
+        let engine = FormulaEngine::with_builtin_config();
+        let energy_expr = Expr::parse("battery.energy_wh").expect("parse energy_wh");
+        assert!(engine.plan_contains_series_fn(&energy_expr));
+
+        // 1. High-rate (100 Hz) oscillating current around 20 A (between 0 A and 40 A) over 10 seconds,
+        //    evaluated at Overview1Hz from Exact inputs (integrate high-rate, then downscale).
+        let vbatt_adc_const = 100.0 / 0.14659808276; // -> 100.0 V
+        let mut ts = Vec::new();
+        let mut v_vals = Vec::new();
+        let mut i_vals = Vec::new();
+        for step in 0..=1_000 {
+            let t_ms = step * 10;
+            ts.push(t_ms);
+            v_vals.push(vbatt_adc_const);
+            // Alternate 0 A and 40 A every 10 ms -> exact mean is 20 A (2,000 W)
+            i_vals.push(if step % 2 == 0 { 0.0 } else { 40.0 });
+        }
+
+        let exact_v = SignalSeries::Exact {
+            timestamps_ms: ts.clone(),
+            values: v_vals,
+        };
+        let exact_i = SignalSeries::Exact {
+            timestamps_ms: ts,
+            values: i_vals,
+        };
+
+        let downscaled = engine
+            .evaluate_channel_with(
+                "battery.energy_wh",
+                &TargetGrid::Union,
+                Resolution::Overview1Hz,
+                |raw_id| match raw_id {
+                    "pack_stats.vbatt_adc" => exact_v.clone(),
+                    "pack_stats.pack_current" => exact_i.clone(),
+                    other => panic!("unexpected raw signal: {other}"),
+                },
+            )
+            .expect("evaluate downscaled energy_wh");
+
+        let SignalSeries::Envelope(buckets) = downscaled else {
+            panic!("expected Envelope at Overview1Hz");
+        };
+        let last_bucket = buckets.last().expect("non-empty buckets");
+        // 2,000 W * 10 s = 20,000 J = 5.555555... Wh
+        let expected_total_wh = 20_000.0 / 3_600.0;
+        assert!((last_bucket.max - expected_total_wh).abs() < 1e-4);
+        // Within a single 1-second bucket, energy only changes by 2,000 J / 3,600 = 0.5555 Wh,
+        // never diverging into [0, 2 * expected_total_wh].
+        for b in &buckets {
+            assert!(
+                (b.max - b.min) <= (2_000.0 / 3_600.0) + 1e-4,
+                "bucket at {}ms had diverging span [{}, {}]",
+                b.utc_ms,
+                b.min,
+                b.max
+            );
+        }
+
+        // 2. Fallback Envelope inputs (with wide [0 A, 40 A] min/max in every 1s bucket):
+        //    must integrate the mean (20 A) and bound each bucket by its step transition,
+        //    never summing min (0 A) and max (40 A) cumulatively.
+        let mut env_v = Vec::new();
+        let mut env_i = Vec::new();
+        for sec in 0..=10 {
+            let utc_ms = sec * 1_000;
+            env_v.push(EnvelopePoint {
+                utc_ms,
+                min: vbatt_adc_const,
+                max: vbatt_adc_const,
+                mean: vbatt_adc_const,
+            });
+            env_i.push(EnvelopePoint {
+                utc_ms,
+                min: 0.0,
+                max: 40.0,
+                mean: 20.0,
+            });
+        }
+        let fallback_series = engine
+            .evaluate_channel_with(
+                "battery.energy_wh",
+                &TargetGrid::Union,
+                Resolution::Overview1Hz,
+                |raw_id| match raw_id {
+                    "pack_stats.vbatt_adc" => SignalSeries::Envelope(env_v.clone()),
+                    "pack_stats.pack_current" => SignalSeries::Envelope(env_i.clone()),
+                    other => panic!("unexpected raw signal: {other}"),
+                },
+            )
+            .expect("evaluate fallback envelope energy_wh");
+
+        let SignalSeries::Envelope(fb_buckets) = fallback_series else {
+            panic!("expected Envelope from fallback inputs");
+        };
+        let fb_last = fb_buckets.last().expect("non-empty fallback buckets");
+        assert!((fb_last.mean - expected_total_wh).abs() < 1e-4);
+        // At t = 10s, min must be the start of the 9s..10s step (9 * 2000 / 3600 = 5.0 Wh)
+        // and max must be the end of the step (10 * 2000 / 3600 = 5.5556 Wh), NOT [0.0, 11.111 Wh]!
+        assert!((fb_last.min - (18_000.0 / 3_600.0)).abs() < 1e-4);
+        assert!((fb_last.max - expected_total_wh).abs() < 1e-4);
     }
 }

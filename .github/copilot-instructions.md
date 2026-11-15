@@ -15,8 +15,8 @@ These review checks capture the essence of consistent, safe, and maintainable co
   - desktop UI in `daqapp`
   - CLI presentation in `daqcli`
   - Axum/Diesel SQLite backend in `daqcloud`
+  - declarative derived-signal, workspace, and export presets in `daq/config/`
 - `generators/`: Python CANpiler, fault, and DearUnits generators, their configurations, and templates
-- `plot_factory/`: Python telemetry analysis and plotting pipeline
 - `docs/`: shared documentation, including `docs/code_style.md`
 - `tests/`: C/C++ host-test harness and cross-project integration support. Python tests also live alongside generator and DearUnits code
 

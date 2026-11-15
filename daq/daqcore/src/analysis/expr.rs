@@ -311,6 +311,20 @@ impl Expr {
         }
     }
 
+    /// Return `true` if this AST contains any stateful time-series calculus or window function
+    /// (`derivative`, `integral`, `lowpass`, `rolling_mean`).
+    pub fn contains_series_fn(&self) -> bool {
+        match self {
+            Self::Literal(_) | Self::Signal(_) => false,
+            Self::Unary { operand, .. } => operand.contains_series_fn(),
+            Self::Binary { left, right, .. } => {
+                left.contains_series_fn() || right.contains_series_fn()
+            }
+            Self::ScalarCall { args, .. } => args.iter().any(Self::contains_series_fn),
+            Self::SeriesCall { .. } => true,
+        }
+    }
+
     /// Evaluate the AST over pre-aligned column vectors sharing `timestamps_ms`.
     ///
     /// `columns` must contain a `Vec<f64>` (of length `timestamps_ms.len()`) for every signal
@@ -332,19 +346,7 @@ impl Expr {
                 let vals = operand.eval_aligned(timestamps_ms, columns, max_staleness_ms)?;
                 Ok(vals
                     .into_iter()
-                    .map(|x| match op {
-                        UnaryOp::Pos => x,
-                        UnaryOp::Neg => -x,
-                        UnaryOp::Not => {
-                            if x.is_nan() {
-                                f64::NAN
-                            } else if x.abs() > 0.0 {
-                                0.0
-                            } else {
-                                1.0
-                            }
-                        }
-                    })
+                    .map(|x| eval_unary_scalar(*op, x))
                     .collect())
             }
             Self::Binary { op, left, right } => {
@@ -382,6 +384,175 @@ impl Expr {
             }
         }
     }
+
+    /// Evaluate `(min, max)` envelope bounds over pre-aligned `mean_cols`, `min_cols`, and `max_cols`.
+    ///
+    /// Pointwise scalar operations propagate interval bounds from child `(min, max)` columns.
+    /// Stateful time-series functions (`integral`, `derivative`, `lowpass`, `rolling_mean`)
+    /// are evaluated on the `mean` trajectory so per-bucket extremes are never summed cumulatively
+    /// into a diverging cone; each bucket's `(min, max)` bounds span the step transition across
+    /// that bucket.
+    pub fn eval_bounds_aligned(
+        &self,
+        timestamps_ms: &[i64],
+        mean_cols: &BTreeMap<String, Vec<f64>>,
+        min_cols: &BTreeMap<String, Vec<f64>>,
+        max_cols: &BTreeMap<String, Vec<f64>>,
+        max_staleness_ms: i64,
+    ) -> Result<(Vec<f64>, Vec<f64>), AnalysisError> {
+        let n = timestamps_ms.len();
+        match self {
+            Self::Literal(v) => Ok((vec![*v; n], vec![*v; n])),
+            Self::Signal(name) => {
+                let lo = min_cols
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| AnalysisError::UnknownChannel(name.clone()))?;
+                let hi = max_cols
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| AnalysisError::UnknownChannel(name.clone()))?;
+                Ok((lo, hi))
+            }
+            Self::Unary { op, operand } => {
+                let (lo, hi) = operand.eval_bounds_aligned(
+                    timestamps_ms,
+                    mean_cols,
+                    min_cols,
+                    max_cols,
+                    max_staleness_ms,
+                )?;
+                let mut out_lo = Vec::with_capacity(n);
+                let mut out_hi = Vec::with_capacity(n);
+                for (a, b) in lo.into_iter().zip(hi) {
+                    let va = eval_unary_scalar(*op, a);
+                    let vb = eval_unary_scalar(*op, b);
+                    out_lo.push(va.min(vb));
+                    out_hi.push(va.max(vb));
+                }
+                Ok((out_lo, out_hi))
+            }
+            Self::Binary { op, left, right } => {
+                let (l_lo, l_hi) = left.eval_bounds_aligned(
+                    timestamps_ms,
+                    mean_cols,
+                    min_cols,
+                    max_cols,
+                    max_staleness_ms,
+                )?;
+                let (r_lo, r_hi) = right.eval_bounds_aligned(
+                    timestamps_ms,
+                    mean_cols,
+                    min_cols,
+                    max_cols,
+                    max_staleness_ms,
+                )?;
+                let mut out_lo = Vec::with_capacity(n);
+                let mut out_hi = Vec::with_capacity(n);
+                for i in 0..n {
+                    let c1 = eval_binary_scalar(*op, l_lo[i], r_lo[i]);
+                    let c2 = eval_binary_scalar(*op, l_lo[i], r_hi[i]);
+                    let c3 = eval_binary_scalar(*op, l_hi[i], r_lo[i]);
+                    let c4 = eval_binary_scalar(*op, l_hi[i], r_hi[i]);
+                    out_lo.push(c1.min(c2).min(c3).min(c4));
+                    out_hi.push(c1.max(c2).max(c3).max(c4));
+                }
+                Ok((out_lo, out_hi))
+            }
+            Self::ScalarCall { func, args } => {
+                let mut arg_los = Vec::with_capacity(args.len());
+                let mut arg_his = Vec::with_capacity(args.len());
+                for arg in args {
+                    let (lo, hi) = arg.eval_bounds_aligned(
+                        timestamps_ms,
+                        mean_cols,
+                        min_cols,
+                        max_cols,
+                        max_staleness_ms,
+                    )?;
+                    arg_los.push(lo);
+                    arg_his.push(hi);
+                }
+                let mut out_lo = Vec::with_capacity(n);
+                let mut out_hi = Vec::with_capacity(n);
+                let mut scratch_lo = vec![0.0; args.len()];
+                let mut scratch_hi = vec![0.0; args.len()];
+                for i in 0..n {
+                    for j in 0..args.len() {
+                        scratch_lo[j] = arg_los[j][i];
+                        scratch_hi[j] = arg_his[j][i];
+                    }
+                    let v_lo = func.eval_scalar(&scratch_lo);
+                    let v_hi = func.eval_scalar(&scratch_hi);
+                    if matches!(func, ScalarFn::Abs)
+                        && args.len() == 1
+                        && scratch_lo[0] <= 0.0
+                        && scratch_hi[0] >= 0.0
+                    {
+                        out_lo.push(0.0);
+                        out_hi.push(v_lo.max(v_hi));
+                    } else {
+                        out_lo.push(v_lo.min(v_hi));
+                        out_hi.push(v_lo.max(v_hi));
+                    }
+                }
+                Ok((out_lo, out_hi))
+            }
+            Self::SeriesCall { func, arg } => {
+                let input_mean = arg.eval_aligned(timestamps_ms, mean_cols, max_staleness_ms)?;
+                let series_out =
+                    eval_series_fn(*func, timestamps_ms, &input_mean, max_staleness_ms);
+                let gap_ms = match *func {
+                    SeriesFn::Integral { reset_gap_ms } => {
+                        reset_gap_ms.unwrap_or(max_staleness_ms).max(1)
+                    }
+                    _ => max_staleness_ms.max(1),
+                };
+                Ok(series_step_bounds(timestamps_ms, &series_out, gap_ms))
+            }
+        }
+    }
+}
+
+fn eval_unary_scalar(op: UnaryOp, x: f64) -> f64 {
+    match op {
+        UnaryOp::Pos => x,
+        UnaryOp::Neg => -x,
+        UnaryOp::Not => {
+            if x.is_nan() {
+                f64::NAN
+            } else if x.abs() > 0.0 {
+                0.0
+            } else {
+                1.0
+            }
+        }
+    }
+}
+
+fn series_step_bounds(
+    timestamps_ms: &[i64],
+    values: &[f64],
+    max_gap_ms: i64,
+) -> (Vec<f64>, Vec<f64>) {
+    let n = values.len();
+    let mut lo = Vec::with_capacity(n);
+    let mut hi = Vec::with_capacity(n);
+    for i in 0..n {
+        let cur = values[i];
+        if i > 0 && cur.is_finite() && values[i - 1].is_finite() {
+            let dt = timestamps_ms[i] - timestamps_ms[i - 1];
+            if dt > 0 && dt <= max_gap_ms {
+                let prev = values[i - 1];
+                lo.push(prev.min(cur));
+                hi.push(prev.max(cur));
+                continue;
+            }
+        }
+        lo.push(cur);
+        hi.push(cur);
+    }
+    (lo, hi)
 }
 
 fn eval_binary_scalar(op: BinaryOp, a: f64, b: f64) -> f64 {

@@ -1,0 +1,703 @@
+{
+  "presets": [
+    {
+      "id": "vd_handling_suspension",
+      "schema_version": 1,
+      "name": "Vehicle Dynamics — Handling, Suspension & G-G",
+      "description": "Full vehicle dynamics workspace replacing plot_factory/configs/vehicle_dynamics/*.toml: Handling Response, G-G Diagram, Understeer & Yaw Scatters, Shockpots, and GPS Track Overlays.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.58, 0.42],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.38, 0.34, 0.28],
+            "children": [
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Handling Response",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "LWS_Standard.LWS_ANGLE", "label": "Steering Angle", "unit": "deg" },
+                      { "signal_id": "IMU_angular_rate.Z_axis", "label": "Yaw Rate", "unit": "deg/s" },
+                      { "signal_id": "IMU_acceleration.Y_axis", "label": "Lateral Acceleration", "unit": "g" },
+                      { "signal_id": "vd.understeer_gradient", "label": "Understeer Gradient", "unit": "deg/g" }
+                    ]
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "GPS Ground Speed",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Ground Speed", "unit": "m/s" },
+                      { "signal_id": "vd.wheel_speed_avg_rpm", "label": "Wheel Speed Avg", "unit": "rpm" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Shockpot Displacements vs Time",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "front_shockpots.left", "label": "FL Shockpot", "unit": "mm" },
+                      { "signal_id": "front_shockpots.right", "label": "FR Shockpot", "unit": "mm" },
+                      { "signal_id": "rear_shockpots.left", "label": "RL Shockpot", "unit": "mm" },
+                      { "signal_id": "rear_shockpots.right", "label": "RR Shockpot", "unit": "mm" }
+                    ]
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Heave & Roll Displacement (Distance Mode)",
+                    "x_mode": "track_distance",
+                    "speed_signal_id": "gps_speed_heading.gps_speed",
+                    "channels": [
+                      { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
+                      { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
+                      { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
+                      { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "state_lane",
+                "title": "Vehicle State & Fault Lanes",
+                "lanes": [
+                  { "signal_id": "main_hb.car_state", "label": "Car State" },
+                  { "signal_id": "vcu_driver_request.vcu_mode", "label": "VCU Mode" },
+                  { "signal_id": "inva_diagnostics.amk_state", "label": "Inverter A State" },
+                  { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.52, 0.48],
+            "children": [
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "G-G Diagram",
+                    "x_signal": "IMU_acceleration.Y_axis",
+                    "y_signal": "IMU_acceleration.X_axis",
+                    "z_color_signal": "gps_speed_heading.gps_speed",
+                    "equal_aspect": true,
+                    "show_g_rings": true
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "Yaw Rate vs Lateral Acceleration",
+                    "x_signal": "IMU_acceleration.Y_axis",
+                    "y_signal": "IMU_angular_rate.Z_axis",
+                    "z_color_signal": "gps_speed_heading.gps_speed",
+                    "equal_aspect": false,
+                    "show_g_rings": false
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "Yaw Rate vs Steering Angle",
+                    "x_signal": "LWS_Standard.LWS_ANGLE",
+                    "y_signal": "IMU_angular_rate.Z_axis",
+                    "z_color_signal": "gps_speed_heading.gps_speed",
+                    "equal_aspect": false,
+                    "show_g_rings": false
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "Steering Angle vs Lateral Acceleration",
+                    "x_signal": "IMU_acceleration.Y_axis",
+                    "y_signal": "LWS_Standard.LWS_ANGLE",
+                    "z_color_signal": "gps_speed_heading.gps_speed",
+                    "equal_aspect": false,
+                    "show_g_rings": false
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "Steering Angle vs GPS Ground Speed",
+                    "x_signal": "gps_speed_heading.gps_speed",
+                    "y_signal": "LWS_Standard.LWS_ANGLE",
+                    "z_color_signal": "IMU_acceleration.Y_axis",
+                    "equal_aspect": false,
+                    "show_g_rings": false
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "xy_scatter",
+                    "title": "Shockpot Displacement vs Lateral Acceleration",
+                    "x_signal": "IMU_acceleration.Y_axis",
+                    "y_signal": "front_shockpots.left",
+                    "z_color_signal": "front_shockpots.right",
+                    "equal_aspect": false,
+                    "show_g_rings": false
+                  }
+                ]
+              },
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "GPS Track Colored by Speed",
+                    "color_signal": "gps_speed_heading.gps_speed",
+                    "color_unit": "m/s",
+                    "max_distance_meters": 500.0
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "Longitudinal Acceleration on GPS Track",
+                    "color_signal": "IMU_acceleration.X_axis",
+                    "color_unit": "g",
+                    "max_distance_meters": 500.0
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "Lateral Acceleration on GPS Track",
+                    "color_signal": "IMU_acceleration.Y_axis",
+                    "color_unit": "g",
+                    "max_distance_meters": 500.0
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "Yaw Rate on GPS Track",
+                    "color_signal": "IMU_angular_rate.Z_axis",
+                    "color_unit": "deg/s",
+                    "max_distance_meters": 500.0
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "Throttle Position on GPS Track",
+                    "color_signal": "pedals.throttle",
+                    "color_unit": "%",
+                    "max_distance_meters": 500.0
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "gps_plot",
+                    "title": "Brake Position on GPS Track",
+                    "color_signal": "pedals.brake",
+                    "color_unit": "%",
+                    "max_distance_meters": 500.0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "powertrain_accumulator",
+      "schema_version": 1,
+      "name": "Powertrain — Accumulator, Torque & Motor Speeds",
+      "description": "Powertrain and HV accumulator workspace replacing plot_factory/configs/powertrain/*.toml: Battery Power & Current, Motor Speeds, Requested vs Actual Torque, and Power vs Voltage scatters.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.6, 0.4],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.36, 0.36, 0.28],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Battery Power and Current",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "battery.power_w", "label": "Battery power (vbatt source)", "unit": "W" },
+                  { "signal_id": "pack_stats.pack_current", "label": "Pack current", "unit": "A" },
+                  { "signal_id": "battery.voltage_v", "label": "Pack voltage", "unit": "V" },
+                  { "signal_id": "pack_stats.pack_voltage", "label": "Pack voltage (BMS)", "unit": "V" },
+                  { "signal_id": "battery.energy_wh", "label": "Cumulative Energy", "unit": "Wh" }
+                ]
+              },
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Requested and Actual Torque",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "vcu_torque_request.front_left", "label": "Req Torque FL", "unit": "Nm" },
+                      { "signal_id": "vcu_torque_request.front_right", "label": "Req Torque FR", "unit": "Nm" },
+                      { "signal_id": "vcu_torque_request.rear_left", "label": "Req Torque RL", "unit": "Nm" },
+                      { "signal_id": "vcu_torque_request.rear_right", "label": "Req Torque RR", "unit": "Nm" },
+                      { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "Actual Torque INVA", "unit": "Nm" },
+                      { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "Actual Torque INVB", "unit": "Nm" },
+                      { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "Actual Torque INVC", "unit": "Nm" },
+                      { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "Actual Torque INVD", "unit": "Nm" }
+                    ]
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Throttle and AMK Actual Torque vs Time",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "pedals.throttle", "label": "Throttle", "unit": "%" },
+                      { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "INVA Actual Torque", "unit": "Nm" },
+                      { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "INVB Actual Torque", "unit": "Nm" },
+                      { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "INVC Actual Torque", "unit": "Nm" },
+                      { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "INVD Actual Torque", "unit": "Nm" }
+                    ]
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Motor Speeds",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "motor_speeds.front_left", "label": "Motor Speed FL", "unit": "rpm" },
+                      { "signal_id": "motor_speeds.front_right", "label": "Motor Speed FR", "unit": "rpm" },
+                      { "signal_id": "motor_speeds.rear_left", "label": "Motor Speed RL", "unit": "rpm" },
+                      { "signal_id": "motor_speeds.rear_right", "label": "Motor Speed RR", "unit": "rpm" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "state_lane",
+                "title": "BMS & Precharge Fault Lanes",
+                "lanes": [
+                  { "signal_id": "main_hb_amk.precharge_state", "label": "Precharge State" },
+                  { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" },
+                  { "signal_id": "a_box_fault_sync.PACK_OVERTEMP", "label": "Fault: Pack Overtemp" },
+                  { "signal_id": "a_box_fault_sync.CELL_UNDERVOLTAGE", "label": "Fault: Cell Undervoltage" },
+                  { "signal_id": "a_box_fault_sync.CELL_OVERVOLTAGE", "label": "Fault: Cell Overvoltage" },
+                  { "signal_id": "main_module_fault_sync.SDC1_IMD", "label": "SDC1 IMD" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.5, 0.5],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Total Battery Power vs Battery Voltage",
+                "x_signal": "battery.voltage_v",
+                "y_signal": "battery.power_w",
+                "z_color_signal": "pack_stats.max_temp",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Throttle Commanded vs Actual Torque",
+                "x_signal": "pedals.throttle",
+                "y_signal": "INVA_CRIT.AMK_ActualTorque",
+                "z_color_signal": "battery.power_kw",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "thermals_cooling",
+      "schema_version": 1,
+      "name": "Thermals — Inverters, Motors, IGBTs & Pack",
+      "description": "Thermal analysis workspace replacing plot_factory/configs/thermals/*.toml: IGBT, Inverter, Motor, and Pack temperatures vs time and vs total battery power.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.58, 0.42],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.34, 0.33, 0.33],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "IGBT Temperatures",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "INVA_TEMPS.AMK_IGBTTemp", "label": "INVA IGBT Temp", "unit": "C" },
+                  { "signal_id": "INVB_TEMPS.AMK_IGBTTemp", "label": "INVB IGBT Temp", "unit": "C" },
+                  { "signal_id": "INVC_TEMPS.AMK_IGBTTemp", "label": "INVC IGBT Temp", "unit": "C" },
+                  { "signal_id": "INVD_TEMPS.AMK_IGBTTemp", "label": "INVD IGBT Temp", "unit": "C" },
+                  { "signal_id": "thermals.max_igbt_temp_c", "label": "Max IGBT Temp", "unit": "C" }
+                ]
+              },
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Inverter Temperatures",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "label": "INVA Cold Plate Temp", "unit": "C" },
+                      { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "label": "INVB Cold Plate Temp", "unit": "C" },
+                      { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "label": "INVC Cold Plate Temp", "unit": "C" },
+                      { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "label": "INVD Cold Plate Temp", "unit": "C" },
+                      { "signal_id": "thermals.max_inverter_temp_c", "label": "Max Inverter Temp", "unit": "C" }
+                    ]
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "scope",
+                    "title": "Actual Torque and Cold Plate Temperature vs Time",
+                    "x_mode": "utc_time",
+                    "channels": [
+                      { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "INVA Torque", "unit": "Nm" },
+                      { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "INVB Torque", "unit": "Nm" },
+                      { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "INVC Torque", "unit": "Nm" },
+                      { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "INVD Torque", "unit": "Nm" },
+                      { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "label": "INVA Cold Plate", "unit": "C" },
+                      { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "label": "INVB Cold Plate", "unit": "C" },
+                      { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "label": "INVC Cold Plate", "unit": "C" },
+                      { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "label": "INVD Cold Plate", "unit": "C" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Motor Temperatures",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "INVA_TEMPS.AMK_MotorTemp", "label": "INVA Motor Temp", "unit": "C" },
+                  { "signal_id": "INVB_TEMPS.AMK_MotorTemp", "label": "INVB Motor Temp", "unit": "C" },
+                  { "signal_id": "INVC_TEMPS.AMK_MotorTemp", "label": "INVC Motor Temp", "unit": "C" },
+                  { "signal_id": "INVD_TEMPS.AMK_MotorTemp", "label": "INVD Motor Temp", "unit": "C" },
+                  { "signal_id": "thermals.max_motor_temp_c", "label": "Max Motor Temp", "unit": "C" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.34, 0.33, 0.33],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Battery Voltage vs Pack Temperature",
+                "x_signal": "pack_stats.max_temp",
+                "y_signal": "battery.voltage_v",
+                "z_color_signal": "battery.power_kw",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "IGBT Temperature vs Total Battery Power",
+                "x_signal": "battery.power_w",
+                "y_signal": "INVA_TEMPS.AMK_IGBTTemp",
+                "z_color_signal": "thermals.max_igbt_temp_c",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Pack Temperature vs Total Battery Power",
+                "x_signal": "battery.power_w",
+                "y_signal": "pack_stats.max_temp",
+                "z_color_signal": "battery.voltage_v",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "aero_ride_height",
+      "schema_version": 1,
+      "name": "Aerodynamics — Heave, Roll, Pitch & Ride Height",
+      "description": "Aerodynamics and suspension ride-height analysis across speed and track distance: front/rear heave, roll displacement, damper velocities, and shockpot deflections.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.6, 0.4],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.5, 0.5],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Front & Rear Heave & Roll vs Distance",
+                "x_mode": "track_distance",
+                "speed_signal_id": "gps_speed_heading.gps_speed",
+                "channels": [
+                  { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
+                  { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
+                  { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
+                  { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" },
+                  { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Damper Velocities vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "vd.fl_damper_vel_mms", "label": "FL Damper Vel", "unit": "mm/s" },
+                  { "signal_id": "vd.fr_damper_vel_mms", "label": "FR Damper Vel", "unit": "mm/s" },
+                  { "signal_id": "vd.rl_damper_vel_mms", "label": "RL Damper Vel", "unit": "mm/s" },
+                  { "signal_id": "vd.rr_damper_vel_mms", "label": "RR Damper Vel", "unit": "mm/s" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.5, 0.5],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Front Heave vs Ground Speed",
+                "x_signal": "gps_speed_heading.gps_speed",
+                "y_signal": "vd.front_heave_mm",
+                "z_color_signal": "IMU_acceleration.X_axis",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "gps_plot",
+                "title": "GPS Track Colored by Speed",
+                "color_signal": "gps_speed_heading.gps_speed",
+                "color_unit": "m/s",
+                "max_distance_meters": 500.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "sensors_controls",
+      "schema_version": 1,
+      "name": "Sensors & Controls — IMU, GPS, Pedals & Steering",
+      "description": "Sensor verification workspace replacing plot_factory/configs/sensors/*.toml: 3-axis Accelerometer, 3-axis Gyroscope, Pedal Commands, Steering Sensor, Shockpots, and GPS Sensor vs Time.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.34, 0.33, 0.33],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Vehicle-Axis Accelerometer vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "IMU_acceleration.X_axis", "label": "Accel X", "unit": "g" },
+                  { "signal_id": "IMU_acceleration.Y_axis", "label": "Accel Y", "unit": "g" },
+                  { "signal_id": "IMU_acceleration.Z_axis", "label": "Accel Z", "unit": "g" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Vehicle-Axis Gyroscope vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "IMU_angular_rate.X_axis", "label": "Gyro X (Roll)", "unit": "deg/s" },
+                  { "signal_id": "IMU_angular_rate.Y_axis", "label": "Gyro Y (Pitch)", "unit": "deg/s" },
+                  { "signal_id": "IMU_angular_rate.Z_axis", "label": "Gyro Z (Yaw)", "unit": "deg/s" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Pedal Commands vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "pedals.throttle", "label": "Throttle", "unit": "%" },
+                  { "signal_id": "pedals.regen", "label": "Regen", "unit": "%" },
+                  { "signal_id": "pedals.brake", "label": "Brake", "unit": "%" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.34, 0.33, 0.33],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Steering Sensor vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "LWS_Standard.LWS_ANGLE", "label": "Steering Angle", "unit": "deg" },
+                  { "signal_id": "LWS_Standard.LWS_SPEED", "label": "Steering Speed", "unit": "deg/s" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "GPS Sensor vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" },
+                  { "signal_id": "gps_speed_heading.gps_heading", "label": "GPS Heading", "unit": "deg" },
+                  { "signal_id": "gps_velocity.gps_vel_e", "label": "GPS Vel East", "unit": "m/s" },
+                  { "signal_id": "gps_velocity.gps_vel_n", "label": "GPS Vel North", "unit": "m/s" },
+                  { "signal_id": "gps_coordinates.latitude", "label": "Latitude", "unit": "deg" },
+                  { "signal_id": "gps_coordinates.longitude", "label": "Longitude", "unit": "deg" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Shockpot Displacements vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "front_shockpots.left", "label": "FL Shockpot", "unit": "mm" },
+                  { "signal_id": "front_shockpots.right", "label": "FR Shockpot", "unit": "mm" },
+                  { "signal_id": "rear_shockpots.left", "label": "RL Shockpot", "unit": "mm" },
+                  { "signal_id": "rear_shockpots.right", "label": "RR Shockpot", "unit": "mm" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "trackside_live_debug",
+      "schema_version": 1,
+      "name": "Trackside Live Debug — CAN Table, Bus Load & States",
+      "description": "Live trackside diagnostic layout with CAN Viewer Table, State & Fault Lanes, Bus Load monitor, Jitter histogram, and live Power/Speed Scope.",
+      "custom_formulas": [],
+      "layout": {
+        "type": "linear",
+        "dir": "horizontal",
+        "shares": [0.55, 0.45],
+        "children": [
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.6, 0.4],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "viewer_table",
+                "title": "CAN Viewer Table #1"
+              },
+              {
+                "type": "pane",
+                "widget": "state_lane",
+                "title": "Vehicle State & Fault Lanes",
+                "lanes": [
+                  { "signal_id": "main_hb.car_state", "label": "Car State" },
+                  { "signal_id": "main_hb_amk.precharge_state", "label": "Precharge State" },
+                  { "signal_id": "vcu_driver_request.vcu_mode", "label": "VCU Mode" },
+                  { "signal_id": "inva_diagnostics.amk_state", "label": "Inverter A State" },
+                  { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" },
+                  { "signal_id": "a_box_fault_sync.PACK_OVERTEMP", "label": "Fault: Pack Overtemp" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "linear",
+            "dir": "vertical",
+            "shares": [0.5, 0.5],
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Live Power & Speed",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "battery.power_kw", "label": "Pack Power", "unit": "kW" },
+                  { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" }
+                ]
+              },
+              {
+                "type": "tabs",
+                "active": 0,
+                "children": [
+                  {
+                    "type": "pane",
+                    "widget": "bus_load",
+                    "title": "Bus Load #1"
+                  },
+                  {
+                    "type": "pane",
+                    "widget": "jitter",
+                    "title": "Jitter #1"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
