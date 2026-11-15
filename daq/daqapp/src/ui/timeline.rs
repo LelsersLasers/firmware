@@ -1295,37 +1295,80 @@ fn show_day_overview_lane(
         }
     }
 
-    // 5. Render Folded Idle Gap dividers (`// 1h 45m idle //`)
-    for seg in projection.segments() {
+    // 5. Render Folded Idle Gap dividers (theme-aware fill, diagonal hatch, and strictly clipped text)
+    let gap_fill = if theme.is_light {
+        eframe::egui::Color32::from_rgb(228, 234, 242)
+    } else {
+        eframe::egui::Color32::from_rgb(16, 20, 28)
+    };
+    let gap_border = theme.border_color();
+    let gap_text_color = theme.muted_text_color();
+
+    for (seg_idx, seg) in projection.segments().iter().enumerate() {
         if seg.is_folded_gap() {
             let x0 = rect.left() + seg.frac_start * rect.width();
             let x1 = rect.left() + seg.frac_end * rect.width();
             let gap_rect = eframe::egui::Rect::from_min_max(
-                eframe::egui::pos2(x0, rect.top()),
-                eframe::egui::pos2(x1, rect.bottom()),
+                eframe::egui::pos2(x0, rect.top() + 1.0),
+                eframe::egui::pos2(x1, rect.bottom() - 1.0),
             );
-            painter.rect_filled(gap_rect, 0.0, eframe::egui::Color32::from_gray(16));
+            let gap_clip = gap_rect.intersect(clip_rect);
+            let gap_painter = ui.painter_at(gap_clip);
+            gap_painter.rect_filled(gap_rect, 1.0, gap_fill);
+
+            // Subtle diagonal hatch inside the folded gap
+            let mut hx = gap_rect.left() - gap_rect.height();
+            while hx < gap_rect.right() {
+                gap_painter.line_segment(
+                    [
+                        eframe::egui::pos2(hx, gap_rect.bottom()),
+                        eframe::egui::pos2(hx + gap_rect.height(), gap_rect.top()),
+                    ],
+                    eframe::egui::Stroke::new(1.0_f32, gap_border.gamma_multiply(0.55)),
+                );
+                hx += 7.0;
+            }
+
             painter.line_segment(
                 [gap_rect.left_top(), gap_rect.left_bottom()],
-                eframe::egui::Stroke::new(1.0_f32, eframe::egui::Color32::from_gray(90)),
+                eframe::egui::Stroke::new(1.0_f32, gap_border),
             );
             painter.line_segment(
                 [gap_rect.right_top(), gap_rect.right_bottom()],
-                eframe::egui::Stroke::new(1.0_f32, eframe::egui::Color32::from_gray(90)),
+                eframe::egui::Stroke::new(1.0_f32, gap_border),
             );
-            let label = format!(
-                "// {} //",
-                daqcore::timeline::format_idle_duration(seg.duration_ms())
-            );
-            if gap_rect.width() >= 28.0 {
-                painter.text(
+
+            let full_dur = daqcore::timeline::format_idle_duration(seg.duration_ms());
+            let short_dur = full_dur.strip_suffix(" idle").unwrap_or(&full_dur);
+            let label = if gap_rect.width() >= 96.0 {
+                format!("// {full_dur} //")
+            } else if gap_rect.width() >= 62.0 {
+                full_dur.clone()
+            } else {
+                short_dur.to_owned()
+            };
+
+            let text_clip = gap_rect
+                .shrink2(eframe::egui::vec2(2.0, 0.0))
+                .intersect(clip_rect);
+            if text_clip.width() >= 18.0 {
+                ui.painter_at(text_clip).text(
                     gap_rect.center(),
                     eframe::egui::Align2::CENTER_CENTER,
                     &label,
-                    eframe::egui::FontId::monospace(9.5),
-                    eframe::egui::Color32::from_gray(175),
+                    eframe::egui::FontId::monospace(9.0),
+                    gap_text_color,
                 );
             }
+
+            ui.interact(
+                gap_rect,
+                ui.id().with(("folded_idle_gap", seg_idx)),
+                eframe::egui::Sense::hover(),
+            )
+            .on_hover_text(format!(
+                "Folded idle gap: {full_dur}\nPress G or click 'Fold Gaps' to expand"
+            ));
         }
     }
 
@@ -1338,8 +1381,12 @@ fn show_day_overview_lane(
     let mut pending_delete_id: Option<String> = None;
 
     let opaque_pill_fill = |c: eframe::egui::Color32, selected: bool| -> eframe::egui::Color32 {
-        let mix = if selected { 0.68_f32 } else { 0.45_f32 };
-        let bg = [22.0_f32, 26.0_f32, 34.0_f32];
+        let mix = if selected { 0.72_f32 } else { 0.55_f32 };
+        let bg = if theme.is_light {
+            [30.0_f32, 41.0_f32, 59.0_f32]
+        } else {
+            [22.0_f32, 26.0_f32, 34.0_f32]
+        };
         let r = (bg[0] * (1.0 - mix) + (c.r() as f32) * mix).round() as u8;
         let g = (bg[1] * (1.0 - mix) + (c.g() as f32) * mix).round() as u8;
         let b = (bg[2] * (1.0 - mix) + (c.b() as f32) * mix).round() as u8;
@@ -1491,15 +1538,21 @@ fn show_day_overview_lane(
         eframe::egui::pos2(vp_left, rect.top() + 1.0),
         eframe::egui::pos2(vp_right, rect.bottom() - 1.0),
     );
-    painter.rect_filled(
-        vp_rect,
-        2.0,
-        eframe::egui::Color32::from_rgba_unmultiplied(255, 255, 255, 24),
-    );
+    let vp_stroke_color = if theme.is_light {
+        eframe::egui::Color32::from_rgb(15, 23, 42)
+    } else {
+        eframe::egui::Color32::WHITE
+    };
+    let vp_fill_color = if theme.is_light {
+        eframe::egui::Color32::from_rgba_unmultiplied(2, 132, 199, 22)
+    } else {
+        eframe::egui::Color32::from_rgba_unmultiplied(255, 255, 255, 24)
+    };
+    painter.rect_filled(vp_rect, 2.0, vp_fill_color);
     painter.rect_stroke(
         vp_rect,
         2.0,
-        eframe::egui::Stroke::new(1.5_f32, eframe::egui::Color32::WHITE),
+        eframe::egui::Stroke::new(1.5_f32, vp_stroke_color),
         eframe::egui::StrokeKind::Inside,
     );
     // Highlight left and right viewport resize grips
@@ -1556,13 +1609,18 @@ fn show_day_overview_lane(
         let _ = tl.set_window_secs(tl.end().secs(tl.start()));
     }
 
+    let playhead_color = if theme.is_light {
+        eframe::egui::Color32::from_rgb(217, 119, 6)
+    } else {
+        eframe::egui::Color32::from_rgb(250, 204, 21)
+    };
     let ph_x = time_to_x(router.timeline().setpoint_utc_ms()).clamp(r_left, r_right);
     painter.line_segment(
         [
             eframe::egui::pos2(ph_x, rect.top()),
             eframe::egui::pos2(ph_x, rect.bottom()),
         ],
-        eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::YELLOW),
+        eframe::egui::Stroke::new(2.0_f32, playhead_color),
     );
 
     // Subtle lane badge at top-left
@@ -1571,7 +1629,7 @@ fn show_day_overview_lane(
         eframe::egui::Align2::LEFT_BOTTOM,
         "DAY OVERVIEW",
         eframe::egui::FontId::monospace(8.5),
-        eframe::egui::Color32::from_gray(140),
+        theme.muted_text_color(),
     );
 
     if let Some((id, s, e)) = pending_single_click {
@@ -1812,6 +1870,11 @@ fn show_active_window_scrub_lane(
 
     // Playhead (`setpoint`) indicator on the Active Window Scrub Bar.
     // Clicking or dragging anywhere on this bar smoothly scrubs the Playhead!
+    let playhead_color = if theme.is_light {
+        eframe::egui::Color32::from_rgb(217, 119, 6)
+    } else {
+        eframe::egui::Color32::from_rgb(250, 204, 21)
+    };
     let timeline = router.timeline_mut();
     let ph_px = time_to_x(timeline.setpoint_utc_ms());
     let ph_y = area.top() + 7.0;
@@ -1820,13 +1883,16 @@ fn show_active_window_scrub_lane(
             eframe::egui::pos2(ph_px, rect.top() + 1.0),
             eframe::egui::pos2(ph_px, rect.bottom() - 1.0),
         ],
-        eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::YELLOW),
+        eframe::egui::Stroke::new(2.0_f32, playhead_color),
     );
-    painter.circle_filled(
-        eframe::egui::pos2(ph_px, ph_y),
-        5.0,
-        eframe::egui::Color32::YELLOW,
-    );
+    painter.circle_filled(eframe::egui::pos2(ph_px, ph_y), 5.0, playhead_color);
+    if theme.is_light {
+        painter.circle_stroke(
+            eframe::egui::pos2(ph_px, ph_y),
+            5.0,
+            eframe::egui::Stroke::new(1.0_f32, eframe::egui::Color32::from_rgb(120, 53, 15)),
+        );
+    }
 
     if (background.clicked() || background.dragged())
         && let Some(pointer) = background.interact_pointer_pos()
