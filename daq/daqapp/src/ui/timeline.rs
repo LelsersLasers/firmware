@@ -969,7 +969,7 @@ fn show_day_overview_lane(
     let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
 
     let lane_height = 28.0;
-    let width = ui.available_width().max(1.0);
+    let width = ui.available_width().max(16.0);
     let (rect, lane_response) = ui.allocate_exact_size(
         eframe::egui::vec2(width, lane_height),
         eframe::egui::Sense::click_and_drag(),
@@ -1122,6 +1122,9 @@ fn show_day_overview_lane(
         eframe::egui::Color32::from_rgb(r, g, b)
     };
 
+    let r_left = rect.left();
+    let r_right = rect.right().max(r_left);
+
     if timeline_ui.show_stints {
         let mut stints: Vec<&daqcore::storage::Annotation> = annotations
             .iter()
@@ -1131,8 +1134,8 @@ fn show_day_overview_lane(
 
         for (stint_idx, ann) in stints.into_iter().enumerate() {
             let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
-            let x0 = time_to_x(ann.start_utc_ms).clamp(rect.left(), rect.right());
-            let x1 = time_to_x(ann_end_ms).clamp(rect.left(), rect.right());
+            let x0 = time_to_x(ann.start_utc_ms).clamp(r_left, r_right);
+            let x1 = time_to_x(ann_end_ms).clamp(r_left, r_right);
             let is_point = ann.end_utc_ms.is_none() || ann_end_ms <= ann.start_utc_ms;
             let (pill_left, pill_right) = if is_point {
                 ((x0 - 4.0).max(rect.left()), (x0 + 4.0).min(rect.right()))
@@ -1235,9 +1238,11 @@ fn show_day_overview_lane(
         let fault_y_top = rect.bottom() - 10.0;
         let fault_y_bot = rect.bottom() - 2.0;
         let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
+        let fx_min = (r_left + 1.0).min(r_right);
+        let fx_max = (r_right - 1.0).max(fx_min);
         let mut last_tick_px: Option<i32> = None;
         for ann in annotations.iter().filter(|a| a.category == "fault") {
-            let fx = time_to_x(ann.start_utc_ms).clamp(rect.left() + 1.0, rect.right() - 1.0);
+            let fx = time_to_x(ann.start_utc_ms).clamp(fx_min, fx_max);
             let px_col = (fx.round() as i32) / 2;
             if last_tick_px == Some(px_col) {
                 continue;
@@ -1254,10 +1259,10 @@ fn show_day_overview_lane(
     }
 
     // 7. Draw Active Viewport `[start .. end]` with draggable Left/Right edge grips on the Day Overview lane
-    let vp_left = time_to_x(router.timeline().start_utc_ms()).clamp(rect.left(), rect.right());
+    let vp_left = time_to_x(router.timeline().start_utc_ms()).clamp(r_left, r_right);
     let vp_right = time_to_x(router.timeline().end_utc_ms())
-        .clamp(rect.left(), rect.right())
-        .max(vp_left + 4.0);
+        .clamp(r_left, r_right)
+        .max((vp_left + 4.0).min(r_right));
     let vp_rect = eframe::egui::Rect::from_min_max(
         eframe::egui::pos2(vp_left, rect.top() + 1.0),
         eframe::egui::pos2(vp_right, rect.bottom() - 1.0),
@@ -1327,7 +1332,7 @@ fn show_day_overview_lane(
         let _ = tl.set_window_secs(tl.end().secs(tl.start()));
     }
 
-    let ph_x = time_to_x(router.timeline().setpoint_utc_ms()).clamp(rect.left(), rect.right());
+    let ph_x = time_to_x(router.timeline().setpoint_utc_ms()).clamp(r_left, r_right);
     painter.line_segment(
         [
             eframe::egui::pos2(ph_x, rect.top()),
@@ -1477,7 +1482,7 @@ fn show_active_window_scrub_lane(
         .unwrap_or_default();
 
     let scrub_height = 20.0;
-    let width = ui.available_width().max(1.0);
+    let width = ui.available_width().max(16.0);
     let (rect, background) = ui.allocate_exact_size(
         eframe::egui::vec2(width, scrub_height),
         eframe::egui::Sense::click_and_drag(),
@@ -1797,19 +1802,36 @@ pub fn show_chunk_navigator_contents(
     diagnostic: &mut Option<String>,
     max_scroll_height: f32,
 ) {
+    let nav_max_w = ui.available_width().max(60.0);
+    ui.set_max_width(nav_max_w);
+    ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
     ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
-    // Search & Category Filter Header
-    ui.horizontal(|ui| {
-        ui.add(
-            eframe::egui::TextEdit::singleline(&mut timeline_ui.chunk_search_query)
-                .desired_width((ui.available_width() - 28.0).max(60.0))
-                .hint_text("Search date, stint, partition, fault, or note…"),
-        );
-        if !timeline_ui.chunk_search_query.is_empty() && ui.small_button("×").clicked() {
-            timeline_ui.chunk_search_query.clear();
-        }
-    });
+    // Search & Category Filter Header (right-to-left so the clear button deducts width first)
+    ui.allocate_ui_with_layout(
+        eframe::egui::vec2(nav_max_w, ui.spacing().interact_size.y),
+        eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+        |ui| {
+            ui.set_max_width(nav_max_w);
+            if ui
+                .add_enabled(
+                    !timeline_ui.chunk_search_query.is_empty(),
+                    eframe::egui::Button::new("×").small(),
+                )
+                .on_hover_text("Clear search query")
+                .clicked()
+            {
+                timeline_ui.chunk_search_query.clear();
+            }
+            let edit_w = (ui.available_width() - 10.0).max(40.0);
+            ui.add(
+                eframe::egui::TextEdit::singleline(&mut timeline_ui.chunk_search_query)
+                    .id(eframe::egui::Id::new("chunk_navigator_search_input"))
+                    .desired_width(edit_w)
+                    .hint_text("Search date, stint, partition, fault, or note…"),
+            );
+        },
+    );
 
     ui.horizontal_wrapped(|ui| {
         for (filter, lbl) in [
@@ -1887,6 +1909,10 @@ pub fn show_chunk_navigator_contents(
         .max_height(max_scroll_height)
         .auto_shrink([false, true])
         .show(ui, |ui| {
+            let inner_max_w = (nav_max_w - 8.0).max(60.0);
+            ui.set_max_width(inner_max_w);
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
+
             // Show newest track days first for fast multi-day navigation
             for day_id in day_ids.into_iter().rev() {
                 let mut day_parts: Vec<&(String, String, i64, i64, usize)> = all_partitions
@@ -1939,7 +1965,7 @@ pub fn show_chunk_navigator_contents(
                 }
 
                 let day_header = format!(
-                    "📅 {}  ({} stints · {} partitions · {} faults)",
+                    "📅 {}  ({} stints · {} parts · {} faults)",
                     day_id,
                     day_stints.len(),
                     day_parts.len(),
@@ -1951,6 +1977,9 @@ pub fn show_chunk_navigator_contents(
                 )
                 .default_open(true)
                 .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width().max(40.0));
+                    ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
+
                     ui.horizontal(|ui| {
                         if ui
                             .small_button("↔ Fit Entire Day")
@@ -1978,47 +2007,83 @@ pub fn show_chunk_navigator_contents(
                                 || ((cur_win_start - ann.start_utc_ms).abs() <= 1_000
                                     && (cur_win_end - ann_end).abs() <= 1_000);
                             let label = if dur_s > 0.0 {
-                                format!("🏷 {}  [{start_lbl} .. {end_lbl} · {dur_s:.1}s]", ann.name)
+                                format!("🏷 {} ({dur_s:.1}s · {start_lbl})", ann.name)
                             } else {
-                                format!("📍 {}  [{start_lbl}]", ann.name)
+                                format!("📍 {} [{start_lbl}]", ann.name)
+                            };
+                            let range_summary = if dur_s > 0.0 {
+                                format!("{}  [{start_lbl} .. {end_lbl} · {dur_s:.1}s]", ann.name)
+                            } else {
+                                format!("{}  [{start_lbl}]", ann.name)
                             };
                             let hover = if ann.notes.is_empty() {
-                                "Click to jump viewport to this subchunk".to_owned()
+                                format!("{range_summary}\nClick to jump viewport to this subchunk")
                             } else {
-                                format!("{}\nClick to jump viewport to this subchunk", ann.notes)
+                                format!(
+                                    "{range_summary}\n{}\nClick to jump viewport to this subchunk",
+                                    ann.notes
+                                )
                             };
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .selectable_label(is_active, label)
-                                    .on_hover_text(hover)
-                                    .clicked()
-                                {
-                                    req_single_ann = Some((
-                                        day_id.clone(),
-                                        ann.id.clone(),
-                                        ann.start_utc_ms,
-                                        ann.end_utc_ms,
-                                    ));
-                                }
-                                if ui
-                                    .small_button(if selected_ann_ids.contains(&ann.id) {
-                                        "-Cmp"
-                                    } else {
-                                        "+Cmp"
-                                    })
-                                    .on_hover_text("Toggle multi-stint Comparison / Overlay Mode")
-                                    .clicked()
-                                {
-                                    req_compare_ann =
-                                        Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
-                                }
-                                if ui.small_button("Edit").clicked() {
-                                    req_edit_ann = Some((*ann).clone());
-                                }
-                                if ui.small_button("×").clicked() {
-                                    req_delete_ann_id = Some(ann.id.clone());
-                                }
-                            });
+                            let row_w = ui.available_width().max(60.0);
+                            ui.allocate_ui_with_layout(
+                                eframe::egui::vec2(row_w, 20.0),
+                                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+                                |ui| {
+                                    ui.set_max_width(row_w);
+                                    if ui
+                                        .small_button("×")
+                                        .on_hover_text("Delete annotation")
+                                        .clicked()
+                                    {
+                                        req_delete_ann_id = Some(ann.id.clone());
+                                    }
+                                    if ui
+                                        .small_button("Edit")
+                                        .on_hover_text("Edit annotation")
+                                        .clicked()
+                                    {
+                                        req_edit_ann = Some((*ann).clone());
+                                    }
+                                    if ui
+                                        .small_button(if selected_ann_ids.contains(&ann.id) {
+                                            "-Cmp"
+                                        } else {
+                                            "+Cmp"
+                                        })
+                                        .on_hover_text(
+                                            "Toggle multi-stint Comparison / Overlay Mode",
+                                        )
+                                        .clicked()
+                                    {
+                                        req_compare_ann =
+                                            Some((ann.id.clone(), ann.start_utc_ms, ann.end_utc_ms));
+                                    }
+                                    let rem_w = ui.available_width().max(20.0);
+                                    ui.allocate_ui_with_layout(
+                                        eframe::egui::vec2(rem_w, 20.0),
+                                        eframe::egui::Layout::left_to_right(
+                                            eframe::egui::Align::Center,
+                                        ),
+                                        |ui| {
+                                            ui.set_max_width(rem_w);
+                                            ui.style_mut().wrap_mode =
+                                                Some(eframe::egui::TextWrapMode::Truncate);
+                                            if ui
+                                                .selectable_label(is_active, label)
+                                                .on_hover_text(hover)
+                                                .clicked()
+                                            {
+                                                req_single_ann = Some((
+                                                    day_id.clone(),
+                                                    ann.id.clone(),
+                                                    ann.start_utc_ms,
+                                                    ann.end_utc_ms,
+                                                ));
+                                            }
+                                        },
+                                    );
+                                },
+                            );
                         }
                     }
 

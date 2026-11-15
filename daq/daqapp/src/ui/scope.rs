@@ -1261,12 +1261,12 @@ impl Scope {
                         .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
                     if shift_held && scroll.y.abs() > 0.5 {
                         let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
-                        let cur_span = (active_y_max - active_y_min).max(1e-6);
+                        let y_lo = active_y_min.min(active_y_max);
+                        let y_hi = active_y_max.max(y_lo);
+                        let cur_span = (y_hi - y_lo).max(1e-6);
                         let new_span = (cur_span * factor).clamp(1e-4, 1e9);
-                        let anchor_y = pointer_plot_y
-                            .unwrap_or((active_y_min + active_y_max) * 0.5)
-                            .clamp(active_y_min, active_y_max);
-                        let ratio = (anchor_y - active_y_min) / cur_span;
+                        let anchor_y = pointer_plot_y.unwrap_or((y_lo + y_hi) * 0.5).clamp(y_lo, y_hi);
+                        let ratio = (anchor_y - y_lo) / cur_span;
                         let new_lo = anchor_y - ratio * new_span;
                         next_y_override = Some((new_lo, new_lo + new_span));
                     } else if (zoom_delta - 1.0).abs() > 1e-3 {

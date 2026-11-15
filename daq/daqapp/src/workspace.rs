@@ -926,40 +926,61 @@ mod tests {
             ui::theme::ThemeSelection::NominalLight,
         ] {
             app.set_theme(&ctx, theme_sel);
-            for tab in [
-                ui::sidebar::SidebarTab::Channels,
-                ui::sidebar::SidebarTab::Sessions,
-                ui::sidebar::SidebarTab::Widgets,
-                ui::sidebar::SidebarTab::Settings,
-            ] {
-                app.sidebar_tab = tab;
-                app.is_sidebar_open = true;
+            for tree_mode in [false, true] {
+                app.signal_browser.tree_mode = tree_mode;
+                for tab in [
+                    ui::sidebar::SidebarTab::Channels,
+                    ui::sidebar::SidebarTab::Sessions,
+                    ui::sidebar::SidebarTab::Widgets,
+                    ui::sidebar::SidebarTab::Settings,
+                ] {
+                    app.sidebar_tab = tab;
+                    app.is_sidebar_open = true;
 
-                let mut raw_input = eframe::egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    ..Default::default()
-                };
-                raw_input.viewport_id = eframe::egui::ViewportId::ROOT;
+                    let mut raw_input = eframe::egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        ..Default::default()
+                    };
+                    raw_input.viewport_id = eframe::egui::ViewportId::ROOT;
 
-                let full_output = ctx.run(raw_input, |ctx| {
-                    ctx.set_style(app.theme.clone());
-                    ui::sidebar::show(&mut app, ctx);
-                    ui::timeline::show(&mut app, ctx);
-                    super::show(&mut app, ctx);
-                });
+                    let full_output = ctx.run(raw_input, |ctx| {
+                        ctx.set_style(app.theme.clone());
+                        ui::sidebar::show(&mut app, ctx);
+                        ui::timeline::show(&mut app, ctx);
+                        super::show(&mut app, ctx);
+                    });
 
-                for prim in &full_output.shapes {
-                    assert!(
-                        prim.clip_rect.min.x >= -1.0
-                            && prim.clip_rect.min.y >= -1.0
-                            && prim.clip_rect.max.x <= 1441.0
-                            && prim.clip_rect.max.y <= 901.0,
-                        "Clip rect {:?} exceeded screen rect {:?}",
-                        prim.clip_rect,
-                        screen_rect
-                    );
+                    for prim in &full_output.shapes {
+                        assert!(
+                            prim.clip_rect.min.x >= -1.0
+                                && prim.clip_rect.min.y >= -1.0
+                                && prim.clip_rect.max.x <= 1441.0
+                                && prim.clip_rect.max.y <= 901.0,
+                            "Clip rect {:?} exceeded screen rect {:?}",
+                            prim.clip_rect,
+                            screen_rect
+                        );
+                    }
                 }
             }
         }
+
+        // Regression test: ultra-narrow window (width = 214.0px where rail + drawer consume ~213.4px)
+        // must never panic with `min > max` inside `timeline.rs` or `scope.rs`.
+        let tiny_rect = eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            eframe::egui::vec2(214.0, 180.0),
+        );
+        let mut tiny_input = eframe::egui::RawInput {
+            screen_rect: Some(tiny_rect),
+            ..Default::default()
+        };
+        tiny_input.viewport_id = eframe::egui::ViewportId::ROOT;
+        let _ = ctx.run(tiny_input, |ctx| {
+            ctx.set_style(app.theme.clone());
+            ui::sidebar::show(&mut app, ctx);
+            ui::timeline::show(&mut app, ctx);
+            super::show(&mut app, ctx);
+        });
     }
 }

@@ -162,6 +162,7 @@ pub struct SignalBrowserState {
     pub formula_draft: Option<FormulaDraft>,
     pub show_filters: bool,
     pub tree_mode: bool,
+    pub hover_utc_ms: Option<i64>,
 }
 
 /// Test whether a candidate text set matches a user search query (supporting glob wildcards
@@ -208,8 +209,25 @@ struct MessageGroup {
     signals: Vec<SignalLeaf>,
 }
 
-/// Render a single clean Nominal-style channel row:
-/// `[icon]  channel_name                                  [unit]`
+fn format_sidebar_value(v: f64) -> String {
+    if !v.is_finite() {
+        return String::new();
+    }
+    let rounded = v.round();
+    if (v - rounded).abs() < 1e-6 && v.abs() < 1e9 {
+        let int_val = if rounded == 0.0 { 0.0 } else { rounded };
+        format!("{int_val:.0}")
+    } else if v.abs() >= 1000.0 {
+        format!("{v:.1}")
+    } else if v.abs() >= 1.0 {
+        format!("{v:.2}")
+    } else {
+        format!("{v:.3}")
+    }
+}
+
+/// Render a single clean Nominal / AdvantageScope-style channel row:
+/// `[icon]  channel_name                           [latest_val] [unit]`
 /// No permanent `[Plot]` / `[Edit]` buttons cluttering the row.
 #[allow(clippy::too_many_arguments)]
 fn show_clean_channel_row(
@@ -217,11 +235,14 @@ fn show_clean_channel_row(
     dnd_id: eframe::egui::Id,
     icon: &str,
     icon_color: eframe::egui::Color32,
+    canonical_id: &str,
     primary_text: &str,
     unit_text: &str,
     hover_tooltip: &str,
     drag_payload: DraggedSignal,
     edit_formula: Option<&daqcore::analysis::CompiledDerivedSignal>,
+    cursor_utc_ms: i64,
+    router: &daqcore::router::VirtualTimelineRouter,
     state: &mut SignalBrowserState,
     action_queue: &mut Vec<action::AppAction>,
     muted_color: eframe::egui::Color32,
@@ -232,6 +253,9 @@ fn show_clean_channel_row(
     let dnd_resp = ui.dnd_drag_source(dnd_id, drag_payload.clone(), |ui| {
         let (rect, _) =
             ui.allocate_exact_size(eframe::egui::vec2(row_w, row_h), eframe::egui::Sense::hover());
+        if !ui.is_rect_visible(rect) {
+            return;
+        }
         let is_hovered = ui.rect_contains_pointer(rect);
         let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
 
@@ -243,10 +267,14 @@ fn show_clean_channel_row(
             );
         }
 
-        // Right-aligned unit (reserve width so primary label truncates before colliding with unit)
-        let unit_reserve = if unit_text.is_empty() {
-            6.0_f32
-        } else {
+        let latest_val_str = router
+            .latest_signal_value_at(canonical_id, cursor_utc_ms)
+            .map(|(_, v)| format_sidebar_value(v))
+            .filter(|s| !s.is_empty());
+
+        // Right-aligned live/cursor value + unit (AdvantageScope / Nominal style)
+        let mut right_cursor = rect.right() - 4.0;
+        if !unit_text.is_empty() {
             let unit_galley = painter.layout_no_wrap(
                 unit_text.to_owned(),
                 eframe::egui::FontId::monospace(10.5),
@@ -255,14 +283,35 @@ fn show_clean_channel_row(
             let uw = unit_galley.size().x;
             painter.galley(
                 eframe::egui::pos2(
-                    rect.right() - uw - 4.0,
+                    right_cursor - uw,
                     rect.center().y - unit_galley.size().y * 0.5,
                 ),
                 unit_galley,
                 muted_color,
             );
-            uw + 12.0
-        };
+            right_cursor -= uw + 4.0;
+        }
+
+        if let Some(val_str) = &latest_val_str {
+            let val_color = ui.visuals().strong_text_color();
+            let val_galley = painter.layout_no_wrap(
+                val_str.clone(),
+                eframe::egui::FontId::monospace(11.0),
+                val_color,
+            );
+            let vw = val_galley.size().x;
+            painter.galley(
+                eframe::egui::pos2(
+                    right_cursor - vw,
+                    rect.center().y - val_galley.size().y * 0.5,
+                ),
+                val_galley,
+                val_color,
+            );
+            right_cursor -= vw + 6.0;
+        } else {
+            right_cursor -= 4.0;
+        }
 
         // Left icon (`ƒ` or `•`)
         painter.text(
@@ -273,9 +322,9 @@ fn show_clean_channel_row(
             icon_color,
         );
 
-        // Primary channel name clipped cleanly before the unit column
+        // Primary channel name clipped cleanly before the value/unit column
         let text_left = rect.left() + 18.0;
-        let text_right = (rect.right() - unit_reserve).max(text_left + 16.0);
+        let text_right = right_cursor.max(text_left + 16.0);
         let text_clip = eframe::egui::Rect::from_min_max(
             eframe::egui::pos2(text_left, rect.top()),
             eframe::egui::pos2(text_right, rect.bottom()),
@@ -587,6 +636,10 @@ pub fn show_signal_browser(
             })
             .collect();
 
+        let cursor_utc_ms = state
+            .hover_utc_ms
+            .unwrap_or_else(|| router.timeline().setpoint_utc_ms());
+
         if !state.tree_mode {
             // -----------------------------------------------------------------
             // Clean Nominal-style Flat Channel List
@@ -615,10 +668,13 @@ pub fn show_signal_browser(
                     "ƒ",
                     accent_color,
                     &def.id,
+                    &def.id,
                     &def.unit,
                     &tooltip,
                     drag_payload,
                     Some(compiled),
+                    cursor_utc_ms,
+                    router,
                     state,
                     action_queue,
                     muted_color,
@@ -657,10 +713,13 @@ pub fn show_signal_browser(
                         "•",
                         muted_color,
                         &canonical_id,
+                        &canonical_id,
                         &sig.unit,
                         &tooltip,
                         drag_payload,
                         None,
+                        cursor_utc_ms,
+                        router,
                         state,
                         action_queue,
                         muted_color,
@@ -674,104 +733,107 @@ pub fn show_signal_browser(
                         "No matching CAN messages or signals in the active timeline range.",
                     )
                     .weak()
-                    .small(),
+                    .font(eframe::egui::FontId::monospace(11.5)),
                 );
             }
         } else {
             // -----------------------------------------------------------------
-            // Grouped Tree Mode (Formulas + CAN Messages)
+            // Grouped Tree Mode (matching 11.5pt monospace typography of Flat view)
             // -----------------------------------------------------------------
-            eframe::egui::CollapsingHeader::new(
-                eframe::egui::RichText::new(format!("Derived Formulas ({})", matching_formulas.len()))
-                    .small()
-                    .strong(),
-            )
-            .id_salt("signal_browser_derived_folder")
-            .default_open(true)
-            .show(ui, |ui| {
-                for compiled in &matching_formulas {
-                    let def = &compiled.def;
-                    let drag_payload = DraggedSignal::Derived {
-                        signal_id: def.id.clone(),
-                        label: def.label.clone(),
-                        unit: def.unit.clone(),
-                    };
-                    let tooltip = format!(
-                        "Formula: {} ({})\nExpression: {}\nRight-click to edit",
-                        def.id, def.label, def.expression
-                    );
-                    show_clean_channel_row(
-                        ui,
-                        eframe::egui::Id::new(("dnd_derived_signal", &def.id)),
-                        "ƒ",
-                        accent_color,
-                        &def.id,
-                        &def.unit,
-                        &tooltip,
-                        drag_payload,
-                        Some(compiled),
-                        state,
-                        action_queue,
-                        muted_color,
-                    );
-                }
-            });
+            if !matching_formulas.is_empty() {
+                eframe::egui::CollapsingHeader::new(
+                    eframe::egui::RichText::new(format!(
+                        "ƒ Derived Formulas ({})",
+                        matching_formulas.len()
+                    ))
+                    .font(eframe::egui::FontId::monospace(11.5))
+                    .color(accent_color),
+                )
+                .id_salt("signal_browser_derived_folder")
+                .default_open(true)
+                .show(ui, |ui| {
+                    for compiled in &matching_formulas {
+                        let def = &compiled.def;
+                        let drag_payload = DraggedSignal::Derived {
+                            signal_id: def.id.clone(),
+                            label: def.label.clone(),
+                            unit: def.unit.clone(),
+                        };
+                        let tooltip = format!(
+                            "Formula: {} ({})\nExpression: {}\nRight-click to edit",
+                            def.id, def.label, def.expression
+                        );
+                        show_clean_channel_row(
+                            ui,
+                            eframe::egui::Id::new(("dnd_derived_signal", &def.id)),
+                            "ƒ",
+                            accent_color,
+                            &def.id,
+                            &def.id,
+                            &def.unit,
+                            &tooltip,
+                            drag_payload,
+                            Some(compiled),
+                            cursor_utc_ms,
+                            router,
+                            state,
+                            action_queue,
+                            muted_color,
+                        );
+                    }
+                });
+            }
 
             let query_active = !state.search_query.trim().is_empty();
-            eframe::egui::CollapsingHeader::new(
-                eframe::egui::RichText::new(format!(
-                    "CAN Messages ({visible_msg_count} msgs, {visible_sig_count} sigs)"
-                ))
-                .small()
-                .strong(),
-            )
-            .id_salt("signal_browser_can_tree")
-            .default_open(true)
-            .show(ui, |ui| {
-                for (group, sigs) in filtered_groups {
-                    let header_label = format!("{} ({})", group.msg_name, sigs.len());
-                    let mut header = eframe::egui::CollapsingHeader::new(
-                        eframe::egui::RichText::new(header_label).small(),
-                    )
-                    .id_salt(("sig_browser_msg", &group.msg_name));
-                    if query_active && visible_msg_count <= 25 {
-                        header = header.open(Some(true));
-                    }
-
-                    header.show(ui, |ui| {
-                        for sig in sigs {
-                            let canonical_id = daqcore::storage::format_signal_id(
-                                &sig.msg_name,
-                                &sig.signal_name,
-                            );
-                            let drag_payload = DraggedSignal::Raw {
-                                key: sig.key,
-                                msg_name: sig.msg_name.clone(),
-                                signal_name: sig.signal_name.clone(),
-                                unit: sig.unit.clone(),
-                            };
-                            let tooltip = format!(
-                                "Channel: {}\nBus: {} · Node: {}\n{}",
-                                canonical_id, group.bus_name, group.transmitter, sig.description
-                            );
-                            show_clean_channel_row(
-                                ui,
-                                eframe::egui::Id::new(("dnd_raw_signal", &canonical_id)),
-                                "•",
-                                muted_color,
-                                &sig.signal_name,
-                                &sig.unit,
-                                &tooltip,
-                                drag_payload,
-                                None,
-                                state,
-                                action_queue,
-                                muted_color,
-                            );
-                        }
-                    });
+            let _ = visible_sig_count;
+            for (group, sigs) in filtered_groups {
+                let header_label = format!("{} ({})", group.msg_name, sigs.len());
+                let mut header = eframe::egui::CollapsingHeader::new(
+                    eframe::egui::RichText::new(header_label)
+                        .font(eframe::egui::FontId::monospace(11.5))
+                        .color(ui.visuals().text_color()),
+                )
+                .id_salt(("sig_browser_msg", &group.msg_name));
+                if query_active && visible_msg_count <= 25 {
+                    header = header.open(Some(true));
                 }
-            });
+
+                header.show(ui, |ui| {
+                    for sig in sigs {
+                        let canonical_id = daqcore::storage::format_signal_id(
+                            &sig.msg_name,
+                            &sig.signal_name,
+                        );
+                        let drag_payload = DraggedSignal::Raw {
+                            key: sig.key,
+                            msg_name: sig.msg_name.clone(),
+                            signal_name: sig.signal_name.clone(),
+                            unit: sig.unit.clone(),
+                        };
+                        let tooltip = format!(
+                            "Channel: {}\nBus: {} · Node: {}\n{}",
+                            canonical_id, group.bus_name, group.transmitter, sig.description
+                        );
+                        show_clean_channel_row(
+                            ui,
+                            eframe::egui::Id::new(("dnd_raw_signal", &canonical_id)),
+                            "•",
+                            muted_color,
+                            &canonical_id,
+                            &sig.signal_name,
+                            &sig.unit,
+                            &tooltip,
+                            drag_payload,
+                            None,
+                            cursor_utc_ms,
+                            router,
+                            state,
+                            action_queue,
+                            muted_color,
+                        );
+                    }
+                });
+            }
         }
     });
 
@@ -1027,6 +1089,12 @@ mod tests {
             gps.overlay_signal(),
             Some(&("dc_bus_power_kw".to_owned(), "kW".to_owned()))
         );
+        assert_eq!(format_sidebar_value(0.0), "0");
+        assert_eq!(format_sidebar_value(-0.0), "0");
+        assert_eq!(format_sidebar_value(504.59), "504.59");
+        assert_eq!(format_sidebar_value(3633.05), "3633.1");
+        assert_eq!(format_sidebar_value(0.352), "0.352");
+        assert_eq!(format_sidebar_value(f64::NAN), "");
     }
 
     #[test]

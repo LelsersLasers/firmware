@@ -684,6 +684,9 @@ impl eframe::App for DAQApp {
             ctx.set_pixels_per_point(ppp);
         }
         ctx.set_style(self.theme.clone());
+        let bg_color = ui::theme::get_theme(ctx).panel_color();
+        ctx.layer_painter(eframe::egui::LayerId::background())
+            .rect_filled(ctx.content_rect(), 0.0, bg_color);
 
         // Handle keyboard shortcuts
         self.action_queue

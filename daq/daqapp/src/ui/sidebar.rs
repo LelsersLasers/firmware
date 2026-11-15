@@ -134,23 +134,31 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
 
     // 2. Collapsible Focused Sidebar Drawer
     let drawer_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
+        .fill(theme.panel_color())
         .inner_margin(eframe::egui::Margin::symmetric(6, 6))
         .stroke(eframe::egui::Stroke::new(1.0_f32, border_color));
 
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
-        .default_width(240.0)
-        .width_range(185.0..=440.0)
+        .default_width(250.0)
+        .width_range(190.0..=440.0)
         .frame(drawer_frame)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
-            let panel_width = ui.available_width();
+            let panel_width = ui.available_width().max(1.0);
             ui.set_max_width(panel_width);
-            eframe::egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.set_max_width(ui.available_width());
-                    match app.sidebar_tab {
-                        SidebarTab::Channels => {
+            ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+
+            match app.sidebar_tab {
+                SidebarTab::Sessions => {
+                    show_sessions_tab(ui, app, muted_color);
+                }
+                SidebarTab::Channels => {
+                    app.signal_browser.hover_utc_ms = app.hover_utc_ms;
+                    eframe::egui::ScrollArea::vertical()
+                        .id_salt("sidebar_channels_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_max_width(ui.available_width().max(1.0));
                             ui::signal_browser::show_signal_browser(
                                 ui,
                                 &mut app.signal_browser,
@@ -158,18 +166,27 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                                 &mut app.action_queue,
                                 &mut app.diagnostic,
                             );
-                        }
-                        SidebarTab::Sessions => {
-                            show_sessions_tab(ui, app, muted_color);
-                        }
-                        SidebarTab::Widgets => {
+                        });
+                }
+                SidebarTab::Widgets => {
+                    eframe::egui::ScrollArea::vertical()
+                        .id_salt("sidebar_widgets_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_max_width(ui.available_width().max(1.0));
                             show_widgets_tab(ui, app, muted_color);
-                        }
-                        SidebarTab::Settings => {
+                        });
+                }
+                SidebarTab::Settings => {
+                    eframe::egui::ScrollArea::vertical()
+                        .id_salt("sidebar_settings_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_max_width(ui.available_width().max(1.0));
                             show_settings_tab(ui, app, muted_color);
-                        }
-                    }
-                });
+                        });
+                }
+            }
         });
 }
 
@@ -481,6 +498,7 @@ fn show_sessions_tab(
     app: &mut app::DAQApp,
     muted_color: eframe::egui::Color32,
 ) {
+    ui.set_max_width(ui.available_width().max(1.0));
     ui.label(
         eframe::egui::RichText::new("SESSIONS, STINTS & PARTITIONS")
             .small()
@@ -488,7 +506,7 @@ fn show_sessions_tab(
             .color(muted_color),
     );
     ui.add_space(4.0);
-    let list_h = (ui.available_height() - 40.0).max(240.0);
+    let list_h = ui.available_height().max(120.0);
     ui::timeline::show_chunk_navigator_contents(
         ui,
         &mut app.router,
