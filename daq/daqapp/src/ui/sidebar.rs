@@ -306,7 +306,7 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                             if pending_downloads > 0 || pending_uploads > 0 {
                                 (
                                     format!(
-                                        "☁ Syncing (↓{} ↑{})",
+                                        "☁ Syncing (dl:{} ul:{})",
                                         pending_downloads, pending_uploads
                                     ),
                                     accent_color,
@@ -998,7 +998,7 @@ fn show_settings_tab(
             daqcore::storage::CloudSyncStatus::Disconnected
         );
         if is_active {
-            if ui.button("🔌 Disconnect").clicked() {
+            if ui.button("■ Disconnect").clicked() {
                 app.action_queue.push(action::AppAction::DisconnectCloud);
             }
             if ui
@@ -1026,7 +1026,7 @@ fn show_settings_tab(
         }
         daqcore::storage::CloudSyncStatus::Connecting { url } => {
             ui.label(
-                eframe::egui::RichText::new(format!("⏳ Connecting to {url}…"))
+                eframe::egui::RichText::new(format!("• Connecting to {url}…"))
                     .small()
                     .color(muted_color),
             );
@@ -1041,7 +1041,7 @@ fn show_settings_tab(
             let ws_badge = if ws_connected { "WS Live" } else { "HTTP Only" };
             ui.label(
                 eframe::egui::RichText::new(format!(
-                    "✔ Connected ({ws_badge}) — {synced_partitions} partitions synced (↓{pending_downloads} ↑{pending_uploads})"
+                    "✔ Connected ({ws_badge}) — {synced_partitions} partitions synced (dl:{pending_downloads} ul:{pending_uploads})"
                 ))
                 .small()
                 .color(eframe::egui::Color32::GREEN),
