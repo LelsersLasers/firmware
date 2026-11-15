@@ -389,6 +389,8 @@ pub fn show_timeline_contents(
     let mut clear_comparison = false;
 
     ui.horizontal_wrapped(|ui| {
+        ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
+
         // 1. Left: Monospace Playhead Timestamp (Nominal style: `2026-09-06 14:39:30.703 UTC`)
         ui.label(
             eframe::egui::RichText::new(format!("{active_date_lbl} {playhead_lbl} UTC"))
@@ -796,22 +798,23 @@ pub fn show_timeline_contents(
             clear_live_clicked = true;
         }
 
-        // 5. Compact Clock Provenance & LOD Badge (full details in tooltip)
-        eframe::egui::Frame::NONE
-            .fill(prov_color.gamma_multiply(0.14))
-            .stroke(eframe::egui::Stroke::new(1.0_f32, prov_color.gamma_multiply(0.6)))
-            .corner_radius(3.0)
-            .inner_margin(eframe::egui::Margin::symmetric(5, 1))
-            .show(ui, |ui| {
-                ui.label(
-                    eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
-                        .color(prov_color)
-                        .small(),
-                )
-                .on_hover_text(format!(
-                    "{prov_hover}\nLOD Tier: {active_res}\nTile Cache: {tile_cache_mib:.1} MiB\nSD Partitions: {partition_count} · Live Frames: {live_frame_count}"
-                ));
-            });
+        // 5. Compact Clock Provenance & LOD Badge (atomic pill so horizontal_wrapped never wraps character-by-character)
+        let prov_pill = eframe::egui::Button::new(
+            eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
+                .color(prov_color)
+                .small(),
+        )
+        .wrap_mode(eframe::egui::TextWrapMode::Extend)
+        .fill(prov_color.gamma_multiply(0.14))
+        .stroke(eframe::egui::Stroke::new(
+            1.0_f32,
+            prov_color.gamma_multiply(0.6),
+        ))
+        .corner_radius(3.0)
+        .sense(eframe::egui::Sense::hover());
+        ui.add(prov_pill).on_hover_text(format!(
+            "{prov_hover}\nLOD Tier: {active_res}\nTile Cache: {tile_cache_mib:.1} MiB\nSD Partitions: {partition_count} · Live Frames: {live_frame_count}"
+        ));
 
         if is_comparing {
             let names: Vec<String> = router
@@ -822,33 +825,28 @@ pub fn show_timeline_contents(
                 .map(|a| a.name)
                 .collect();
             let compare_label = if names.is_empty() {
-                format!("Comparing {} Events", selected_ids.len())
+                format!("Comparing {} Events  ×", selected_ids.len())
             } else {
-                format!("Comparing: {}", names.join(" vs "))
+                format!("Comparing: {}  ×", names.join(" vs "))
             };
             let compare_color = eframe::egui::Color32::from_rgb(168, 85, 247);
-            eframe::egui::Frame::NONE
-                .fill(compare_color.gamma_multiply(0.18))
-                .stroke(eframe::egui::Stroke::new(1.0_f32, compare_color))
-                .corner_radius(4.0)
-                .inner_margin(eframe::egui::Margin::symmetric(6, 1))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            eframe::egui::RichText::new(compare_label)
-                                .color(compare_color)
-                                .small()
-                                .strong(),
-                        );
-                        if ui
-                            .small_button("×")
-                            .on_hover_text("Exit Comparison Mode")
-                            .clicked()
-                        {
-                            clear_comparison = true;
-                        }
-                    });
-                });
+            let cmp_pill = eframe::egui::Button::new(
+                eframe::egui::RichText::new(compare_label)
+                    .color(compare_color)
+                    .small()
+                    .strong(),
+            )
+            .wrap_mode(eframe::egui::TextWrapMode::Extend)
+            .fill(compare_color.gamma_multiply(0.18))
+            .stroke(eframe::egui::Stroke::new(1.0_f32, compare_color))
+            .corner_radius(4.0);
+            if ui
+                .add(cmp_pill)
+                .on_hover_text("Click to exit Comparison Mode")
+                .clicked()
+            {
+                clear_comparison = true;
+            }
         }
     });
 

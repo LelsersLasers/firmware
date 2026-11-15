@@ -412,6 +412,8 @@ impl XYScatter {
         };
 
         ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
+
             for (slot, pill_text, tip_text) in [
                 (ScatterAxisSlot::X, x_pill.as_str(), x_tip.as_str()),
                 (ScatterAxisSlot::Y, y_pill.as_str(), y_tip.as_str()),

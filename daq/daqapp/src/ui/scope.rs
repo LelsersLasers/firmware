@@ -876,6 +876,8 @@ impl Scope {
         let mut export_csv = false;
 
         ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
+
             if is_comparison {
                 ui.colored_label(
                     eframe::egui::Color32::from_rgb(255, 190, 60),

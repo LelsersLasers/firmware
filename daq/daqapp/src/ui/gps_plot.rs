@@ -241,6 +241,8 @@ impl GpsPlot {
         // Single compact header strip: Color pill + min/max gradient + Recenter + `…` menu
         let mut clear_color = false;
         ui.horizontal_wrapped(|ui| {
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
+
             let (color_badge, color_tip) = if let Some((sig_id, unit)) = &self.overlay_signal {
                 let resolved_unit = if unit.is_empty() {
                     view.resolve_signal_unit(sig_id)
