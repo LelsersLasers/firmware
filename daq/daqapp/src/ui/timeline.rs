@@ -15,6 +15,7 @@ pub struct AnnotationDraft {
     pub notes: String,
     pub author: String,
     pub source: String,
+    pub min_updated_at_ms: i64,
 }
 
 impl AnnotationDraft {
@@ -57,11 +58,18 @@ impl AnnotationDraft {
             notes: String::new(),
             author: "user".to_owned(),
             source: "manual".to_owned(),
+            min_updated_at_ms: 0,
         }
     }
 
     pub fn from_existing(ann: &daqcore::storage::Annotation) -> Self {
         let is_point = ann.end_utc_ms.is_none_or(|e| e <= ann.start_utc_ms);
+        let author =
+            if ann.author.trim().is_empty() || ann.author == "daqcore" || ann.author == "auto" {
+                "user".to_owned()
+            } else {
+                ann.author.clone()
+            };
         Self {
             id: ann.id.clone(),
             is_new: false,
@@ -73,8 +81,9 @@ impl AnnotationDraft {
             name: ann.name.clone(),
             color: ann.color.clone(),
             notes: ann.notes.clone(),
-            author: ann.author.clone(),
-            source: ann.source.clone(),
+            author,
+            source: "manual".to_owned(),
+            min_updated_at_ms: ann.updated_at_ms,
         }
     }
 
@@ -85,6 +94,12 @@ impl AnnotationDraft {
         } else {
             Some(self.end_utc_ms.max(start))
         };
+        let author =
+            if self.author.trim().is_empty() || self.author == "daqcore" || self.author == "auto" {
+                "user".to_owned()
+            } else {
+                self.author
+            };
         daqcore::storage::Annotation {
             id: self.id,
             track_day_id: self.track_day_id,
@@ -97,10 +112,10 @@ impl AnnotationDraft {
             color: self.color,
             start_utc_ms: start,
             end_utc_ms,
-            author: self.author,
-            source: self.source,
+            author,
+            source: "manual".to_owned(),
             notes: self.notes,
-            updated_at_ms,
+            updated_at_ms: updated_at_ms.max(self.min_updated_at_ms),
             deleted: false,
         }
     }
@@ -1166,7 +1181,7 @@ fn show_day_overview_lane(
 
             let dur_s = (ann_end_ms - ann.start_utc_ms).max(0) as f64 / 1000.0;
             let hover_summary = format!(
-                "{} [{}]\n{} .. {} ({dur_s:.1}s)\n{}\nClick: Snap viewport · Shift+Click: Compare · Right-Click: Edit/Delete",
+                "{} [{}]\n{} .. {} ({dur_s:.1}s)\n{}\nClick: Snap viewport · Shift+Click: Compare · Double-Click / Right-Click: Edit",
                 ann.name,
                 ann.category,
                 daqcore::time::Time::from_unix_millis(ann.start_utc_ms).label(),
@@ -1186,7 +1201,10 @@ fn show_day_overview_lane(
                 )
                 .on_hover_text(hover_summary);
 
-            if pill_resp.clicked() {
+            if pill_resp.double_clicked() {
+                interacted_with_overlay = true;
+                pending_edit = Some(ann.clone());
+            } else if pill_resp.clicked() {
                 interacted_with_overlay = true;
                 let shift = ui.input(|i| i.modifiers.shift);
                 if shift {
@@ -1647,7 +1665,10 @@ pub fn show_annotation_editor_modal(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Event Name:");
-                ui.text_edit_singleline(&mut draft.name);
+                let name_resp = ui.text_edit_singleline(&mut draft.name);
+                if name_resp.lost_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                    save_clicked = true;
+                }
             });
 
             ui.horizontal(|ui| {
@@ -2246,6 +2267,36 @@ mod tests {
                 "unexpected timeline diagnostic: {diagnostic:?}"
             );
         }
+
+        // Verify editing an auto-generated driving stint via AnnotationDraft persists the rename
+        let existing_stint = router
+            .query_annotations_in_range(1_000_000..=9_000_000)
+            .expect("query annotations")
+            .into_iter()
+            .find(|a| a.id == "stint_1")
+            .expect("stint_1 exists");
+        assert_eq!(existing_stint.source, "auto");
+
+        timeline_ui.open_edit(&existing_stint);
+        let mut draft = timeline_ui.editor.take().expect("draft opened");
+        draft.name = "Autocross Run 1 (Dry)".to_owned();
+        let updated_ann = draft.into_annotation(1_000_500);
+        assert_eq!(updated_ann.source, "manual");
+        assert!(
+            router
+                .upsert_annotation(&updated_ann)
+                .expect("upsert edited stint"),
+            "editing an auto-generated driving stint must update the registry row"
+        );
+
+        let refreshed_stint = router
+            .query_annotations_in_range(1_000_000..=9_000_000)
+            .expect("query annotations after edit")
+            .into_iter()
+            .find(|a| a.id == "stint_1")
+            .expect("stint_1 still exists");
+        assert_eq!(refreshed_stint.name, "Autocross Run 1 (Dry)");
+        assert_eq!(refreshed_stint.source, "manual");
     }
 
     #[test]

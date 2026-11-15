@@ -26,12 +26,7 @@ use crate::{
     time::Time,
     timeline::MasterTimeline,
 };
-use std::{
-    collections::HashMap,
-    ops, path,
-    sync::Mutex,
-    time,
-};
+use std::{collections::HashMap, ops, path, sync::Mutex, time};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct QueryCacheKey {

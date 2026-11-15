@@ -557,7 +557,7 @@ impl Registry {
             }
 
             for annotation in &manifest.annotations {
-                Self::upsert_annotation_in_conn(conn, annotation)?;
+                Self::upsert_annotation_in_conn(conn, annotation, true)?;
             }
 
             Self::renumber_auto_stints_in_conn(conn, Some(&manifest.track_day_id))?;
@@ -659,7 +659,7 @@ impl Registry {
                 end_utc_ms,
             };
             Self::upsert_track_day_in_conn(conn, &day)?;
-            Self::upsert_annotation_in_conn(conn, annotation)
+            Self::upsert_annotation_in_conn(conn, annotation, false)
         })
         .map_err(RegistryError::from)
     }
@@ -759,6 +759,7 @@ impl Registry {
     fn upsert_annotation_in_conn(
         conn: &mut SqliteConnection,
         annotation: &Annotation,
+        from_manifest: bool,
     ) -> Result<bool, diesel::result::Error> {
         let existing = annotations::table
             .filter(annotations::id.eq(&annotation.id))
@@ -766,7 +767,7 @@ impl Registry {
             .first::<AnnotationRow>(conn)
             .optional()?;
 
-        let row = AnnotationRow::from(annotation);
+        let mut row = AnnotationRow::from(annotation);
         match existing {
             None => {
                 diesel::insert_into(annotations::table)
@@ -775,10 +776,28 @@ impl Registry {
                 Ok(true)
             }
             Some(prev) => {
-                // Auto-annotations are deterministic; never overwrite an existing row on re-import
-                // so manual edits, promotions to "manual", and soft-deletes are always preserved.
+                // Auto-annotations from partition manifests are deterministic; never overwrite an
+                // existing row on re-import so manual edits, promotions to "manual", and
+                // soft-deletes are always preserved.
                 if annotation.source == "auto" {
-                    return Ok(false);
+                    if from_manifest || prev.deleted || prev.source == "manual" {
+                        return Ok(false);
+                    }
+                    let content_changed = row.name != prev.name
+                        || row.category != prev.category
+                        || row.color != prev.color
+                        || row.start_utc_ms != prev.start_utc_ms
+                        || row.end_utc_ms != prev.end_utc_ms
+                        || row.notes != prev.notes
+                        || row.deleted != prev.deleted;
+                    if !content_changed {
+                        return Ok(false);
+                    }
+                    // Direct upsert of a modified auto-annotation promotes it to "manual".
+                    row.source = "manual".to_owned();
+                    if row.author == "daqcore" || row.author == "auto" || row.author.is_empty() {
+                        row.author = "user".to_owned();
+                    }
                 }
                 if annotation.updated_at_ms < prev.updated_at_ms {
                     return Ok(false);
@@ -799,8 +818,11 @@ impl Registry {
         track_day_filter: Option<&str>,
     ) -> Result<(), diesel::result::Error> {
         let mut query = annotations::table
-            .filter(annotations::source.eq("auto"))
-            .filter(annotations::category.eq("driving_stint"))
+            .filter(
+                annotations::category
+                    .eq("driving_stint")
+                    .or(annotations::id.like("auto_stint_%")),
+            )
             .filter(annotations::deleted.eq(false))
             .into_boxed();
         if let Some(day_id) = track_day_filter {
@@ -820,7 +842,15 @@ impl Registry {
         let mut stint_idx: usize = 0;
 
         for row in rows {
-            if !row.name.starts_with("Driving Stint #") {
+            let is_default_auto_name =
+                row.name
+                    .strip_prefix("Driving Stint #")
+                    .is_some_and(|suffix| {
+                        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+                    });
+            let is_auto_origin =
+                row.id.starts_with("auto_stint_") || (row.source == "auto" && is_default_auto_name);
+            if !is_auto_origin {
                 continue;
             }
             if current_day.as_deref() != Some(row.track_day_id.as_str()) {
@@ -828,6 +858,9 @@ impl Registry {
                 stint_idx = 1;
             } else {
                 stint_idx += 1;
+            }
+            if row.source != "auto" || !is_default_auto_name {
+                continue;
             }
             let expected_name = format!("Driving Stint #{stint_idx}");
             if row.name != expected_name {
@@ -1176,5 +1209,35 @@ mod tests {
                 "Driving Stint #4",
             ]
         );
+
+        // Editing an auto-generated driving stint label (even if caller leaves source == "auto")
+        // must persist the custom label, promote source to "manual", and preserve the numbering
+        // of remaining auto-detected stints on subsequent re-imports.
+        let mut edited_stint_1 = day_anns[0].clone();
+        edited_stint_1.name = "Warmup / Brake Bedding".to_owned();
+        assert!(registry.upsert_annotation(&edited_stint_1).unwrap());
+
+        let mut edited_stint_2 = day_anns[1].clone();
+        edited_stint_2.name = "Driving Stint #2 - Aero Sweep".to_owned();
+        assert!(registry.upsert_annotation(&edited_stint_2).unwrap());
+
+        registry.register_manifest(&m1, true).unwrap();
+        registry.register_manifest(&m2, true).unwrap();
+
+        let after_edit = registry
+            .list_annotations_for_day("2026-09-06", false)
+            .unwrap();
+        let edited_names: Vec<&str> = after_edit.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            edited_names,
+            vec![
+                "Warmup / Brake Bedding",
+                "Driving Stint #2 - Aero Sweep",
+                "Driving Stint #3",
+                "Driving Stint #4",
+            ]
+        );
+        assert_eq!(after_edit[0].source, "manual");
+        assert_eq!(after_edit[1].source, "manual");
     }
 }
