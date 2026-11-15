@@ -118,57 +118,12 @@ impl GpsPlot {
             }
         }
 
-        // Toolbar: arbitrary Color-by-Signal selector (like XYScatter) & outlier filter radius
         ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-        let mut clear_color = false;
-        ui.horizontal_wrapped(|ui| {
-            let color_badge = match &self.overlay_signal {
-                Some((sig_id, unit)) if !unit.is_empty() => format!("Color: {sig_id} [{unit}]"),
-                Some((sig_id, _)) => format!("Color: {sig_id}"),
-                None => "Color: None (Solid)".to_owned(),
-            };
-            if ui
-                .selectable_label(self.show_picker, color_badge)
-                .on_hover_text(
-                    "Click to choose any msg.signal or derived formula for trajectory coloring, or drag a signal from the Signal Browser",
-                )
-                .clicked()
-            {
-                self.show_picker = !self.show_picker;
-            }
-            if self.overlay_signal.is_some()
-                && ui
-                    .small_button("× Color")
-                    .on_hover_text("Clear color gradient channel (use solid trajectory color)")
-                    .clicked()
-            {
-                clear_color = true;
-            }
-            ui.separator();
-            ui.label("Radius:");
-            ui.add(
-                eframe::egui::DragValue::new(&mut self.max_distance_meters)
-                    .range(50.0..=50_000.0)
-                    .speed(10.0)
-                    .suffix(" m"),
-            )
-            .on_hover_text("Max distance from median track origin (filters invalid GPS outliers)");
-            if self.map_memory.detached().is_some()
-                && ui
-                    .small_button("Recenter")
-                    .on_hover_text("Snap map camera back to vehicle position")
-                    .clicked()
-            {
-                self.map_memory.follow_my_position();
-            }
-        });
-        if clear_color {
-            self.overlay_signal = None;
-            self.show_picker = false;
-        }
-
         if self.show_picker {
             ui.horizontal_wrapped(|ui| {
+                if ui.small_button("⬅ Map").clicked() {
+                    self.show_picker = false;
+                }
                 ui.label(eframe::egui::RichText::new("Quick:").weak().small());
                 for &(short_lbl, sig_id, unit) in QUICK_COLOR_CHANNELS {
                     let is_sel = self
@@ -274,67 +229,109 @@ impl GpsPlot {
             overlay_samples[idx].1
         });
 
-        ui.horizontal_wrapped(|ui| {
-            if let Some((t_ms, lat, lon)) = hover_fix.or(playhead_fix) {
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "Fix: {lat:.6}, {lon:.6} @ {}",
-                        daqcore::time::Time::from_unix_millis(t_ms).label()
-                    ))
-                    .monospace()
-                    .small(),
-                );
-            } else {
-                ui.label(
-                    eframe::egui::RichText::new("No GPS fix in active window.")
-                        .weak()
-                        .small(),
-                );
-            }
+        let fix_summary = if let Some((t_ms, lat, lon)) = hover_fix.or(playhead_fix) {
+            format!(
+                "Fix: {lat:.6}, {lon:.6} @ {}",
+                daqcore::time::Time::from_unix_millis(t_ms).label()
+            )
+        } else {
+            "No GPS fix in active window".to_owned()
+        };
 
-            if let Some((sig_id, unit)) = &self.overlay_signal {
-                ui.separator();
+        // Single compact header strip: Color pill + min/max gradient + Recenter + `…` menu
+        let mut clear_color = false;
+        ui.horizontal_wrapped(|ui| {
+            let (color_badge, color_tip) = if let Some((sig_id, unit)) = &self.overlay_signal {
                 let resolved_unit = if unit.is_empty() {
                     view.resolve_signal_unit(sig_id)
                 } else {
                     unit.clone()
                 };
-                let unit_str = if resolved_unit.is_empty() {
-                    ""
+                let u_str = if resolved_unit.is_empty() {
+                    String::new()
                 } else {
-                    resolved_unit.as_str()
+                    format!(" {resolved_unit}")
                 };
                 let short_sig = sig_id.rsplit('.').next().unwrap_or(sig_id);
-                if let Some((min_v, max_v)) = overlay_min_max {
-                    ui.colored_label(
-                        ui::xy_scatter::scalar_to_color(0.0),
-                        eframe::egui::RichText::new(format!("■ {min_v:.1}{unit_str}")).small(),
-                    );
-                    if let Some(cur_v) = cursor_overlay_val {
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "{short_sig}: {cur_v:.1}{unit_str}"
-                            ))
-                            .small(),
-                        )
-                        .on_hover_text(sig_id);
-                    } else {
-                        ui.label(eframe::egui::RichText::new(short_sig).small())
-                            .on_hover_text(sig_id);
-                    }
-                    ui.colored_label(
-                        ui::xy_scatter::scalar_to_color(1.0),
-                        eframe::egui::RichText::new(format!("■ {max_v:.1}{unit_str}")).small(),
-                    );
-                } else {
-                    ui.colored_label(
-                        eframe::egui::Color32::from_rgb(80, 190, 255),
-                        eframe::egui::RichText::new(format!("Color: {short_sig}")).small(),
-                    )
-                    .on_hover_text(sig_id);
-                }
+                let val_str = cursor_overlay_val
+                    .map(|v| format!(" = {v:.1}{u_str}"))
+                    .unwrap_or_else(|| u_str.clone());
+                (
+                    format!("Color: {short_sig}{val_str}"),
+                    format!("Trajectory Color Signal: {sig_id}\n{fix_summary}\nClick to change or drag signal here"),
+                )
+            } else {
+                (
+                    "Color: Solid".to_owned(),
+                    format!("{fix_summary}\nClick to choose a trajectory color signal"),
+                )
+            };
+
+            if ui
+                .selectable_label(
+                    self.show_picker,
+                    eframe::egui::RichText::new(color_badge).size(11.0),
+                )
+                .on_hover_text(color_tip)
+                .clicked()
+            {
+                self.show_picker = !self.show_picker;
             }
+
+            if let (Some((_, unit)), Some((min_v, max_v))) = (&self.overlay_signal, overlay_min_max) {
+                let u_str = unit.as_str();
+                ui.colored_label(
+                    ui::xy_scatter::scalar_to_color(0.0),
+                    eframe::egui::RichText::new(format!("■ {min_v:.1}{u_str}")).small(),
+                );
+                ui.colored_label(
+                    ui::xy_scatter::scalar_to_color(1.0),
+                    eframe::egui::RichText::new(format!("■ {max_v:.1}{u_str}")).small(),
+                );
+            }
+
+            if self.overlay_signal.is_some()
+                && ui
+                    .small_button("×")
+                    .on_hover_text("Clear color gradient channel")
+                    .clicked()
+            {
+                clear_color = true;
+            }
+
+            if self.map_memory.detached().is_some()
+                && ui
+                    .small_button("Recenter")
+                    .on_hover_text("Snap map camera back to vehicle position")
+                    .clicked()
+            {
+                self.map_memory.follow_my_position();
+            }
+
+            ui.menu_button("…", |ui| {
+                ui.set_min_width(190.0);
+                ui.label(eframe::egui::RichText::new(&fix_summary).monospace().small());
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Outlier Radius:");
+                    ui.add(
+                        eframe::egui::DragValue::new(&mut self.max_distance_meters)
+                            .range(50.0..=50_000.0)
+                            .speed(10.0)
+                            .suffix(" m"),
+                    );
+                });
+                if self.overlay_signal.is_some() && ui.button("Clear Trajectory Color").clicked() {
+                    clear_color = true;
+                    ui.close();
+                }
+            });
         });
+
+        if clear_color {
+            self.overlay_signal = None;
+            self.show_picker = false;
+        }
 
         let center_pos = playhead_fix
             .map(|(_, lat, lon)| walkers::lon_lat(lon, lat))

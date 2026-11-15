@@ -198,23 +198,7 @@ impl XYScatter {
             }
         }
 
-        // Top toolbar: presets + options
         ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Presets:");
-            if ui.small_button("G-G Diagram").clicked() {
-                *self = Self::preset_gg_diagram(self.instance_num);
-            }
-            if ui.small_button("Understeer").clicked() {
-                *self = Self::preset_understeer(self.instance_num);
-            }
-            if ui.small_button("Pack Temp/Volt").clicked() {
-                *self = Self::preset_battery_scatter(self.instance_num);
-            }
-            ui.separator();
-            ui.checkbox(&mut self.equal_aspect, "1:1 Aspect");
-            ui.checkbox(&mut self.show_g_rings, "G-Rings");
-        });
 
         let width_px = ui.available_width().max(60.0);
         let resolution = view.timeline.resolution_for_width(width_px);
@@ -345,61 +329,160 @@ impl XYScatter {
             });
         }
 
-        // Axis slot selector strip
+        // Single compact Nominal-style header strip:
+        // Clickable X / Y / Z pills with live cursor value + `…` menu for Presets, 1:1 Aspect, and G-Rings.
         let mut clear_z = false;
-        let fmt_slot_sig = |sig_id: &str, unit: &str| -> String {
-            if unit.is_empty() {
-                sig_id.to_owned()
-            } else {
-                format!("{sig_id} [{unit}]")
-            }
-        };
-        let (x_lbl, y_lbl, z_lbl) = {
+        let mut preset_choice: Option<u8> = None;
+
+        let cursor_ms = view.active_cursor_utc_ms();
+        let (x_pill, y_pill, z_pill, x_tip, y_tip, z_tip, x_axis_lbl, y_axis_lbl) = {
             let cached = self.cached_data.as_ref().expect("populated above");
-            let x_l = fmt_slot_sig(&self.x_signal, &cached.x_unit);
-            let y_l = fmt_slot_sig(&self.y_signal, &cached.y_unit);
-            let z_l = self
-                .z_color_signal
-                .as_deref()
-                .map(|z| fmt_slot_sig(z, &cached.z_unit))
-                .unwrap_or_else(|| "None".to_owned());
-            (x_l, y_l, z_l)
+            let cursor_idx = (!cached.timestamps_ms.is_empty()).then(|| {
+                let pos = cached.timestamps_ms.partition_point(|&t| t <= cursor_ms);
+                pos.saturating_sub(1).min(cached.timestamps_ms.len() - 1)
+            });
+
+            let x_short = short_signal_name(&self.x_signal);
+            let y_short = short_signal_name(&self.y_signal);
+            let x_u = if cached.x_unit.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", cached.x_unit)
+            };
+            let y_u = if cached.y_unit.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", cached.y_unit)
+            };
+
+            let x_val_str = cursor_idx
+                .map(|i| format!(" = {:.2}{x_u}", cached.x_vals[i]))
+                .unwrap_or_else(|| x_u.clone());
+            let y_val_str = cursor_idx
+                .map(|i| format!(" = {:.2}{y_u}", cached.y_vals[i]))
+                .unwrap_or_else(|| y_u.clone());
+
+            let (z_p, z_t) = if let Some(z_sig) = &self.z_color_signal {
+                let z_short = short_signal_name(z_sig);
+                let z_u = if cached.z_unit.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", cached.z_unit)
+                };
+                let z_val = cursor_idx
+                    .and_then(|i| cached.z_vals.as_ref().map(|zv| zv[i]))
+                    .map(|v| format!(" = {v:.2}{z_u}"))
+                    .unwrap_or_else(|| z_u.clone());
+                let range_str = cached
+                    .z_range
+                    .map(|(lo, hi)| format!("\nRange: {lo:.2}{z_u} .. {hi:.2}{z_u}"))
+                    .unwrap_or_default();
+                (
+                    format!("Z: {z_short}{z_val}"),
+                    format!("Color (Z): {z_sig}{range_str}\nClick to change or drag signal here"),
+                )
+            } else {
+                (
+                    "Z: None".to_owned(),
+                    "Click to choose a Color (Z) gradient signal".to_owned(),
+                )
+            };
+
+            let x_axis_l = if cached.x_unit.is_empty() {
+                self.x_signal.clone()
+            } else {
+                format!("{} [{}]", self.x_signal, cached.x_unit)
+            };
+            let y_axis_l = if cached.y_unit.is_empty() {
+                self.y_signal.clone()
+            } else {
+                format!("{} [{}]", self.y_signal, cached.y_unit)
+            };
+
+            (
+                format!("X: {x_short}{x_val_str}"),
+                format!("Y: {y_short}{y_val_str}"),
+                z_p,
+                format!("X Axis: {}\nClick to change or drag signal here", self.x_signal),
+                format!("Y Axis: {}\nClick to change or drag signal here", self.y_signal),
+                z_t,
+                x_axis_l,
+                y_axis_l,
+            )
         };
+
         ui.horizontal_wrapped(|ui| {
-            for (slot, current_val) in [
-                (ScatterAxisSlot::X, x_lbl.as_str()),
-                (ScatterAxisSlot::Y, y_lbl.as_str()),
-                (ScatterAxisSlot::ZColor, z_lbl.as_str()),
+            for (slot, pill_text, tip_text) in [
+                (ScatterAxisSlot::X, x_pill.as_str(), x_tip.as_str()),
+                (ScatterAxisSlot::Y, y_pill.as_str(), y_tip.as_str()),
+                (ScatterAxisSlot::ZColor, z_pill.as_str(), z_tip.as_str()),
             ] {
                 let is_picking = self.picker_slot == Some(slot);
                 let is_drop = self.active_drop_slot == slot;
-                let badge = format!(
-                    "{}{}: {}",
-                    if is_drop { "▶ " } else { "" },
-                    slot.label(),
-                    current_val
-                );
+                let badge = format!("{}{}", if is_drop { "▶ " } else { "" }, pill_text);
                 if ui
-                    .selectable_label(is_picking || is_drop, badge)
-                    .on_hover_text(format!(
-                        "Click to choose {} signal, or drag a signal from the Signal Browser",
-                        slot.label()
-                    ))
+                    .selectable_label(
+                        is_picking || is_drop,
+                        eframe::egui::RichText::new(badge).size(11.0),
+                    )
+                    .on_hover_text(tip_text)
                     .clicked()
                 {
                     self.active_drop_slot = slot;
                     self.picker_slot = if is_picking { None } else { Some(slot) };
                 }
             }
+
             if self.z_color_signal.is_some()
                 && ui
-                    .small_button("× Color")
+                    .small_button("×")
                     .on_hover_text("Clear color gradient channel")
                     .clicked()
             {
                 clear_z = true;
             }
+
+            ui.menu_button("…", |ui| {
+                ui.set_min_width(180.0);
+                ui.label(eframe::egui::RichText::new("Scatter Presets").weak().small());
+                if ui.button("G-G Diagram").clicked() {
+                    preset_choice = Some(0);
+                    ui.close();
+                }
+                if ui.button("Understeer Diagram").clicked() {
+                    preset_choice = Some(1);
+                    ui.close();
+                }
+                if ui.button("Pack Temp / Voltage").clicked() {
+                    preset_choice = Some(2);
+                    ui.close();
+                }
+                ui.separator();
+                ui.checkbox(&mut self.equal_aspect, "1:1 Aspect Ratio");
+                ui.checkbox(&mut self.show_g_rings, "Show G-Rings");
+                if self.z_color_signal.is_some() && ui.button("Clear Color (Z)").clicked() {
+                    clear_z = true;
+                    ui.close();
+                }
+            });
         });
+
+        match preset_choice {
+            Some(0) => {
+                *self = Self::preset_gg_diagram(self.instance_num);
+                return egui_tiles::UiResponse::None;
+            }
+            Some(1) => {
+                *self = Self::preset_understeer(self.instance_num);
+                return egui_tiles::UiResponse::None;
+            }
+            Some(2) => {
+                *self = Self::preset_battery_scatter(self.instance_num);
+                return egui_tiles::UiResponse::None;
+            }
+            _ => {}
+        }
+
         if clear_z {
             self.z_color_signal = None;
             if self.picker_slot == Some(ScatterAxisSlot::ZColor) {
@@ -420,60 +503,6 @@ impl XYScatter {
         let y_vals = &cached.y_vals;
         let z_vals = &cached.z_vals;
         let z_range = cached.z_range;
-        let x_unit = &cached.x_unit;
-        let y_unit = &cached.y_unit;
-        let z_unit = &cached.z_unit;
-
-        let cursor_ms = view.active_cursor_utc_ms();
-        let cursor_idx = (!timestamps_ms.is_empty()).then(|| {
-            let pos = timestamps_ms.partition_point(|&t| t <= cursor_ms);
-            pos.saturating_sub(1).min(timestamps_ms.len() - 1)
-        });
-
-        ui.horizontal(|ui| {
-            if let Some(idx) = cursor_idx {
-                let x_u = if x_unit.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {x_unit}")
-                };
-                let y_u = if y_unit.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {y_unit}")
-                };
-                let mut readout = format!(
-                    "Cursor: X = {:.2}{}, Y = {:.2}{}",
-                    x_vals[idx], x_u, y_vals[idx], y_u
-                );
-                if let Some(zv) = z_vals {
-                    let z_u = if z_unit.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {z_unit}")
-                    };
-                    readout.push_str(&format!(", Z = {:.2}{}", zv[idx], z_u));
-                }
-                ui.label(eframe::egui::RichText::new(readout).monospace().small());
-            } else {
-                ui.label(
-                    eframe::egui::RichText::new("No aligned X/Y samples in active window.")
-                        .weak()
-                        .small(),
-                );
-            }
-            if let (Some(z_sig), Some((z_min, z_max))) = (&self.z_color_signal, z_range) {
-                ui.separator();
-                let z_u = if z_unit.is_empty() {
-                    ""
-                } else {
-                    z_unit.as_str()
-                };
-                ui.colored_label(scalar_to_color(0.0), format!("■ {z_min:.1}{z_u}"));
-                ui.label(format!(".. {z_sig} .."));
-                ui.colored_label(scalar_to_color(1.0), format!("■ {z_max:.1}{z_u}"));
-            }
-        });
 
         let setpoint_ms = view.timeline.setpoint_utc_ms();
         let hover_ms = view.hover_utc_ms();
@@ -485,6 +514,8 @@ impl XYScatter {
         let mut plot = egui_plot::Plot::new(("xy_scatter_plot", self.instance_num))
             .width(plot_width)
             .height(plot_height)
+            .x_axis_label(x_axis_lbl)
+            .y_axis_label(y_axis_lbl)
             .allow_boxed_zoom(false)
             .allow_scroll(false);
         if self.equal_aspect {

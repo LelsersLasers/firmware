@@ -31,12 +31,12 @@ impl ViewerTable {
         let live_frames = view.live_frames_to_setpoint();
         let latest_live_frames = view.latest_live_frames_to_setpoint();
         let active_signals = view.active_signals_to_setpoint();
-        ui.heading(&self.title);
         ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
-            let search_width = (ui.available_width() - 150.0).clamp(80.0, 260.0);
+            let search_width = (ui.available_width() - 120.0).clamp(80.0, 260.0);
             ui.add(
-                eframe::egui::TextEdit::singleline(&mut self.search).desired_width(search_width),
+                eframe::egui::TextEdit::singleline(&mut self.search)
+                    .desired_width(search_width)
+                    .hint_text("🔍 Search message, signal, or hex ID…"),
             );
             let mut nodes: Vec<_> = latest_live_frames
                 .values()

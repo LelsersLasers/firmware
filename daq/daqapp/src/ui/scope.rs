@@ -170,6 +170,7 @@ pub struct Scope {
     search_query: String,
     pub x_axis_mode: ScopeXAxisMode,
     pub speed_signal_id: String,
+    pub show_inline_stats: bool,
     y_bounds_override: Option<(f64, f64)>,
     cached_data: Option<CachedScopeData>,
 }
@@ -199,6 +200,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            show_inline_stats: false,
             y_bounds_override: None,
             cached_data: None,
         }
@@ -214,6 +216,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            show_inline_stats: false,
             y_bounds_override: None,
             cached_data: None,
         }
@@ -243,6 +246,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            show_inline_stats: false,
             y_bounds_override: None,
             cached_data: None,
         }
@@ -273,6 +277,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
+            show_inline_stats: false,
             y_bounds_override: None,
             cached_data: None,
         }
@@ -296,6 +301,7 @@ impl Scope {
             search_query: String::new(),
             x_axis_mode,
             speed_signal_id,
+            show_inline_stats: false,
             y_bounds_override,
             cached_data: None,
         };
@@ -491,81 +497,7 @@ impl Scope {
                 Vec::new()
             };
         let is_comparison = comparison_annotations.len() >= 2;
-
-        // Top toolbar: X-axis mode selector, add/clear channel buttons, CSV export.
         ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-        let mut open_picker: Option<ScopePickerTarget> = None;
-        let mut clear_all = false;
-        let mut export_csv = false;
-        ui.horizontal_wrapped(|ui| {
-            if is_comparison {
-                ui.colored_label(
-                    eframe::egui::Color32::from_rgb(255, 190, 60),
-                    format!("[Overlay: {} laps/events]", comparison_annotations.len()),
-                );
-                ui.separator();
-            }
-            ui.label("X:");
-            for mode in [
-                ScopeXAxisMode::UtcTime,
-                ScopeXAxisMode::ElapsedTime,
-                ScopeXAxisMode::TrackDistance,
-            ] {
-                if ui
-                    .selectable_label(self.x_axis_mode == mode, mode.label())
-                    .clicked()
-                {
-                    self.x_axis_mode = mode;
-                    if mode == ScopeXAxisMode::TrackDistance && self.speed_signal_id.is_empty() {
-                        self.speed_signal_id = view.resolve_default_speed_signal();
-                    }
-                }
-            }
-            if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
-                let short_spd = self
-                    .speed_signal_id
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(&self.speed_signal_id);
-                if ui
-                    .small_button(format!("Speed: {short_spd}"))
-                    .on_hover_text(format!(
-                        "Speed signal for distance integration: {}\nClick to pick another msg.signal",
-                        self.speed_signal_id
-                    ))
-                    .clicked()
-                {
-                    open_picker = Some(ScopePickerTarget::SpeedSignal);
-                }
-            }
-            ui.separator();
-            if ui
-                .small_button("+ Signal")
-                .on_hover_text("Add another signal or derived formula to this Scope")
-                .clicked()
-            {
-                open_picker = Some(ScopePickerTarget::AddChannel);
-            }
-            if self.channels.len() > 1 && ui.small_button("Clear").clicked() {
-                clear_all = true;
-            }
-            if ui.small_button("Export CSV").clicked() {
-                export_csv = true;
-            }
-        });
-
-        if let Some(target) = open_picker {
-            self.picker_target = Some(target);
-            return egui_tiles::UiResponse::None;
-        }
-        if clear_all {
-            self.channels.clear();
-            self.cached_data = None;
-            self.custom_title = false;
-            self.refresh_title();
-            self.picker_target = Some(ScopePickerTarget::AddChannel);
-            return egui_tiles::UiResponse::None;
-        }
 
         let width_px = ui.available_width().max(1.0);
         let pixels = width_px as usize;
@@ -909,25 +841,6 @@ impl Scope {
             });
         }
 
-        if export_csv
-            && let Some(first_points) = self
-                .cached_data
-                .as_ref()
-                .and_then(|c| c.first_raw_mean_points.as_ref())
-            && let Some(path) = rfd::FileDialog::new()
-                .set_file_name(format!("{}_data.csv", self.title.replace([' ', ':'], "_")))
-                .add_filter("CSV", &["csv"])
-                .save_file()
-        {
-            let mut text = String::from("X,Value\n");
-            for p in first_points {
-                text.push_str(&format!("{},{}\n", p[0], p[1]));
-            }
-            if let Err(e) = fs::write(path, text) {
-                log::error!("Export failed: {e}");
-            }
-        }
-
         // Compute fast cursor values from cached series (falling back to router only when needed).
         let cursor_ms = view.active_cursor_utc_ms();
         let mut channel_stats: Vec<Option<ChannelStats>> = vec![None; self.channels.len()];
@@ -954,29 +867,60 @@ impl Scope {
             }
         }
 
-        // Render compact per-channel legend + cursor/min/max/mean statistics strip.
+        // Single compact Nominal-style header strip:
+        // Left: colored channel pills (`■ Label = 3633.1 W`, with `[min, max, avg]` in tooltip or optional inline toggle)
+        // Right: `+` button (add channel) and `…` menu (X-axis mode, speed signal, inline stats toggle, reset Y, CSV export, clear)
         let mut remove_idx: Option<usize> = None;
+        let mut open_picker: Option<ScopePickerTarget> = None;
+        let mut clear_all = false;
+        let mut export_csv = false;
+
         ui.horizontal_wrapped(|ui| {
+            if is_comparison {
+                ui.colored_label(
+                    eframe::egui::Color32::from_rgb(255, 190, 60),
+                    eframe::egui::RichText::new(format!("[Overlay: {}]", comparison_annotations.len()))
+                        .small()
+                        .strong(),
+                );
+            }
+
             for (idx, ch) in self.channels.iter().enumerate() {
                 let unit_str = if ch.unit.is_empty() {
                     String::new()
                 } else {
                     format!(" {}", ch.unit)
                 };
-                let stats_text = if let Some(st) = channel_stats[idx] {
+                let kind_prefix = if ch.is_derived { "ƒ " } else { "" };
+                let (pill_text, tooltip_text) = if let Some(st) = channel_stats[idx] {
                     let cur_str = st
                         .cursor
                         .map_or_else(|| "—".to_owned(), |v| format!("{v:.2}{unit_str}"));
-                    let kind_prefix = if ch.is_derived { "ƒ " } else { "" };
-                    format!(
-                        "■ {}{} = {}  [min {:.2}, max {:.2}, avg {:.2}]",
-                        kind_prefix, ch.label, cur_str, st.min, st.max, st.mean
-                    )
+                    let pill = if self.show_inline_stats {
+                        format!(
+                            "■ {}{} = {} [min {:.2}, max {:.2}, avg {:.2}]",
+                            kind_prefix, ch.label, cur_str, st.min, st.max, st.mean
+                        )
+                    } else {
+                        format!("■ {}{} = {}", kind_prefix, ch.label, cur_str)
+                    };
+                    let tip = format!(
+                        "{}\nCursor: {}\nWindow Min: {:.3}{}\nWindow Max: {:.3}{}\nWindow Avg: {:.3}{}",
+                        ch.signal_id, cur_str, st.min, unit_str, st.max, unit_str, st.mean, unit_str
+                    );
+                    (pill, tip)
                 } else {
-                    format!("■ {}{unit_str} (no samples)", ch.label)
+                    (
+                        format!("■ {}{}", ch.label, unit_str),
+                        format!("{} (no samples in active window)", ch.signal_id),
+                    )
                 };
-                ui.colored_label(ch.color, stats_text)
-                    .on_hover_text(&ch.signal_id);
+
+                ui.colored_label(
+                    ch.color,
+                    eframe::egui::RichText::new(pill_text).size(11.5),
+                )
+                .on_hover_text(tooltip_text);
                 if ui
                     .small_button("×")
                     .on_hover_text(format!("Remove {}", ch.signal_id))
@@ -984,11 +928,115 @@ impl Scope {
                 {
                     remove_idx = Some(idx);
                 }
-                ui.add_space(6.0);
+                ui.add_space(4.0);
             }
+
+            if ui
+                .small_button("+")
+                .on_hover_text("Add another signal or derived formula to this Scope")
+                .clicked()
+            {
+                open_picker = Some(ScopePickerTarget::AddChannel);
+            }
+
+            if self.x_axis_mode != ScopeXAxisMode::UtcTime {
+                if ui
+                    .small_button(self.x_axis_mode.label())
+                    .on_hover_text("Click to return to UTC Time X-axis")
+                    .clicked()
+                {
+                    self.x_axis_mode = ScopeXAxisMode::UtcTime;
+                }
+            }
+
+            ui.menu_button("…", |ui| {
+                ui.set_min_width(190.0);
+                ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
+                for mode in [
+                    ScopeXAxisMode::UtcTime,
+                    ScopeXAxisMode::ElapsedTime,
+                    ScopeXAxisMode::TrackDistance,
+                ] {
+                    if ui
+                        .selectable_label(self.x_axis_mode == mode, mode.label())
+                        .clicked()
+                    {
+                        self.x_axis_mode = mode;
+                        if mode == ScopeXAxisMode::TrackDistance && self.speed_signal_id.is_empty()
+                        {
+                            self.speed_signal_id = view.resolve_default_speed_signal();
+                        }
+                        ui.close();
+                    }
+                }
+                if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
+                    let short_spd = self
+                        .speed_signal_id
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or(&self.speed_signal_id);
+                    if ui
+                        .button(format!("Speed Signal: {short_spd}…"))
+                        .on_hover_text(&self.speed_signal_id)
+                        .clicked()
+                    {
+                        open_picker = Some(ScopePickerTarget::SpeedSignal);
+                        ui.close();
+                    }
+                }
+                ui.separator();
+                ui.checkbox(
+                    &mut self.show_inline_stats,
+                    "Show [min, max, avg] inline",
+                );
+                if self.y_bounds_override.is_some() && ui.button("Reset Y-Axis Zoom").clicked() {
+                    self.y_bounds_override = None;
+                    ui.close();
+                }
+                if ui.button("Export CSV…").clicked() {
+                    export_csv = true;
+                    ui.close();
+                }
+                if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
+                    clear_all = true;
+                    ui.close();
+                }
+            });
         });
+
+        if export_csv
+            && let Some(first_points) = self
+                .cached_data
+                .as_ref()
+                .and_then(|c| c.first_raw_mean_points.as_ref())
+            && let Some(path) = rfd::FileDialog::new()
+                .set_file_name(format!("{}_data.csv", self.title.replace([' ', ':'], "_")))
+                .add_filter("CSV", &["csv"])
+                .save_file()
+        {
+            let mut text = String::from("X,Value\n");
+            for p in first_points {
+                text.push_str(&format!("{},{}\n", p[0], p[1]));
+            }
+            if let Err(e) = fs::write(path, text) {
+                log::error!("Export failed: {e}");
+            }
+        }
+
         if let Some(idx) = remove_idx {
             self.remove_channel(idx);
+            return egui_tiles::UiResponse::None;
+        }
+        if let Some(target) = open_picker {
+            self.picker_target = Some(target);
+            return egui_tiles::UiResponse::None;
+        }
+        if clear_all {
+            self.channels.clear();
+            self.cached_data = None;
+            self.custom_title = false;
+            self.refresh_title();
+            self.picker_target = Some(ScopePickerTarget::AddChannel);
             return egui_tiles::UiResponse::None;
         }
 
@@ -1105,7 +1153,9 @@ impl Scope {
                     start.offset(offset_ms).label()
                 }
             });
-        if self.channels.len() > 1 || is_comparison {
+        // Only show the in-plot legend box when comparing multiple laps/stints (to distinguish solid vs dashed laps);
+        // in standard mode, the compact channel pills in the header strip already serve as the color-coded legend + live readout.
+        if is_comparison {
             plot = plot.legend(egui_plot::Legend::default());
         }
         plot.show(ui, |plot_ui| {

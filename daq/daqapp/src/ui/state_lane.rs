@@ -205,29 +205,32 @@ impl StateLane {
                 .small_button(if self.show_picker {
                     "⬅ Back to Lanes"
                 } else {
-                    "+ Add State / Fault"
+                    "+ State / Fault"
                 })
+                .on_hover_text("Add a discrete state or 1-bit fault lane")
                 .clicked()
             {
                 self.show_picker = !self.show_picker;
             }
-            if ui
-                .small_button("Vehicle States")
-                .on_hover_text("Load standard PER26 vehicle state & fault lanes")
-                .clicked()
-            {
-                load_std = true;
-            }
-            if ui
-                .small_button("BMS / SDC Faults")
-                .on_hover_text("Load BMS & Shutdown Circuit fault lanes")
-                .clicked()
-            {
-                load_bms = true;
-            }
-            if !self.lanes.is_empty() && ui.small_button("Clear").clicked() {
-                clear_all = true;
-            }
+            ui.menu_button("…", |ui| {
+                ui.set_min_width(180.0);
+                ui.label(eframe::egui::RichText::new("Lane Presets").weak().small());
+                if ui.button("Load Vehicle States").clicked() {
+                    load_std = true;
+                    ui.close();
+                }
+                if ui.button("Load BMS / SDC Faults").clicked() {
+                    load_bms = true;
+                    ui.close();
+                }
+                if !self.lanes.is_empty() {
+                    ui.separator();
+                    if ui.button("Clear All Lanes").clicked() {
+                        clear_all = true;
+                        ui.close();
+                    }
+                }
+            });
         });
 
         if load_std {
