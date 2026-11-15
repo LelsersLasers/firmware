@@ -348,7 +348,13 @@ fn show_clean_channel_row(
         }
     });
 
-    let row_resp = dnd_resp.response.on_hover_text(hover_tooltip);
+    let row_resp = ui
+        .interact(
+            dnd_resp.response.rect,
+            dnd_id,
+            eframe::egui::Sense::click_and_drag(),
+        )
+        .on_hover_text(hover_tooltip);
     if row_resp.double_clicked() {
         action_queue.push(action::AppAction::SpawnWidget(
             drag_payload.to_widget_constructor(),
@@ -1184,6 +1190,122 @@ mod tests {
             (last_w - first_w).abs() < 1.0,
             "Sidebar width crept from {first_w} to {last_w} across 40 frames: {widths:?}"
         );
+    }
+
+    #[test]
+    fn right_click_formula_row_opens_context_menu_and_edit_modal() {
+        let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
+        let mut router =
+            daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
+        let mut state = SignalBrowserState::default();
+        let mut action_queue = Vec::new();
+        let mut diag = None;
+
+        let ctx = eframe::egui::Context::default();
+        egui_extras::install_image_loaders(&ctx);
+        crate::ui::theme::store_theme(
+            &ctx,
+            crate::ui::theme::ThemeSelection::default().get_colors(),
+        );
+
+        let formula_id = router
+            .formula_engine_mut()
+            .definitions()
+            .first()
+            .expect("builtin formula")
+            .def
+            .id
+            .clone();
+
+        let mut formula_center = None;
+        let mut edit_btn_center = None;
+
+        for frame in 0..8 {
+            let mut events = Vec::new();
+            if frame == 2 {
+                let pos = formula_center.expect("formula row rect from frame 1");
+                events.push(eframe::egui::Event::PointerMoved(pos));
+                events.push(eframe::egui::Event::PointerButton {
+                    pos,
+                    button: eframe::egui::PointerButton::Secondary,
+                    pressed: true,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                });
+            } else if frame == 3 {
+                let pos = formula_center.expect("formula row rect");
+                events.push(eframe::egui::Event::PointerButton {
+                    pos,
+                    button: eframe::egui::PointerButton::Secondary,
+                    pressed: false,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                });
+            } else if frame == 5 {
+                let pos = edit_btn_center.expect("Edit Formula button rect from frame 4");
+                events.push(eframe::egui::Event::PointerMoved(pos));
+                events.push(eframe::egui::Event::PointerButton {
+                    pos,
+                    button: eframe::egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                });
+            } else if frame == 6 {
+                let pos = edit_btn_center.expect("Edit Formula button rect");
+                events.push(eframe::egui::Event::PointerButton {
+                    pos,
+                    button: eframe::egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                });
+            }
+
+            let raw_input = eframe::egui::RawInput {
+                screen_rect: Some(eframe::egui::Rect::from_min_size(
+                    eframe::egui::Pos2::ZERO,
+                    eframe::egui::vec2(1280.0, 720.0),
+                )),
+                time: Some(frame as f64 * 0.016),
+                events,
+                ..Default::default()
+            };
+            let output = ctx.run(raw_input, |ctx| {
+                eframe::egui::SidePanel::left("left_sidebar")
+                    .default_width(310.0)
+                    .show(ctx, |ui| {
+                        show_signal_browser(
+                            ui,
+                            &mut state,
+                            &mut router,
+                            &mut action_queue,
+                            &mut diag,
+                        );
+                    });
+            });
+
+            if frame == 1 {
+                for prim in &output.shapes {
+                    if let eframe::egui::epaint::Shape::Text(text) = &prim.shape
+                        && text.galley.text() == formula_id
+                    {
+                        formula_center = Some(prim.shape.visual_bounding_rect().center());
+                    }
+                }
+            }
+            if frame == 4 {
+                for prim in &output.shapes {
+                    if let eframe::egui::epaint::Shape::Text(text) = &prim.shape
+                        && text.galley.text().contains("Edit Formula")
+                    {
+                        edit_btn_center = Some(prim.shape.visual_bounding_rect().center());
+                    }
+                }
+            }
+        }
+
+        let draft = state
+            .formula_draft
+            .expect("Right-clicking formula row and clicking Edit Formula should open draft");
+        assert_eq!(draft.id, formula_id);
+        assert!(draft.is_editing_existing);
     }
 
     #[test]
