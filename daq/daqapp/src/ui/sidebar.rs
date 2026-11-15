@@ -302,7 +302,7 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
     }
 
     ui.separator();
-    ui.heading("Connection Settings");
+    ui.heading("Live Connection Settings");
 
     ui.horizontal_wrapped(|ui| {
         ui.label("CAN Speed:");
@@ -491,11 +491,17 @@ fn show_sidebar_contents(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
 }
 
 fn show_database_controls(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
-    if ui.button("📁 Select SuperDBC").clicked() {
+    if ui
+        .button("📁 Select Live SuperDBC (Decode / TX)")
+        .on_hover_text(
+            "Select SuperDBC used for live CAN frame decoding and message transmission (past logs use embedded partition metadata)",
+        )
+        .clicked()
+    {
         select_database(app);
     }
     let Some(selection) = &app.database else {
-        ui.label("SuperDBC: None selected");
+        ui.label("Live SuperDBC: None selected");
         return;
     };
     if let Some(source) = selection.source() {
