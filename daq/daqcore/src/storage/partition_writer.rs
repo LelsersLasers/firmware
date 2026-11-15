@@ -25,6 +25,12 @@ pub struct SignalManifestEntry {
     pub signal_id: storage::SignalId,
     pub unit: String,
     pub is_discrete: bool,
+    pub bus_name: String,
+    pub bus_id: u8,
+    pub can_id: u32,
+    pub transmitter: String,
+    pub nominal_period_ms: Option<u32>,
+    pub description: String,
     pub sample_count: u64,
     pub min_utc_ms: i64,
     pub max_utc_ms: i64,
@@ -120,6 +126,12 @@ struct SignalColumnAccumulator {
     unit: String,
     is_discrete: bool,
     is_fault_flag: bool,
+    bus_name: String,
+    bus_id: u8,
+    can_id: u32,
+    transmitter: String,
+    nominal_period_ms: Option<u32>,
+    description: String,
     samples: Vec<RawSample>,
 }
 
@@ -383,19 +395,43 @@ fn write_single_partition(
             let signal_id = storage::format_signal_id(msg_name, sig_name);
             let acc = columns.entry(signal_id).or_insert_with(|| {
                 let sig_def = msg_def.and_then(|m| m.signal(sig_name));
-                let unit = sig_def.map(|s| s.unit().to_owned()).unwrap_or_default();
+                let unit = sig_def
+                    .map(|s| s.unit().to_owned())
+                    .unwrap_or_else(|| sig_value.unit().to_owned());
+                let description = sig_def
+                    .map(|s| s.description().to_owned())
+                    .unwrap_or_else(|| sig_value.description().to_owned());
                 let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
                 let is_discrete = is_fault_flag
+                    || sig_value.is_discrete()
                     || sig_def.is_some_and(|s| {
                         s.choices().next().is_some()
                             || (s.bit_length() == 1
                                 && (s.scale() - 1.0).abs() < 1e-9
                                 && s.offset().abs() < 1e-9)
                     });
+                let key = msg.decoded.key();
+                let bus_name = if !msg.bus_name.is_empty() {
+                    msg.bus_name.clone()
+                } else {
+                    msg.decoded.bus_name().to_owned()
+                };
+                let transmitter = msg_def
+                    .map(|m| m.transmitter().to_owned())
+                    .unwrap_or_else(|| msg.decoded.tx_node().to_owned());
+                let nominal_period_ms = msg_def
+                    .and_then(|m| m.nominal_period_ms())
+                    .or_else(|| msg.decoded.nominal_period_ms());
                 SignalColumnAccumulator {
                     unit,
                     is_discrete,
                     is_fault_flag,
+                    bus_name,
+                    bus_id: key.bus_id,
+                    can_id: key.identity,
+                    transmitter,
+                    nominal_period_ms,
+                    description,
                     samples: Vec::new(),
                 }
             });
@@ -488,6 +524,12 @@ fn write_single_partition(
             signal_id: signal_id.clone(),
             unit: acc.unit.clone(),
             is_discrete: acc.is_discrete,
+            bus_name: acc.bus_name.clone(),
+            bus_id: acc.bus_id,
+            can_id: acc.can_id,
+            transmitter: acc.transmitter.clone(),
+            nominal_period_ms: acc.nominal_period_ms,
+            description: acc.description.clone(),
             sample_count: acc.samples.len() as u64,
             min_utc_ms,
             max_utc_ms,

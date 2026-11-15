@@ -1785,8 +1785,8 @@ mod tests {
 
         // 3. Verify 3-click ExportModalState UI & export across Parquet, CSV, and MATLAB .mat
         let mut export_modal = ui::export_modal::ExportModalState::default();
-        export_modal.open(&router, Some(&db_sel));
-        export_modal.apply_preset("vd", &router, Some(&db_sel));
+        export_modal.open(&router);
+        export_modal.apply_preset("vd", &router);
         export_modal.range_mode = ui::export_modal::UiExportRangeMode::CurrentViewport;
 
         let mut view_modal = WorkspaceViewModalState::default();
@@ -1802,7 +1802,7 @@ mod tests {
             ..Default::default()
         };
         let _ = ctx.run(raw_input, |ctx| {
-            export_modal.show(ctx, &mut router, Some(&db_sel));
+            export_modal.show(ctx, &mut router);
             view_modal.show(ctx, &mut tree, &mut ids, &mut router, tx.clone());
         });
 
@@ -1816,7 +1816,7 @@ mod tests {
             let out_path = export_dir.path().join(format!("per26_vd.{ext}"));
             export_modal.output_path = out_path.to_string_lossy().into_owned();
             let summary = export_modal
-                .execute_export(&mut router, Some(&db_sel))
+                .execute_export(&mut router)
                 .expect("execute modal export");
             assert!(summary.row_count > 500);
             assert!(out_path.is_file());

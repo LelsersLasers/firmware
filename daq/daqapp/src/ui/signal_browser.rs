@@ -1,4 +1,4 @@
-use crate::{action, app, widget_constructor};
+use crate::{action, widget_constructor};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Drag-and-drop payload emitted when a user drags a signal or derived formula from
@@ -209,7 +209,6 @@ struct MessageGroup {
 pub fn show_signal_browser(
     ui: &mut eframe::egui::Ui,
     state: &mut SignalBrowserState,
-    database: Option<&app::DatabaseSelection>,
     router: &mut daqcore::router::VirtualTimelineRouter,
     action_queue: &mut Vec<action::AppAction>,
     diagnostic: &mut Option<String>,
@@ -256,90 +255,54 @@ pub fn show_signal_browser(
         },
     );
 
-    // Build message groups from SuperDBC + fallback signals from partition manifests / live buffer
+    // Build message groups strictly from signals active in the current timeline viewport
     let mut bus_names: BTreeSet<String> = BTreeSet::new();
     let mut node_names: BTreeSet<String> = BTreeSet::new();
     let mut groups_by_msg: BTreeMap<String, MessageGroup> = BTreeMap::new();
 
-    if let Some(db_sel) = database {
-        for bus in db_sel.database.buses() {
-            bus_names.insert(bus.name().to_owned());
-            for msg in bus.messages() {
-                node_names.insert(msg.transmitter().to_owned());
-                let signals = msg
-                    .signals()
-                    .iter()
-                    .map(|sig| SignalLeaf {
-                        key: Some(msg.key()),
-                        msg_name: msg.name().to_owned(),
-                        signal_name: sig.name().to_owned(),
-                        unit: sig.unit().to_owned(),
-                        description: sig.description().to_owned(),
-                    })
-                    .collect();
-                groups_by_msg.insert(
-                    msg.name().to_owned(),
-                    MessageGroup {
-                        key: Some(msg.key()),
-                        bus_name: bus.name().to_owned(),
-                        transmitter: msg.transmitter().to_owned(),
-                        msg_name: msg.name().to_owned(),
-                        description: msg.description().to_owned(),
-                        signals,
-                    },
-                );
-            }
+    for meta in router.active_signals_in_viewport() {
+        let (msg_name, sig_name) = meta.split_message_signal();
+        if msg_name.is_empty() {
+            continue;
         }
-    }
+        let bus_name = if meta.bus_name.is_empty() {
+            "CAN".to_owned()
+        } else {
+            meta.bus_name.clone()
+        };
+        let transmitter = if meta.transmitter.is_empty() {
+            "Unknown".to_owned()
+        } else {
+            meta.transmitter.clone()
+        };
+        bus_names.insert(bus_name.clone());
+        node_names.insert(transmitter.clone());
 
-    // Merge any signals from loaded Parquet partition manifests or live buffer not in SuperDBC
-    for part in router.partitions() {
-        for sig_entry in &part.manifest.signals {
-            if let Some((msg_name, sig_name)) = sig_entry.signal_id.split_once('.') {
-                let group =
-                    groups_by_msg
-                        .entry(msg_name.to_owned())
-                        .or_insert_with(|| MessageGroup {
-                            key: None,
-                            bus_name: "Store".to_owned(),
-                            transmitter: "Parquet".to_owned(),
-                            msg_name: msg_name.to_owned(),
-                            description: String::new(),
-                            signals: Vec::new(),
-                        });
-                if !group.signals.iter().any(|s| s.signal_name == sig_name) {
-                    group.signals.push(SignalLeaf {
-                        key: group.key,
-                        msg_name: msg_name.to_owned(),
-                        signal_name: sig_name.to_owned(),
-                        unit: sig_entry.unit.clone(),
-                        description: String::new(),
-                    });
-                }
-            }
-        }
-    }
-    for sig_id in router.live_buffer().signal_ids() {
-        if let Some((msg_name, sig_name)) = sig_id.split_once('.') {
-            let group = groups_by_msg
-                .entry(msg_name.to_owned())
-                .or_insert_with(|| MessageGroup {
-                    key: None,
-                    bus_name: "Live".to_owned(),
-                    transmitter: "Live".to_owned(),
-                    msg_name: msg_name.to_owned(),
-                    description: String::new(),
-                    signals: Vec::new(),
-                });
-            if !group.signals.iter().any(|s| s.signal_name == sig_name) {
-                group.signals.push(SignalLeaf {
-                    key: group.key,
-                    msg_name: msg_name.to_owned(),
-                    signal_name: sig_name.to_owned(),
-                    unit: String::new(),
-                    description: String::new(),
-                });
-            }
+        let key = (meta.can_id != 0 || !meta.bus_name.is_empty()).then_some(
+            daqcore::superdbc::message::MessageKey {
+                bus_id: meta.bus_id,
+                identity: meta.can_id,
+            },
+        );
+
+        let group = groups_by_msg
+            .entry(msg_name.to_owned())
+            .or_insert_with(|| MessageGroup {
+                key,
+                bus_name,
+                transmitter,
+                msg_name: msg_name.to_owned(),
+                description: String::new(),
+                signals: Vec::new(),
+            });
+        if !group.signals.iter().any(|s| s.signal_name == sig_name) {
+            group.signals.push(SignalLeaf {
+                key: group.key,
+                msg_name: msg_name.to_owned(),
+                signal_name: sig_name.to_owned(),
+                unit: meta.unit,
+                description: meta.description,
+            });
         }
     }
 
@@ -583,9 +546,11 @@ pub fn show_signal_browser(
         .show(ui, |ui| {
             if filtered_groups.is_empty() {
                 ui.label(
-                    eframe::egui::RichText::new("No matching CAN messages or signals.")
-                        .weak()
-                        .small(),
+                    eframe::egui::RichText::new(
+                        "No matching CAN messages or signals in the active timeline range.",
+                    )
+                    .weak()
+                    .small(),
                 );
             }
             for (group, sigs) in filtered_groups {
@@ -882,143 +847,8 @@ mod tests {
         assert!(self_cycle.validate(&engine).is_err());
     }
 
-    fn sample_database_selection() -> app::DatabaseSelection {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let database =
-            daqcore::superdbc::database::Database::load(&dbc_path).unwrap_or_else(|_| {
-                let fallback_json = r#"{
-              "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-              "versions": { "schema_version": "1.1", "hash": "test_v1" },
-              "buses": {
-                "VCAN": {
-                  "bus_id": 0,
-                  "baud_rate": 500000,
-                  "nodes": [
-                    { "name": "A_BOX", "is_external": false },
-                    { "name": "MAIN_MODULE", "is_external": false }
-                  ],
-                  "messages": [
-                    {
-                      "id": 100,
-                      "is_extended_id": false,
-                      "message_name": "pack_stats",
-                      "transmitter": "A_BOX",
-                      "receivers": [],
-                      "length_bytes": 6,
-                      "nominal_period_ms": 10,
-                      "priority": 1,
-                      "description": "Accumulator pack voltage, current, and temperature telemetry",
-                      "signals": [
-                        {
-                          "signal_name": "vbatt_adc",
-                          "description": "Pack battery voltage",
-                          "data_type": "uint16_t",
-                          "raw_type": "unsigned",
-                          "start_bit": 0,
-                          "bit_length": 16,
-                          "byte_order": "little_endian",
-                          "scale": 0.1,
-                          "offset": 0.0,
-                          "limits": null,
-                          "unit": "V",
-                          "choices": null,
-                          "display_format": null
-                        },
-                        {
-                          "signal_name": "ibatt_adc",
-                          "description": "Pack battery current",
-                          "data_type": "int16_t",
-                          "raw_type": "signed",
-                          "start_bit": 16,
-                          "bit_length": 16,
-                          "byte_order": "little_endian",
-                          "scale": 0.1,
-                          "offset": 0.0,
-                          "limits": null,
-                          "unit": "A",
-                          "choices": null,
-                          "display_format": null
-                        },
-                        {
-                          "signal_name": "max_cell_temp",
-                          "description": "Maximum accumulator cell temperature sensor reading",
-                          "data_type": "int16_t",
-                          "raw_type": "signed",
-                          "start_bit": 32,
-                          "bit_length": 16,
-                          "byte_order": "little_endian",
-                          "scale": 0.1,
-                          "offset": 0.0,
-                          "limits": null,
-                          "unit": "C",
-                          "choices": null,
-                          "display_format": null
-                        }
-                      ]
-                    },
-                    {
-                      "id": 200,
-                      "is_extended_id": false,
-                      "message_name": "motor_stats",
-                      "transmitter": "MAIN_MODULE",
-                      "receivers": [],
-                      "length_bytes": 4,
-                      "nominal_period_ms": 10,
-                      "priority": 2,
-                      "description": "Inverter and motor thermal telemetry",
-                      "signals": [
-                        {
-                          "signal_name": "motor_temp_c",
-                          "description": "Stator winding temperature",
-                          "data_type": "int16_t",
-                          "raw_type": "signed",
-                          "start_bit": 0,
-                          "bit_length": 16,
-                          "byte_order": "little_endian",
-                          "scale": 0.1,
-                          "offset": 0.0,
-                          "limits": null,
-                          "unit": "C",
-                          "choices": null,
-                          "display_format": null
-                        },
-                        {
-                          "signal_name": "inverter_temp_c",
-                          "description": "IGBT module temperature",
-                          "data_type": "int16_t",
-                          "raw_type": "signed",
-                          "start_bit": 16,
-                          "bit_length": 16,
-                          "byte_order": "little_endian",
-                          "scale": 0.1,
-                          "offset": 0.0,
-                          "limits": null,
-                          "unit": "C",
-                          "choices": null,
-                          "display_format": null
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }"#;
-                daqcore::superdbc::database::Database::from_json(fallback_json)
-                    .expect("valid fallback SuperDBC JSON")
-            });
-        let selection = daqcore::can_thread::BusSelection::default_single(&database)
-            .unwrap_or(daqcore::can_thread::BusSelection::Single(0));
-        app::DatabaseSelection {
-            database,
-            selection,
-        }
-    }
-
     #[test]
     fn signal_browser_and_drag_targets_render_and_configure_cleanly() {
-        let db_sel = sample_database_selection();
-
         let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
         let mut router =
             daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
@@ -1043,14 +873,7 @@ mod tests {
         };
         let _ = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                show_signal_browser(
-                    ui,
-                    &mut state,
-                    Some(&db_sel),
-                    &mut router,
-                    &mut action_queue,
-                    &mut diag,
-                );
+                show_signal_browser(ui, &mut state, &mut router, &mut action_queue, &mut diag);
             });
             show_formula_editor_modal(ctx, &mut state, &mut router, &mut action_queue, &mut diag);
         });
@@ -1078,8 +901,6 @@ mod tests {
 
     #[test]
     fn sidebar_width_remains_stable_across_frames_when_searching() {
-        let db_sel = sample_database_selection();
-
         let t0 = daqcore::time::Time::from_unix_millis(1_788_719_789_000);
         let mut router =
             daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");
@@ -1145,7 +966,6 @@ mod tests {
                                 show_signal_browser(
                                     ui,
                                     &mut state,
-                                    Some(&db_sel),
                                     &mut router,
                                     &mut action_queue,
                                     &mut diag,
@@ -1234,5 +1054,225 @@ mod tests {
                 }
             });
         });
+    }
+
+    #[test]
+    fn historical_viewport_filtering_works_without_superdbc() {
+        let store_dir = tempfile::tempdir().expect("temp store dir");
+
+        // Use a temporary SuperDBC ONLY during initial log import (simulating LogParser),
+        // then drop it before opening the store in VirtualTimelineRouter / UI widgets.
+        {
+            let import_db = daqcore::superdbc::database::Database::from_json(
+                r#"{
+                  "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                  "versions": { "schema_version": "1.1", "hash": "test_v1" },
+                  "buses": {
+                    "Main": {
+                      "bus_id": 0,
+                      "baud_rate": 500000,
+                      "nodes": [{ "name": "VCU", "is_external": false }],
+                      "messages": [
+                        {
+                          "id": 257,
+                          "is_extended_id": false,
+                          "message_name": "msg_alpha",
+                          "transmitter": "VCU",
+                          "receivers": [],
+                          "length_bytes": 4,
+                          "nominal_period_ms": 10,
+                          "priority": 1,
+                          "description": "Alpha message",
+                          "signals": [
+                            {
+                              "signal_name": "sig_a",
+                              "description": "Alpha voltage",
+                              "data_type": "uint16_t",
+                              "raw_type": "unsigned",
+                              "start_bit": 0,
+                              "bit_length": 16,
+                              "byte_order": "little_endian",
+                              "scale": 0.1,
+                              "offset": 0.0,
+                              "limits": null,
+                              "unit": "V",
+                              "choices": null,
+                              "display_format": null
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "Accum": {
+                      "bus_id": 1,
+                      "baud_rate": 500000,
+                      "nodes": [{ "name": "BMS", "is_external": false }],
+                      "messages": [
+                        {
+                          "id": 514,
+                          "is_extended_id": false,
+                          "message_name": "msg_beta",
+                          "transmitter": "BMS",
+                          "receivers": [],
+                          "length_bytes": 4,
+                          "nominal_period_ms": 50,
+                          "priority": 1,
+                          "description": "Beta message",
+                          "signals": [
+                            {
+                              "signal_name": "sig_b",
+                              "description": "Beta temperature",
+                              "data_type": "uint16_t",
+                              "raw_type": "unsigned",
+                              "start_bit": 0,
+                              "bit_length": 16,
+                              "byte_order": "little_endian",
+                              "scale": 1.0,
+                              "offset": 0.0,
+                              "limits": null,
+                              "unit": "C",
+                              "choices": null,
+                              "display_format": null
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }"#,
+            )
+            .expect("parse import_db");
+
+            let payload_a = import_db.encode(0, 257, &[("sig_a", 42.5)]).unwrap();
+            let decoded_a = import_db.decode(0, 257, &payload_a).unwrap();
+            let payload_b = import_db.encode(1, 514, &[("sig_b", 88.0)]).unwrap();
+            let decoded_b = import_db.decode(1, 514, &payload_b).unwrap();
+
+            let log_files = vec![
+                daqcore::log_parse::parse::SourceLogFile {
+                    file_name: "log-2026-09-06--10-00-00.log".to_owned(),
+                    sha256_hex: "11111111".repeat(8),
+                    rtc_timestamp_ms: Some(1_000),
+                    mtime_unix_ms: 1_000,
+                },
+                daqcore::log_parse::parse::SourceLogFile {
+                    file_name: "log-2026-09-06--10-00-20.log".to_owned(),
+                    sha256_hex: "22222222".repeat(8),
+                    rtc_timestamp_ms: Some(20_000),
+                    mtime_unix_ms: 20_000,
+                },
+            ];
+
+            let epochs = vec![
+                daqcore::log_parse::correlate::CorrelationChunkResult {
+                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
+                        timestamp: 500,
+                        bus_name: "Main".to_owned(),
+                        source_file_idx: 0,
+                        decoded: decoded_a,
+                    }],
+                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                        slope: 1.0,
+                        intercept_ms: 1_000.0,
+                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+                    },
+                },
+                daqcore::log_parse::correlate::CorrelationChunkResult {
+                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
+                        timestamp: 1_000,
+                        bus_name: "Accum".to_owned(),
+                        source_file_idx: 1,
+                        decoded: decoded_b,
+                    }],
+                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                        slope: 1.0,
+                        intercept_ms: 20_000.0,
+                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+                    },
+                },
+            ];
+
+            daqcore::storage::write_correlated_epochs_to_store(
+                store_dir.path(),
+                &log_files,
+                epochs,
+                &import_db,
+            )
+            .expect("write two partitions to store");
+        }
+
+        // Now attach store and browse/render WITHOUT any SuperDBC loaded
+        let t0 = daqcore::time::Time::from_unix_millis(30_000);
+        let mut router =
+            daqcore::router::VirtualTimelineRouter::live(t0, 5.0).expect("live router");
+        router
+            .attach_store(store_dir.path())
+            .expect("attach store without SuperDBC");
+
+        // 1. Viewport on Partition A ([1_000..=3_000]): only msg_alpha.sig_a is active
+        router.timeline_mut().snap_to_range_ms(1_000, 3_000);
+        let active_a = router.active_signals_in_viewport();
+        assert_eq!(active_a.len(), 1);
+        let meta_a = active_a
+            .iter()
+            .find(|m| m.signal_id == "msg_alpha.sig_a")
+            .expect("msg_alpha.sig_a active");
+        assert_eq!(meta_a.bus_name, "Main");
+        assert_eq!(meta_a.can_id, 257);
+        assert_eq!(meta_a.transmitter, "VCU");
+        assert_eq!(meta_a.nominal_period_ms, Some(10));
+        assert_eq!(meta_a.unit, "V");
+        assert_eq!(meta_a.description, "Alpha voltage");
+        assert!(!active_a.iter().any(|m| m.signal_id == "msg_beta.sig_b"));
+
+        // Render SignalBrowser, ViewerTable, ViewerList, Jitter without any SuperDBC
+        let ctx = eframe::egui::Context::default();
+        crate::ui::theme::store_theme(
+            &ctx,
+            crate::ui::theme::ThemeSelection::default().get_colors(),
+        );
+        let mut browser = SignalBrowserState::default();
+        let mut viewer_table = crate::ui::viewer_table::ViewerTable::new(1);
+        let viewer_list = crate::ui::viewer_list::ViewerList::new(1);
+        let mut jitter = crate::ui::jitter::Jitter::new(1);
+        let mut actions = Vec::new();
+        let mut diag = None;
+        let formatter = None;
+
+        let raw_input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_input, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                show_signal_browser(ui, &mut browser, &mut router, &mut actions, &mut diag);
+                let view = crate::workspace_view::WorkspaceDataView::new(&router);
+                let _ = viewer_table.show(ui, &mut actions, &formatter, &view);
+                let _ = viewer_list.show(ui, &formatter, &view);
+                let _ = jitter.show(ui, &view);
+            });
+        });
+
+        // 2. Viewport on Partition B ([20_000..=23_000]): only msg_beta.sig_b is active
+        router.timeline_mut().snap_to_range_ms(20_000, 23_000);
+        let active_b = router.active_signals_in_viewport();
+        assert_eq!(active_b.len(), 1);
+        let meta_b = active_b
+            .iter()
+            .find(|m| m.signal_id == "msg_beta.sig_b")
+            .expect("msg_beta.sig_b active");
+        assert_eq!(meta_b.bus_name, "Accum");
+        assert_eq!(meta_b.can_id, 514);
+        assert_eq!(meta_b.transmitter, "BMS");
+        assert_eq!(meta_b.nominal_period_ms, Some(50));
+        assert_eq!(meta_b.unit, "C");
+        assert!(!active_b.iter().any(|m| m.signal_id == "msg_alpha.sig_a"));
+
+        // 3. Viewport on empty gap ([8_000..=12_000]): no signals active
+        router.timeline_mut().snap_to_range_ms(8_000, 12_000);
+        assert!(router.active_signals_in_viewport().is_empty());
     }
 }

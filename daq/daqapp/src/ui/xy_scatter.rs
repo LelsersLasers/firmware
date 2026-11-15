@@ -1,4 +1,4 @@
-use crate::{app, ui, workspace_view};
+use crate::{ui, workspace_view};
 use std::f64::consts::TAU;
 
 const COMET_TRAIL_MS: i64 = 2_500;
@@ -39,7 +39,6 @@ struct ScatterCacheKey {
     y_signal: String,
     z_color_signal: Option<String>,
     data_revision: u64,
-    has_database: bool,
 }
 
 struct CachedScatterData {
@@ -175,14 +174,9 @@ impl XYScatter {
         self.active_drop_slot = target_slot.next();
     }
 
-    pub fn reset_database(&mut self) {
-        self.cached_data = None;
-    }
-
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let pane_rect = ui.max_rect();
@@ -235,19 +229,18 @@ impl XYScatter {
             y_signal: self.y_signal.clone(),
             z_color_signal: self.z_color_signal.clone(),
             data_revision: view.data_revision(),
-            has_database: database.is_some(),
         };
 
         if self.cached_data.as_ref().is_none_or(|c| c.key != cache_key) {
             let x_series = view.query_signal(&self.x_signal, resolution);
             let y_series = view.query_signal(&self.y_signal, resolution);
 
-            let x_unit = view.resolve_signal_unit(&self.x_signal, database);
-            let y_unit = view.resolve_signal_unit(&self.y_signal, database);
+            let x_unit = view.resolve_signal_unit(&self.x_signal);
+            let y_unit = view.resolve_signal_unit(&self.y_signal);
             let z_unit = self
                 .z_color_signal
                 .as_deref()
-                .map(|z| view.resolve_signal_unit(z, database))
+                .map(|z| view.resolve_signal_unit(z))
                 .unwrap_or_default();
 
             let mut timestamps_ms: Vec<i64>;
@@ -417,7 +410,7 @@ impl XYScatter {
         }
 
         if let Some(slot) = self.picker_slot {
-            self.show_signal_picker(ui, slot, database, view);
+            self.show_signal_picker(ui, slot, view);
             return egui_tiles::UiResponse::None;
         }
 
@@ -620,7 +613,6 @@ impl XYScatter {
         &mut self,
         ui: &mut eframe::egui::Ui,
         slot: ScatterAxisSlot,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) {
         let prompt = format!("Select signal for {}:", slot.label());
@@ -631,7 +623,6 @@ impl XYScatter {
             true,
             false,
             &mut self.search_query,
-            database,
             view,
         ) {
             ui::message_picker::SignalPickerAction::None => {}
@@ -726,7 +717,7 @@ mod tests {
             };
             let _ = ctx.run(raw_input, |ctx| {
                 eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                    let _ = w.show(ui, None, &view);
+                    let _ = w.show(ui, &view);
                 });
             });
         }

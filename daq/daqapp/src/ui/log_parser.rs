@@ -7,8 +7,7 @@ pub struct LogParser {
     pub title: String,
     pub logs_dir: Option<path::PathBuf>,
     pub output_dir: Option<path::PathBuf>,
-    database_override: Option<path::PathBuf>,
-    use_override: bool,
+    pub database_path: Option<path::PathBuf>,
     parse_to_ui_rx: Option<mpsc::Receiver<ImportChannelMsg>>,
     progress_fraction: f32,
     parse_text: String,
@@ -17,12 +16,20 @@ pub struct LogParser {
 
 impl LogParser {
     pub fn new(instance_num: usize) -> Self {
+        let default_dbc = settings::database_dir().and_then(|db_dir| {
+            for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {
+                let path = db_dir.join(candidate);
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+            None
+        });
         Self {
             title: format!("SD Card Import #{instance_num}"),
             logs_dir: None,
             output_dir: Some(path::PathBuf::from(settings::DEFAULT_LOG_FOLDER)),
-            database_override: None,
-            use_override: false,
+            database_path: default_dbc,
             parse_to_ui_rx: None,
             progress_fraction: 0.0,
             parse_text: String::new(),
@@ -40,13 +47,11 @@ impl LogParser {
             self.parse_text = "Error: Store directory not selected".to_owned();
             return;
         };
-        let path = if self.use_override {
-            self.database_override.clone()
-        } else {
+        let path = self.database_path.clone().or_else(|| {
             sidebar_database
                 .and_then(|selection| selection.source())
                 .map(|source| source.path)
-        };
+        });
         let Some(path) = path else {
             self.parse_text = "Error: No SuperDBC file selected".to_owned();
             return;
@@ -170,6 +175,11 @@ impl LogParser {
         {
             self.output_dir = Some(active_store.to_path_buf());
         }
+        if self.database_path.is_none()
+            && let Some(source) = sidebar_database.and_then(|s| s.source())
+        {
+            self.database_path = Some(source.path);
+        }
 
         self.poll_import_messages(action_queue);
         if self.is_importing() {
@@ -237,11 +247,10 @@ impl LogParser {
                 });
 
                 ui.separator();
-                ui.checkbox(&mut self.use_override, "Override sidebar SuperDBC file");
                 ui.horizontal_wrapped(|ui| {
                     if ui
                         .add_enabled(
-                            self.use_override && !self.is_importing(),
+                            !self.is_importing(),
                             eframe::egui::Button::new("📁 Select SuperDBC"),
                         )
                         .clicked()
@@ -252,18 +261,11 @@ impl LogParser {
                             dialog = dialog.set_directory(dir);
                         }
                         if let Some(path) = dialog.pick_file() {
-                            self.database_override = Some(path);
+                            self.database_path = Some(path);
                         }
                     }
-                    let path = if self.use_override {
-                        self.database_override.clone()
-                    } else {
-                        sidebar_database
-                            .and_then(|selection| selection.source())
-                            .map(|source| source.path)
-                    };
                     ui.add(
-                        eframe::egui::Label::new(path.as_ref().map_or_else(
+                        eframe::egui::Label::new(self.database_path.as_ref().map_or_else(
                             || "SuperDBC: None selected".to_owned(),
                             |path| format!("SuperDBC: {}", path.display()),
                         ))
@@ -365,8 +367,7 @@ mod tests {
         let mut parser = LogParser::new(1);
         parser.logs_dir = Some(tmp_raw.path().to_path_buf());
         parser.output_dir = Some(tmp_store.path().to_path_buf());
-        parser.use_override = true;
-        parser.database_override = Some(dbc_path);
+        parser.database_path = Some(dbc_path);
 
         parser.start_import(None);
         assert!(parser.is_importing());

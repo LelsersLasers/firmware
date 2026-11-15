@@ -72,6 +72,7 @@ pub enum DisplayFormat {
 #[derive(Debug, Clone)]
 pub struct Message {
     key: MessageKey,
+    bus_name: String,
     name: String,
     length_bytes: u8,
     is_extended_id: bool,
@@ -166,6 +167,7 @@ impl Message {
 
         Ok(Self {
             key: MessageKey { bus_id, identity },
+            bus_name: String::new(),
             name: model.message_name.into(),
             length_bytes,
             is_extended_id: model.is_extended_id,
@@ -177,6 +179,15 @@ impl Message {
             signals,
             signal_index,
         })
+    }
+
+    pub(crate) fn set_bus_name(&mut self, bus_name: String) {
+        self.bus_name = bus_name;
+    }
+
+    /// Return the bus name declared in the artifact.
+    pub fn bus_name(&self) -> &str {
+        &self.bus_name
     }
 
     /// Return the full lookup key, including bus ID and CAN identity.

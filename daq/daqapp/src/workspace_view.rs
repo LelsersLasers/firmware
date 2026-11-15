@@ -209,9 +209,27 @@ impl<'a> WorkspaceDataView<'a> {
         }
     }
 
-    /// Return the latest `(utc_ms, value)` for `signal_id` at or before `setpoint`.
-    pub fn latest_signal_value_at_setpoint(&self, signal_id: &str) -> Option<(i64, f64)> {
-        self.latest_signal_value_at(signal_id, self.timeline.setpoint_utc_ms())
+    /// Return the latest `(utc_ms, value)` for `signal_id` within `[start_utc_ms..=setpoint_utc_ms]`.
+    pub fn latest_signal_value_in_setpoint_range(&self, signal_id: &str) -> Option<(i64, f64)> {
+        let trimmed = signal_id.trim();
+        let range = self.timeline.setpoint_range_ms();
+        if let Some(inner) = trimmed.strip_prefix('-') {
+            self.router
+                .latest_signal_value_in_range(inner.trim(), range)
+                .map(|(t, v)| (t, -v))
+        } else {
+            self.router.latest_signal_value_in_range(trimmed, range)
+        }
+    }
+
+    /// Return metadata for all raw signals that have samples in the active viewport.
+    pub fn active_signals_in_viewport(&self) -> Vec<daqcore::router::ActiveSignalMeta> {
+        self.router.active_signals_in_viewport()
+    }
+
+    /// Return metadata for all raw signals that have samples in `[start_utc_ms..=setpoint_utc_ms]`.
+    pub fn active_signals_to_setpoint(&self) -> Vec<daqcore::router::ActiveSignalMeta> {
+        self.router.active_signals_to_setpoint()
     }
 
     /// Return the latest `(utc_ms, value)` for `signal_id` at or before the active cursor
@@ -245,11 +263,7 @@ impl<'a> WorkspaceDataView<'a> {
     }
 
     /// Resolve engineering unit string for a canonical or derived `signal_id`.
-    pub fn resolve_signal_unit(
-        &self,
-        signal_id: &str,
-        database: Option<&crate::app::DatabaseSelection>,
-    ) -> String {
+    pub fn resolve_signal_unit(&self, signal_id: &str) -> String {
         let raw_id = signal_id
             .trim()
             .strip_prefix('-')
@@ -260,54 +274,30 @@ impl<'a> WorkspaceDataView<'a> {
         {
             return compiled.def.unit.clone();
         }
-        if let Some(db) = database
-            && let Some((msg_name, sig_name)) = raw_id.split_once('.')
-            && let Some(msg) = db.database.messages().find(|m| m.name() == msg_name)
-            && let Some(sig) = msg.signal(sig_name)
-            && !sig.unit().is_empty()
+        if let Some(meta) = self.router.signal_meta(raw_id)
+            && !meta.unit.is_empty()
         {
-            return sig.unit().to_owned();
-        }
-        for part in self.router.partitions() {
-            if let Some(col) = part.manifest.signals.iter().find(|s| s.signal_id == raw_id)
-                && !col.unit.is_empty()
-            {
-                return col.unit.clone();
-            }
+            return meta.unit;
         }
         String::new()
     }
 
     /// Choose the best default speed signal (`m/s` or `km/h`) available for distance integration.
-    pub fn resolve_default_speed_signal(
-        &self,
-        database: Option<&crate::app::DatabaseSelection>,
-    ) -> String {
+    pub fn resolve_default_speed_signal(&self) -> String {
         let candidates = [
             "gps_speed_heading.gps_speed",
             "wheel_speeds.front_left",
             "wheel_speeds.front_right",
         ];
+        let active = self.active_signals_in_viewport();
         for cand in candidates {
-            if self.router.partitions().iter().any(|p| {
-                p.manifest
-                    .signals
-                    .iter()
-                    .any(|s| s.signal_id == cand && s.sample_count > 0)
-            }) {
+            if active.iter().any(|s| s.signal_id == cand) {
                 return cand.to_owned();
             }
         }
-        if let Some(db) = database {
-            for cand in candidates {
-                if let Some((msg_name, sig_name)) = cand.split_once('.')
-                    && db
-                        .database
-                        .messages()
-                        .any(|m| m.name() == msg_name && m.signal(sig_name).is_some())
-                {
-                    return cand.to_owned();
-                }
+        for cand in candidates {
+            if self.router.signal_meta(cand).is_some() {
+                return cand.to_owned();
             }
         }
         "gps_speed_heading.gps_speed".to_owned()
@@ -462,9 +452,9 @@ mod tests {
             Some(t0.unix_millis() - 2_500)
         );
 
-        assert_eq!(view.resolve_signal_unit("battery.power_kw", None), "kW");
+        assert_eq!(view.resolve_signal_unit("battery.power_kw"), "kW");
         assert_eq!(
-            view.resolve_default_speed_signal(None),
+            view.resolve_default_speed_signal(),
             "gps_speed_heading.gps_speed"
         );
         assert!(

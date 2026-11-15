@@ -131,8 +131,9 @@ impl Database {
                     ));
                 }
 
-                let message =
+                let mut message =
                     superdbc::message::Message::compile(bus_id, message, &message_context)?;
+                message.set_bus_name(name.clone());
                 let message_position = messages.len();
 
                 if identities

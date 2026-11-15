@@ -1,9 +1,9 @@
-use crate::{app, ui, workspace_view};
+use crate::{ui, workspace_view};
 
 pub struct Jitter {
     pub title: String,
-    msg_picker: ui::message_picker::MessagePickerState,
-    selected_msg: Option<daqcore::superdbc::message::MessageKey>,
+    msg_picker: ui::message_picker::ActiveMessagePickerState,
+    selected_msg: Option<ui::message_picker::ActiveMessageOption>,
     period_ms: usize,
 }
 
@@ -11,58 +11,40 @@ impl Jitter {
     pub fn new(instance: usize) -> Self {
         Self {
             title: format!("Jitter #{instance}"),
-            msg_picker: ui::message_picker::MessagePickerState::default(),
+            msg_picker: ui::message_picker::ActiveMessagePickerState::default(),
             selected_msg: None,
             period_ms: 100,
         }
     }
 
-    pub fn reset_database(&mut self) {
-        self.selected_msg = None;
-        self.msg_picker = ui::message_picker::MessagePickerState::default();
-    }
-
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
-        let Some(database) = database else {
-            ui::message_picker::no_database_placeholder(ui);
-            return egui_tiles::UiResponse::None;
-        };
-
         if self.selected_msg.is_none() {
             eframe::egui::ScrollArea::vertical()
                 .id_salt((&self.title, "jitter_picker"))
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    if let Some(msg) = self.msg_picker.show(ui, database, true) {
+                    if let Some(msg) = self.msg_picker.show(ui, view, true) {
+                        self.period_ms = msg.nominal_period_ms.map_or(100, |ms| ms as usize);
                         self.selected_msg = Some(msg);
-                        self.period_ms = database
-                            .database
-                            .message_by_key(msg)
-                            .and_then(|message| message.nominal_period_ms())
-                            .map_or(100, |ms| ms as usize);
                     }
                 });
             return egui_tiles::UiResponse::None;
         }
 
-        let Some(key) = self.selected_msg else {
-            return egui_tiles::UiResponse::None;
-        };
-        let Some(msg) = database.database.message_by_key(key) else {
-            self.selected_msg = None;
+        let Some(msg) = self.selected_msg.clone() else {
             return egui_tiles::UiResponse::None;
         };
 
-        let identity = msg.identity();
-        let bus_name = database.bus_name(key.bus_id);
         let mut change_msg = false;
         ui.horizontal_wrapped(|ui| {
-            ui.strong(format!("[{bus_name}] {} (0x{identity:03X})", msg.name()));
+            ui.strong(format!(
+                "[{}] {} (0x{:03X})",
+                msg.bus_name, msg.message_name, msg.can_id
+            ));
             if ui.button("Change message").clicked() {
                 change_msg = true;
             }
@@ -79,23 +61,19 @@ impl Jitter {
         }
 
         let mut deviations =
-            interval_deviations(view.live_frames_to_setpoint(), key, self.period_ms);
+            interval_deviations(view.live_frames_to_setpoint(), msg.key(), self.period_ms);
         if deviations.is_empty()
-            && let Some(first_sig) = msg.signals().first()
+            && let daqcore::router::SignalSeries::Exact { timestamps_ms, .. } = view
+                .query_signal_to_setpoint(&msg.first_signal_id, daqcore::router::Resolution::FullRes)
         {
-            let signal_id = daqcore::storage::format_signal_id(msg.name(), first_sig.name());
-            if let daqcore::router::SignalSeries::Exact { timestamps_ms, .. } =
-                view.query_signal_to_setpoint(&signal_id, daqcore::router::Resolution::FullRes)
-            {
-                let period = self.period_ms.max(1) as f64;
-                deviations = timestamps_ms
-                    .windows(2)
-                    .map(|w| {
-                        let elapsed_ms = (w[1] - w[0]) as f64;
-                        100.0 * (elapsed_ms - period) / period
-                    })
-                    .collect();
-            }
+            let period = self.period_ms.max(1) as f64;
+            deviations = timestamps_ms
+                .windows(2)
+                .map(|w| {
+                    let elapsed_ms = (w[1] - w[0]) as f64;
+                    100.0 * (elapsed_ms - period) / period
+                })
+                .collect();
         }
 
         if deviations.is_empty() {

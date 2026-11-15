@@ -129,6 +129,27 @@ impl SignalSeries {
         }
     }
 
+    /// Check whether at least one sample or envelope bucket falls within `range` (`[start..=end]`) in `O(log N)`.
+    pub fn has_points_in_range(&self, range: ops::RangeInclusive<i64>) -> bool {
+        if range.is_empty() {
+            return false;
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+        match self {
+            Self::Exact { timestamps_ms, .. } => {
+                let lo = timestamps_ms.partition_point(|&t| t < start_ms);
+                let hi = timestamps_ms.partition_point(|&t| t <= end_ms);
+                lo < hi
+            }
+            Self::Envelope(points) => {
+                let lo = points.partition_point(|p| p.utc_ms < start_ms);
+                let hi = points.partition_point(|p| p.utc_ms <= end_ms);
+                lo < hi
+            }
+        }
+    }
+
     /// Return a new [`SignalSeries`] sliced to `[range.start(), range.end()]` using binary search.
     pub fn slice_range(&self, range: ops::RangeInclusive<i64>) -> Self {
         if range.is_empty() {
@@ -320,6 +341,42 @@ pub struct CoverageSpan {
     pub end_utc_ms: i64,
     pub source: DataSourceKind,
     pub partition_id: Option<String>,
+}
+
+/// Self-contained metadata for a signal present in canonical partitions or the live buffer.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ActiveSignalMeta {
+    pub signal_id: crate::storage::SignalId,
+    pub unit: String,
+    pub is_discrete: bool,
+    pub bus_name: String,
+    pub bus_id: u8,
+    pub can_id: u32,
+    pub transmitter: String,
+    pub nominal_period_ms: Option<u32>,
+    pub description: String,
+}
+
+impl ActiveSignalMeta {
+    pub fn from_manifest_entry(entry: &crate::storage::SignalManifestEntry) -> Self {
+        Self {
+            signal_id: entry.signal_id.clone(),
+            unit: entry.unit.clone(),
+            is_discrete: entry.is_discrete,
+            bus_name: entry.bus_name.clone(),
+            bus_id: entry.bus_id,
+            can_id: entry.can_id,
+            transmitter: entry.transmitter.clone(),
+            nominal_period_ms: entry.nominal_period_ms,
+            description: entry.description.clone(),
+        }
+    }
+
+    pub fn split_message_signal(&self) -> (&str, &str) {
+        self.signal_id
+            .split_once('.')
+            .unwrap_or(("", self.signal_id.as_str()))
+    }
 }
 
 /// Clock correlation provenance for the active timeline playhead or viewport.

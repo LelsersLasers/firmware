@@ -1,4 +1,5 @@
-use crate::{action, app, ui, widget_constructor, workspace_view};
+use crate::{action, ui, widget_constructor, workspace_view};
+use std::collections::BTreeMap;
 
 const STALE_BACKGROUND_ALPHA: u8 = 25;
 const STALE_BORDER_WIDTH: f32 = 1.0;
@@ -25,11 +26,11 @@ impl ViewerTable {
         ui: &mut eframe::egui::Ui,
         actions: &mut Vec<action::AppAction>,
         formatter: &Option<daqcore::formatter::Formatter>,
-        database: Option<&app::DatabaseSelection>,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
         let live_frames = view.live_frames_to_setpoint();
         let latest_live_frames = view.latest_live_frames_to_setpoint();
+        let active_signals = view.active_signals_to_setpoint();
         ui.heading(&self.title);
         ui.horizontal_wrapped(|ui| {
             ui.label("Search:");
@@ -40,12 +41,13 @@ impl ViewerTable {
             let mut nodes: Vec<_> = latest_live_frames
                 .values()
                 .filter_map(|f| f.decoded.as_ref().map(|d| d.tx_node().to_owned()))
+                .chain(
+                    active_signals
+                        .iter()
+                        .filter(|s| !s.transmitter.is_empty())
+                        .map(|s| s.transmitter.clone()),
+                )
                 .collect();
-            if nodes.is_empty()
-                && let Some(db) = database
-            {
-                nodes.extend(db.database.messages().map(|m| m.transmitter().to_owned()));
-            }
             nodes.sort();
             nodes.dedup();
             eframe::egui::ComboBox::from_id_salt(("tx_node", &self.title))
@@ -58,7 +60,7 @@ impl ViewerTable {
                     }
                 });
         });
-        if live_frames.is_empty() && view.router.partitions().is_empty() {
+        if live_frames.is_empty() && active_signals.is_empty() {
             ui.label("No retained CAN messages in the selected interval.");
         }
 
@@ -66,64 +68,94 @@ impl ViewerTable {
         eframe::egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if latest_live_frames.is_empty()
-                    && let Some(db) = database
-                {
-                    for message in db.database.messages() {
-                        let key = message.key();
-                        let name = message.name();
-                        let node = message.transmitter();
-                        let bus_name = db.bus_name(key.bus_id);
+                if latest_live_frames.is_empty() {
+                    let mut grouped: BTreeMap<String, Vec<&daqcore::router::ActiveSignalMeta>> =
+                        BTreeMap::new();
+                    for sig in &active_signals {
+                        let (msg_name, _) = sig.split_message_signal();
+                        if !msg_name.is_empty() {
+                            grouped.entry(msg_name.to_owned()).or_default().push(sig);
+                        }
+                    }
+
+                    for (msg_name, msg_sigs) in grouped {
+                        let first = msg_sigs[0];
+                        let key = daqcore::superdbc::message::MessageKey {
+                            bus_id: first.bus_id,
+                            identity: first.can_id,
+                        };
+                        let node = if first.transmitter.is_empty() {
+                            "Unknown"
+                        } else {
+                            first.transmitter.as_str()
+                        };
+                        let bus_name = if first.bus_name.is_empty() {
+                            "CAN"
+                        } else {
+                            first.bus_name.as_str()
+                        };
                         if self.tx_node != "Any" && self.tx_node != node {
                             continue;
                         }
                         if !search.is_empty()
-                            && !name.to_lowercase().contains(&search)
+                            && !msg_name.to_lowercase().contains(&search)
                             && !node.to_lowercase().contains(&search)
                             && !bus_name.to_lowercase().contains(&search)
                             && !format!("{:03X}", key.identity)
                                 .to_lowercase()
                                 .contains(&search)
-                            && !message
-                                .signals()
-                                .iter()
-                                .any(|s| s.name().to_lowercase().contains(&search))
+                            && !msg_sigs.iter().any(|s| {
+                                let (_, sig_name) = s.split_message_signal();
+                                sig_name.to_lowercase().contains(&search)
+                            })
                         {
                             continue;
                         }
 
                         let mut latest_msg_ms: Option<i64> = None;
-                        let mut signals = Vec::with_capacity(message.signals().len());
-                        for sig_def in message.signals() {
-                            let signal_id =
-                                daqcore::storage::format_signal_id(name, sig_def.name());
-                            let formatted = match view.latest_signal_value_at_setpoint(&signal_id) {
+                        let mut signals = Vec::with_capacity(msg_sigs.len());
+                        for sig_meta in &msg_sigs {
+                            let (_, sig_name) = sig_meta.split_message_signal();
+                            let formatted = match view
+                                .latest_signal_value_in_setpoint_range(&sig_meta.signal_id)
+                            {
                                 Some((utc_ms, val)) => {
                                     latest_msg_ms =
                                         Some(latest_msg_ms.map_or(utc_ms, |m| m.max(utc_ms)));
-                                    format_partition_signal_value(sig_def, val)
+                                    let enum_label = if sig_meta.is_discrete {
+                                        view.query_states(&sig_meta.signal_id, utc_ms..=utc_ms)
+                                            .into_iter()
+                                            .last()
+                                            .map(|iv| iv.label)
+                                    } else {
+                                        None
+                                    };
+                                    format_active_signal_value(
+                                        &sig_meta.unit,
+                                        enum_label.as_deref(),
+                                        val,
+                                    )
                                 }
-                                None => "—".to_owned(),
+                                None => continue,
                             };
-                            signals.push((sig_def.name(), formatted));
+                            signals.push((sig_name, formatted));
                         }
 
-                        let timestamp_label = latest_msg_ms
-                            .map(|ms| daqcore::time::Time::from_unix_millis(ms).label())
-                            .unwrap_or_else(|| "SD Store".to_owned());
+                        let Some(msg_ms) = latest_msg_ms else {
+                            continue;
+                        };
+                        let timestamp_label = daqcore::time::Time::from_unix_millis(msg_ms).label();
                         // Resident 1Hz overview buckets are quantized to 1,000 ms boundaries,
                         // so include a 1,000 ms bucket window before marking an SD message stale.
-                        let stale = latest_msg_ms.is_some_and(|ms| {
-                            let Some(timeout_ms) = message.stale_timeout_ms() else {
-                                return false;
-                            };
-                            let elapsed_ms = view.view_time().unix_millis().saturating_sub(ms);
+                        let stale = first.nominal_period_ms.is_some_and(|period_ms| {
+                            let timeout_ms = (i64::from(period_ms) * 5) / 2;
+                            let elapsed_ms = view.view_time().unix_millis().saturating_sub(msg_ms);
                             elapsed_ms > timeout_ms.saturating_add(1_000)
                         });
 
                         actions.extend(
                             MessageCard {
-                                msg_name: name,
+                                msg_name: &msg_name,
                                 bus_name,
                                 key,
                                 tx_node: node,
@@ -144,17 +176,24 @@ impl ViewerTable {
                     let decoded = frame.decoded.as_ref();
                     let name = decoded.map_or("Error: Unknown", |d| d.name());
                     let node = decoded.map_or("Unparsed", |d| d.tx_node());
-                    let bus_name = database.map_or("Unknown", |db| db.bus_name(frame.bus_id));
+                    let bus_name = decoded
+                        .map(|d| d.bus_name())
+                        .filter(|b| !b.is_empty())
+                        .unwrap_or("CAN");
                     if self.tx_node != "Any" && self.tx_node != node {
                         continue;
                     }
 
-                    let definition = decoded.and_then(|decoded| {
-                        let key = decoded.key();
-                        database?.database.message_by_key(key)
-                    });
-                    let stale = definition
-                        .is_some_and(|message| message.is_stale(frame.timestamp, view.view_time()));
+                    let stale = decoded.and_then(|d| d.nominal_period_ms()).is_some_and(
+                        |period_ms| {
+                            let timeout_ms = (i64::from(period_ms) * 5) / 2;
+                            let elapsed_ms = view
+                                .view_time()
+                                .unix_millis()
+                                .saturating_sub(frame.timestamp.unix_millis());
+                            elapsed_ms > timeout_ms
+                        },
+                    );
 
                     if !search.is_empty()
                         && !name.to_lowercase().contains(&search)
@@ -176,15 +215,16 @@ impl ViewerTable {
                         .map(|d| {
                             d.iter()
                                 .map(|(name, sig)| {
-                                    let def = definition.and_then(|message| message.signal(name));
+                                    let unit_opt =
+                                        (!sig.unit().is_empty()).then_some(sig.unit());
                                     (
                                         name,
                                         daqcore::formatter::try_format(
                                             formatter,
                                             d.name(),
                                             name,
-                                            def,
                                             None,
+                                            unit_opt,
                                             sig,
                                         ),
                                     )
@@ -378,29 +418,16 @@ impl MessageCard<'_> {
     }
 }
 
-fn format_partition_signal_value(
-    sig_def: &daqcore::superdbc::message::SignalDefinition,
-    val: f64,
-) -> String {
-    if sig_def.scale().abs() > f64::EPSILON {
-        let raw_approx = ((val - sig_def.offset()) / sig_def.scale()).round() as i128;
-        if let Some(label) = sig_def.choice_label(raw_approx) {
-            return format!("{label} ({val:.0})");
-        }
+fn format_active_signal_value(unit: &str, enum_label: Option<&str>, val: f64) -> String {
+    if let Some(label) = enum_label
+        && !label.is_empty()
+    {
+        return format!("{label} ({val:.0})");
     }
-    let unit = sig_def.unit();
-    let formatted_num = match sig_def.display_format() {
-        Some(daqcore::superdbc::message::DisplayFormat::Integer) => format!("{val:.0}"),
-        Some(daqcore::superdbc::message::DisplayFormat::Decimal(prec)) => {
-            format!("{val:.*}", usize::from(prec))
-        }
-        _ => {
-            if (val - val.round()).abs() < 1e-6 {
-                format!("{val:.0}")
-            } else {
-                format!("{val:.3}")
-            }
-        }
+    let formatted_num = if (val - val.round()).abs() < 1e-6 {
+        format!("{val:.0}")
+    } else {
+        format!("{val:.3}")
     };
     if unit.is_empty() {
         formatted_num

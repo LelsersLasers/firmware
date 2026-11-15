@@ -11,9 +11,9 @@ pub use tile_cache::{
     read_single_signal_full_res, read_single_signal_overview,
 };
 pub use types::{
-    BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan, DataSourceKind, EnvelopePoint,
-    OVERVIEW_1HZ_THRESHOLD_MS, OVERVIEW_10HZ_THRESHOLD_MS, Resolution, SignalSeries, StateInterval,
-    build_envelope_buckets,
+    ActiveSignalMeta, BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan,
+    DataSourceKind, EnvelopePoint, OVERVIEW_1HZ_THRESHOLD_MS, OVERVIEW_10HZ_THRESHOLD_MS,
+    Resolution, SignalSeries, StateInterval, build_envelope_buckets,
 };
 
 use crate::{
@@ -732,6 +732,176 @@ impl VirtualTimelineRouter {
 
         self.live_buffer
             .latest_signal_value_at(&canonical_id, target_utc_ms)
+    }
+
+    /// Find the latest sample `(utc_ms, value)` for `signal_id` (raw or derived) within `range`
+    /// (`[start_utc_ms..=end_utc_ms]`) without blocking.
+    pub fn latest_signal_value_in_range(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+    ) -> Option<(i64, f64)> {
+        if range.is_empty() {
+            return None;
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+
+        if self.formula_engine.contains(signal_id) {
+            let found = self.latest_signal_value_at(signal_id, end_ms)?;
+            return (found.0 >= start_ms).then_some(found);
+        }
+
+        let canonical_id = canonicalize_signal_ref(signal_id);
+        let max_canonical = self.max_canonical_end_ms(end_ms);
+
+        let live_start_ms = match max_canonical {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        };
+        if live_start_ms <= end_ms
+            && let Some(found) = self
+                .live_buffer
+                .latest_signal_value_in_range(&canonical_id, live_start_ms..=end_ms)
+        {
+            return Some(found);
+        }
+
+        for part in self.partitions.iter().rev() {
+            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+                continue;
+            }
+            if let Some(sig_entry) = part
+                .manifest
+                .signals
+                .iter()
+                .find(|s| s.signal_id == canonical_id)
+                && (sig_entry.sample_count == 0
+                    || sig_entry.min_utc_ms > end_ms
+                    || sig_entry.max_utc_ms < start_ms)
+            {
+                continue;
+            }
+            let part_range = start_ms.max(part.start_utc_ms)..=end_ms.min(part.end_utc_ms);
+            if let Some(found) =
+                self.tile_cache
+                    .latest_resident_in_range(&part.partition_id, &canonical_id, part_range)
+            {
+                return Some(found);
+            }
+        }
+
+        self.live_buffer
+            .latest_signal_value_in_range(&canonical_id, start_ms..=end_ms)
+    }
+
+    /// Return sorted, deduplicated metadata for all raw signals that have at least one sample
+    /// inside `range` (`[start_utc_ms..=end_utc_ms]`).
+    pub fn active_signals_in_range(&self, range: ops::RangeInclusive<i64>) -> Vec<ActiveSignalMeta> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let start_ms = *range.start();
+        let end_ms = *range.end();
+        let mut by_id: std::collections::BTreeMap<String, ActiveSignalMeta> =
+            std::collections::BTreeMap::new();
+
+        for part in &self.partitions {
+            if !part.is_local || part.start_utc_ms > end_ms || part.end_utc_ms < start_ms {
+                continue;
+            }
+            let clamped = start_ms.max(part.start_utc_ms)..=end_ms.min(part.end_utc_ms);
+            for sig_entry in &part.manifest.signals {
+                if by_id.contains_key(&sig_entry.signal_id) {
+                    continue;
+                }
+                if self.tile_cache.partition_signal_has_samples_in_range(
+                    &part.partition_id,
+                    sig_entry,
+                    clamped.clone(),
+                ) {
+                    by_id.insert(
+                        sig_entry.signal_id.clone(),
+                        ActiveSignalMeta::from_manifest_entry(sig_entry),
+                    );
+                }
+            }
+        }
+
+        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        };
+        if live_start_ms <= end_ms {
+            for meta in self
+                .live_buffer
+                .active_signals_in_range(live_start_ms..=end_ms)
+            {
+                by_id.entry(meta.signal_id.clone()).or_insert(meta);
+            }
+        }
+
+        by_id.into_values().collect()
+    }
+
+    /// Return metadata for all raw signals that have samples in the active viewport
+    /// (`timeline.range_ms()`, plus any selected comparison slice spans when comparison mode is active).
+    pub fn active_signals_in_viewport(&self) -> Vec<ActiveSignalMeta> {
+        if !self.timeline.is_comparison_mode() {
+            return self.active_signals_in_range(self.timeline.range_ms());
+        }
+        let mut by_id: std::collections::BTreeMap<String, ActiveSignalMeta> =
+            std::collections::BTreeMap::new();
+        for meta in self.active_signals_in_range(self.timeline.range_ms()) {
+            by_id.insert(meta.signal_id.clone(), meta);
+        }
+        if let Ok(anns) = self.query_annotations_in_range(i64::MIN..=i64::MAX) {
+            for selected_id in self.timeline.selected_annotation_ids() {
+                if let Some(ann) = anns.iter().find(|a| &a.id == selected_id) {
+                    let hi = ann.end_utc_ms.unwrap_or(ann.start_utc_ms).max(ann.start_utc_ms);
+                    for meta in self.active_signals_in_range(ann.start_utc_ms..=hi) {
+                        by_id.entry(meta.signal_id.clone()).or_insert(meta);
+                    }
+                }
+            }
+        }
+        by_id.into_values().collect()
+    }
+
+    /// Return metadata for all raw signals that have samples in `[timeline.start_utc_ms()..=timeline.setpoint_utc_ms()]`.
+    pub fn active_signals_to_setpoint(&self) -> Vec<ActiveSignalMeta> {
+        self.active_signals_in_range(self.timeline.setpoint_range_ms())
+    }
+
+    /// Look up self-contained metadata (`unit`, `bus_name`, `can_id`, `transmitter`, etc.) for
+    /// `signal_id` from registered partition manifests or the live buffer without requiring a `SuperDBC`.
+    pub fn signal_meta(&self, signal_id: &str) -> Option<ActiveSignalMeta> {
+        let canonical_id = canonicalize_signal_ref(signal_id);
+        let win = self.timeline.range_ms();
+        for part in self.partitions.iter().rev() {
+            if !part.is_local || part.start_utc_ms > *win.end() || part.end_utc_ms < *win.start() {
+                continue;
+            }
+            if let Some(entry) = part
+                .manifest
+                .signals
+                .iter()
+                .find(|s| s.signal_id == canonical_id)
+            {
+                return Some(ActiveSignalMeta::from_manifest_entry(entry));
+            }
+        }
+        for part in self.partitions.iter().rev() {
+            if let Some(entry) = part
+                .manifest
+                .signals
+                .iter()
+                .find(|s| s.signal_id == canonical_id)
+            {
+                return Some(ActiveSignalMeta::from_manifest_entry(entry));
+            }
+        }
+        self.live_buffer.signal_meta(&canonical_id).cloned()
     }
 
     /// Return the data coverage spans (`CanonicalSd` and `LiveProvisional`) overlapping `range`.
@@ -2052,6 +2222,42 @@ mod tests {
 
         let bounds = router.select_track_day(Some(day_id)).unwrap();
         assert_eq!(bounds, Some((p1_start_ms, p1_start_ms + 9_000)));
+
+        // Verify range-based signal discovery and metadata without SuperDBC
+        let active_in_part = router.active_signals_in_range(p1_start_ms..=(p1_start_ms + 5_000));
+        assert_eq!(active_in_part.len(), 1);
+        assert_eq!(active_in_part[0].signal_id, "wheel_speeds.speed_mps");
+        assert_eq!(active_in_part[0].unit, "m/s");
+        assert_eq!(active_in_part[0].bus_name, "VCAN");
+        assert_eq!(active_in_part[0].can_id, 100);
+        assert_eq!(active_in_part[0].transmitter, "MAIN_MODULE");
+        assert_eq!(active_in_part[0].nominal_period_ms, Some(100));
+
+        // Sub-range inside the idle gap between the partition (ends at +9_000) and live frame (+20_000)
+        // must report zero active signals!
+        let active_in_gap =
+            router.active_signals_in_range((p1_start_ms + 11_000)..=(p1_start_ms + 18_000));
+        assert!(active_in_gap.is_empty());
+        assert_eq!(
+            router.latest_signal_value_in_range(
+                "wheel_speeds.speed_mps",
+                (p1_start_ms + 11_000)..=(p1_start_ms + 18_000),
+            ),
+            None
+        );
+
+        // Sub-range covering the live frame at +20_000 reports the live signal and metadata
+        let active_in_live =
+            router.active_signals_in_range((p1_start_ms + 19_000)..=(p1_start_ms + 21_000));
+        assert_eq!(active_in_live.len(), 1);
+        assert_eq!(active_in_live[0].signal_id, "wheel_speeds.speed_mps");
+        assert_eq!(
+            router.latest_signal_value_in_range(
+                "wheel_speeds.speed_mps",
+                (p1_start_ms + 19_000)..=(p1_start_ms + 21_000),
+            ),
+            Some((p1_start_ms + 20_000, 15.0))
+        );
 
         let _ = fs::remove_dir_all(&tmp_dir);
     }

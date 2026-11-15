@@ -4,7 +4,6 @@ use crate::{
         resample_discrete_hold, series_to_timestamp_values,
     },
     router::{Resolution, RouterError, SignalSeries, VirtualTimelineRouter},
-    storage::format_signal_id,
     superdbc::database::Database,
 };
 use arrow::{
@@ -365,100 +364,30 @@ pub struct ExportSummary {
     pub signals: Vec<(String, String)>,
 }
 
-/// Discover all signals and derived channels known to `router` (and optional `database`)
-/// across `range`.
+/// Discover all raw signals and derived channels that have samples in `router` across `range`.
 pub fn discover_available_signals(
     router: &VirtualTimelineRouter,
     range: RangeInclusive<i64>,
-    database: Option<&Database>,
+    _database: Option<&Database>,
 ) -> IndexMap<String, ExportSignalMeta> {
-    let start_ms = *range.start();
-    let end_ms = *range.end();
     let mut catalog: IndexMap<String, ExportSignalMeta> = IndexMap::new();
 
-    // 1. Signals from overlapping partitions (or all partitions if none overlap)
-    let overlapping_parts: Vec<_> = router
-        .partitions()
-        .iter()
-        .filter(|p| p.is_local && p.start_utc_ms <= end_ms && p.end_utc_ms >= start_ms)
-        .collect();
-    let source_parts: Vec<_> = if overlapping_parts.is_empty() {
-        router.partitions().iter().filter(|p| p.is_local).collect()
-    } else {
-        overlapping_parts.clone()
-    };
-
-    for part in source_parts {
-        let in_range = part.start_utc_ms <= end_ms && part.end_utc_ms >= start_ms;
-        for sig in &part.manifest.signals {
-            let entry = catalog
-                .entry(sig.signal_id.clone())
-                .or_insert_with(|| ExportSignalMeta {
-                    signal_id: sig.signal_id.clone(),
-                    label: sig.signal_id.clone(),
-                    unit: sig.unit.clone(),
-                    is_derived: false,
-                    is_discrete: sig.is_discrete,
-                    has_samples_in_range: false,
-                });
-            if entry.unit.is_empty() && !sig.unit.is_empty() {
-                entry.unit.clone_from(&sig.unit);
-            }
-            entry.is_discrete |= sig.is_discrete;
-            if in_range
-                && sig.sample_count > 0
-                && sig.min_utc_ms <= end_ms
-                && sig.max_utc_ms >= start_ms
-            {
-                entry.has_samples_in_range = true;
-            }
-        }
-    }
-
-    // 2. Signals from the provisional live buffer
-    for sig_id in router.live_buffer().signal_ids() {
-        let has_live = router
-            .live_buffer()
-            .query_signal(sig_id, range.clone(), Resolution::Overview1Hz)
-            .is_some_and(|s| !s.is_empty());
-        let entry = catalog
-            .entry(sig_id.clone())
-            .or_insert_with(|| ExportSignalMeta {
-                signal_id: sig_id.clone(),
-                label: sig_id.clone(),
-                unit: String::new(),
+    // 1. Raw signals active in `range` (from overlapping partitions and live buffer)
+    for meta in router.active_signals_in_range(range) {
+        catalog.insert(
+            meta.signal_id.clone(),
+            ExportSignalMeta {
+                signal_id: meta.signal_id.clone(),
+                label: meta.signal_id,
+                unit: meta.unit,
                 is_derived: false,
-                is_discrete: false,
-                has_samples_in_range: false,
-            });
-        entry.has_samples_in_range |= has_live;
+                is_discrete: meta.is_discrete,
+                has_samples_in_range: true,
+            },
+        );
     }
 
-    // 3. Enrich with SuperDBC metadata (and register DBC signals)
-    if let Some(db) = database {
-        for msg in db.messages() {
-            for sig in msg.signals() {
-                let sig_id = format_signal_id(msg.name(), sig.name());
-                let is_discrete = sig.choices().count() > 0 || sig.bit_length() == 1;
-                let entry = catalog
-                    .entry(sig_id.clone())
-                    .or_insert_with(|| ExportSignalMeta {
-                        signal_id: sig_id.clone(),
-                        label: format!("{}.{}", msg.name(), sig.name()),
-                        unit: sig.unit().to_owned(),
-                        is_derived: false,
-                        is_discrete,
-                        has_samples_in_range: false,
-                    });
-                if entry.unit.is_empty() && !sig.unit().is_empty() {
-                    entry.unit = sig.unit().to_owned();
-                }
-                entry.is_discrete |= is_discrete;
-            }
-        }
-    }
-
-    // 4. Derived signals from FormulaEngine
+    // 2. Derived signals from FormulaEngine whose leaf dependencies exist in `range`
     for compiled in router.formula_engine().definitions() {
         let raw_deps_available = if let Ok((_, leaf_raw)) = router
             .formula_engine()
@@ -473,17 +402,19 @@ pub fn discover_available_signals(
         } else {
             false
         };
-        catalog.insert(
-            compiled.def.id.clone(),
-            ExportSignalMeta {
-                signal_id: compiled.def.id.clone(),
-                label: compiled.def.label.clone(),
-                unit: compiled.def.unit.clone(),
-                is_derived: true,
-                is_discrete: false,
-                has_samples_in_range: raw_deps_available,
-            },
-        );
+        if raw_deps_available {
+            catalog.insert(
+                compiled.def.id.clone(),
+                ExportSignalMeta {
+                    signal_id: compiled.def.id.clone(),
+                    label: compiled.def.label.clone(),
+                    unit: compiled.def.unit.clone(),
+                    is_derived: true,
+                    is_discrete: false,
+                    has_samples_in_range: true,
+                },
+            );
+        }
     }
 
     catalog
