@@ -184,16 +184,17 @@ impl ViewerTable {
                         continue;
                     }
 
-                    let stale = decoded.and_then(|d| d.nominal_period_ms()).is_some_and(
-                        |period_ms| {
-                            let timeout_ms = (i64::from(period_ms) * 5) / 2;
-                            let elapsed_ms = view
-                                .view_time()
-                                .unix_millis()
-                                .saturating_sub(frame.timestamp.unix_millis());
-                            elapsed_ms > timeout_ms
-                        },
-                    );
+                    let stale =
+                        decoded
+                            .and_then(|d| d.nominal_period_ms())
+                            .is_some_and(|period_ms| {
+                                let timeout_ms = (i64::from(period_ms) * 5) / 2;
+                                let elapsed_ms = view
+                                    .view_time()
+                                    .unix_millis()
+                                    .saturating_sub(frame.timestamp.unix_millis());
+                                elapsed_ms > timeout_ms
+                            });
 
                     if !search.is_empty()
                         && !name.to_lowercase().contains(&search)
@@ -215,8 +216,7 @@ impl ViewerTable {
                         .map(|d| {
                             d.iter()
                                 .map(|(name, sig)| {
-                                    let unit_opt =
-                                        (!sig.unit().is_empty()).then_some(sig.unit());
+                                    let unit_opt = (!sig.unit().is_empty()).then_some(sig.unit());
                                     (
                                         name,
                                         daqcore::formatter::try_format(

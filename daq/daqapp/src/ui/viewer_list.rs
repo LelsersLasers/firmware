@@ -130,8 +130,7 @@ impl ViewerList {
                                 .unwrap_or("CAN");
                             if let Some(decoded) = &frame.decoded {
                                 for (name, sig) in decoded.iter() {
-                                    let unit_opt =
-                                        (!sig.unit().is_empty()).then_some(sig.unit());
+                                    let unit_opt = (!sig.unit().is_empty()).then_some(sig.unit());
                                     let value = daqcore::formatter::try_format(
                                         formatter,
                                         decoded.name(),

@@ -81,7 +81,9 @@ pub fn show_signal_picker(
                     .execution_plan_for_expr(&compiled.ast)
                     .is_ok_and(|(_, leaves)| {
                         leaves.is_empty()
-                            || leaves.iter().all(|leaf| active_id_set.contains(leaf.as_str()))
+                            || leaves
+                                .iter()
+                                .all(|leaf| active_id_set.contains(leaf.as_str()))
                     });
             if !deps_active {
                 continue;

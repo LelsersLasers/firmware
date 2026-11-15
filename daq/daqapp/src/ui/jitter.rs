@@ -64,7 +64,10 @@ impl Jitter {
             interval_deviations(view.live_frames_to_setpoint(), msg.key(), self.period_ms);
         if deviations.is_empty()
             && let daqcore::router::SignalSeries::Exact { timestamps_ms, .. } = view
-                .query_signal_to_setpoint(&msg.first_signal_id, daqcore::router::Resolution::FullRes)
+                .query_signal_to_setpoint(
+                    &msg.first_signal_id,
+                    daqcore::router::Resolution::FullRes,
+                )
         {
             let period = self.period_ms.max(1) as f64;
             deviations = timestamps_ms

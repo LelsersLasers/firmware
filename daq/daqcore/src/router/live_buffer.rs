@@ -332,7 +332,10 @@ impl LiveColumnBuffer {
     }
 
     /// Return metadata for all signals that have at least one sample in `range`.
-    pub fn active_signals_in_range(&self, range: ops::RangeInclusive<i64>) -> Vec<ActiveSignalMeta> {
+    pub fn active_signals_in_range(
+        &self,
+        range: ops::RangeInclusive<i64>,
+    ) -> Vec<ActiveSignalMeta> {
         if range.is_empty() {
             return Vec::new();
         }

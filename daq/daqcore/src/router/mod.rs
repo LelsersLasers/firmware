@@ -11,9 +11,9 @@ pub use tile_cache::{
     read_single_signal_full_res, read_single_signal_overview,
 };
 pub use types::{
-    ActiveSignalMeta, BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan,
-    DataSourceKind, EnvelopePoint, OVERVIEW_1HZ_THRESHOLD_MS, OVERVIEW_10HZ_THRESHOLD_MS,
-    Resolution, SignalSeries, StateInterval, build_envelope_buckets,
+    ActiveSignalMeta, BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan, DataSourceKind,
+    EnvelopePoint, OVERVIEW_1HZ_THRESHOLD_MS, OVERVIEW_10HZ_THRESHOLD_MS, Resolution, SignalSeries,
+    StateInterval, build_envelope_buckets,
 };
 
 use crate::{
@@ -783,10 +783,11 @@ impl VirtualTimelineRouter {
                 continue;
             }
             let part_range = start_ms.max(part.start_utc_ms)..=end_ms.min(part.end_utc_ms);
-            if let Some(found) =
-                self.tile_cache
-                    .latest_resident_in_range(&part.partition_id, &canonical_id, part_range)
-            {
+            if let Some(found) = self.tile_cache.latest_resident_in_range(
+                &part.partition_id,
+                &canonical_id,
+                part_range,
+            ) {
                 return Some(found);
             }
         }
@@ -797,7 +798,10 @@ impl VirtualTimelineRouter {
 
     /// Return sorted, deduplicated metadata for all raw signals that have at least one sample
     /// inside `range` (`[start_utc_ms..=end_utc_ms]`).
-    pub fn active_signals_in_range(&self, range: ops::RangeInclusive<i64>) -> Vec<ActiveSignalMeta> {
+    pub fn active_signals_in_range(
+        &self,
+        range: ops::RangeInclusive<i64>,
+    ) -> Vec<ActiveSignalMeta> {
         if range.is_empty() {
             return Vec::new();
         }
@@ -858,7 +862,10 @@ impl VirtualTimelineRouter {
         if let Ok(anns) = self.query_annotations_in_range(i64::MIN..=i64::MAX) {
             for selected_id in self.timeline.selected_annotation_ids() {
                 if let Some(ann) = anns.iter().find(|a| &a.id == selected_id) {
-                    let hi = ann.end_utc_ms.unwrap_or(ann.start_utc_ms).max(ann.start_utc_ms);
+                    let hi = ann
+                        .end_utc_ms
+                        .unwrap_or(ann.start_utc_ms)
+                        .max(ann.start_utc_ms);
                     for meta in self.active_signals_in_range(ann.start_utc_ms..=hi) {
                         by_id.entry(meta.signal_id.clone()).or_insert(meta);
                     }
