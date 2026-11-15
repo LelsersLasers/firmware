@@ -52,6 +52,11 @@ impl<'a> WorkspaceDataView<'a> {
         self.view_time
     }
 
+    /// Monotonically increasing revision counter from the underlying router and tile cache.
+    pub fn data_revision(&self) -> u64 {
+        self.router.data_revision()
+    }
+
     /// Synchronized hover timestamp (`utc_ms`) across all open analysis panes.
     pub fn hover_utc_ms(&self) -> Option<i64> {
         self.hover_utc_ms.get()

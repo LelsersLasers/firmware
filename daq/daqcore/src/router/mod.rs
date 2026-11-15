@@ -26,7 +26,26 @@ use crate::{
     time::Time,
     timeline::MasterTimeline,
 };
-use std::{ops, path, time};
+use std::{
+    collections::HashMap,
+    ops, path,
+    sync::Mutex,
+    time,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct QueryCacheKey {
+    signal_id: String,
+    start_ms: i64,
+    end_ms: i64,
+    resolution: Resolution,
+}
+
+#[derive(Default)]
+struct QuerySignalCache {
+    revision: u64,
+    entries: HashMap<QueryCacheKey, SignalSeries>,
+}
 
 /// Unified timeline router combining canonical SD Parquet partitions (`TileCache` + `Registry`)
 /// with provisional live CAN traffic (`LiveColumnBuffer`) on a single `utc_ms` coordinate axis.
@@ -45,6 +64,10 @@ pub struct VirtualTimelineRouter {
     partitions: Vec<RegisteredPartition>,
     timeline: MasterTimeline,
     formula_engine: FormulaEngine,
+    router_revision: u64,
+    query_cache: Mutex<QuerySignalCache>,
+    cached_track_days: Mutex<Option<Vec<TrackDay>>>,
+    cached_annotations: Mutex<Option<Vec<Annotation>>>,
 }
 
 impl VirtualTimelineRouter {
@@ -60,6 +83,10 @@ impl VirtualTimelineRouter {
             partitions: Vec::new(),
             timeline,
             formula_engine: FormulaEngine::with_builtin_config(),
+            router_revision: 1,
+            query_cache: Mutex::new(QuerySignalCache::default()),
+            cached_track_days: Mutex::new(None),
+            cached_annotations: Mutex::new(None),
         })
     }
 
@@ -81,9 +108,30 @@ impl VirtualTimelineRouter {
             partitions: Vec::new(),
             timeline,
             formula_engine: FormulaEngine::with_builtin_config(),
+            router_revision: 1,
+            query_cache: Mutex::new(QuerySignalCache::default()),
+            cached_track_days: Mutex::new(None),
+            cached_annotations: Mutex::new(None),
         };
         router.refresh_store()?;
         Ok(router)
+    }
+
+    /// Monotonically increasing revision counter that increments whenever partitions,
+    /// background tiles, live frames, formulas, or annotations change.
+    pub fn data_revision(&self) -> u64 {
+        self.router_revision
+            .wrapping_add(self.tile_cache.revision())
+    }
+
+    fn invalidate_metadata_cache(&mut self) {
+        self.router_revision = self.router_revision.wrapping_add(1);
+        if let Ok(mut guard) = self.cached_track_days.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.cached_annotations.lock() {
+            *guard = None;
+        }
     }
 
     /// Attach or switch to a new on-disk store directory and preload its local partitions.
@@ -96,6 +144,7 @@ impl VirtualTimelineRouter {
         self.registry = registry;
         self.store_dir = Some(store_dir);
         self.tile_cache.clear();
+        self.invalidate_metadata_cache();
         self.refresh_store()
     }
 
@@ -103,11 +152,15 @@ impl VirtualTimelineRouter {
     /// partition list, preload any new `overview_1hz.parquet` and `states.parquet` files into
     /// `TileCache`, and update `MasterTimeline` day bounds.
     pub fn refresh_store(&mut self) -> Result<usize, RouterError> {
+        self.invalidate_metadata_cache();
         let Some(store_dir) = self.store_dir.clone() else {
             return Ok(0);
         };
         let _ = self.registry.sync_from_store_dir(&store_dir)?;
         let days = self.registry.list_track_days()?;
+        if let Ok(mut guard) = self.cached_track_days.lock() {
+            *guard = Some(days.clone());
+        }
         let mut all_partitions = Vec::new();
         for day in &days {
             let mut day_parts = self.registry.list_partitions_for_day(&day.id)?;
@@ -145,6 +198,7 @@ impl VirtualTimelineRouter {
         partition_dir: impl AsRef<path::Path>,
     ) -> Result<(), RouterError> {
         self.registry.register_manifest(manifest, true)?;
+        self.invalidate_metadata_cache();
         self.tile_cache.preload_partition(
             &manifest.partition_id,
             partition_dir.as_ref(),
@@ -190,6 +244,7 @@ impl VirtualTimelineRouter {
     }
 
     pub fn live_buffer_mut(&mut self) -> &mut LiveColumnBuffer {
+        self.router_revision = self.router_revision.wrapping_add(1);
         &mut self.live_buffer
     }
 
@@ -198,6 +253,7 @@ impl VirtualTimelineRouter {
     }
 
     pub fn tile_cache_mut(&mut self) -> &mut TileCache {
+        self.router_revision = self.router_revision.wrapping_add(1);
         &mut self.tile_cache
     }
 
@@ -214,6 +270,7 @@ impl VirtualTimelineRouter {
     }
 
     pub fn formula_engine_mut(&mut self) -> &mut FormulaEngine {
+        self.router_revision = self.router_revision.wrapping_add(1);
         &mut self.formula_engine
     }
 
@@ -230,7 +287,13 @@ impl VirtualTimelineRouter {
             return Ok(SignalSeries::empty_for(resolution));
         }
         let raw_resolution = if self.formula_engine.plan_contains_series_fn(expr) {
-            Resolution::FullRes
+            if resolution == Resolution::FullRes
+                || range.end().saturating_sub(*range.start()) <= 30_000
+            {
+                Resolution::FullRes
+            } else {
+                Resolution::Overview10Hz
+            }
         } else {
             resolution
         };
@@ -330,6 +393,7 @@ impl VirtualTimelineRouter {
     pub fn ingest_frame(&mut self, frame: ParsedFrame) -> bool {
         let timestamp = frame.timestamp;
         self.live_buffer.push(frame);
+        self.router_revision = self.router_revision.wrapping_add(1);
         self.timeline.observe(timestamp)
     }
 
@@ -337,6 +401,7 @@ impl VirtualTimelineRouter {
     pub fn push_batch(&mut self, frames: Vec<ParsedFrame>) {
         let latest = frames.iter().map(|f| f.timestamp).max();
         self.live_buffer.push_batch(frames);
+        self.router_revision = self.router_revision.wrapping_add(1);
         if let Some(timestamp) = latest {
             self.timeline.observe(timestamp);
         }
@@ -346,6 +411,7 @@ impl VirtualTimelineRouter {
     /// registered canonical SD partitions.
     pub fn reset_live(&mut self, now: Time) {
         self.live_buffer.clear();
+        self.router_revision = self.router_revision.wrapping_add(1);
         self.timeline.reset(now);
         for part in &self.partitions {
             self.timeline
@@ -454,14 +520,40 @@ impl VirtualTimelineRouter {
             return SignalSeries::empty_for(resolution);
         }
 
-        if let Some(compiled) = self.formula_engine.get(signal_id) {
-            let ast = compiled.ast.clone();
-            return self
-                .evaluate_expression(&ast, range, resolution)
-                .unwrap_or_else(|_| SignalSeries::empty_for(resolution));
+        let rev_before = self.data_revision();
+        let cache_key = QueryCacheKey {
+            signal_id: signal_id.to_owned(),
+            start_ms: *range.start(),
+            end_ms: *range.end(),
+            resolution,
+        };
+        if let Ok(mut guard) = self.query_cache.lock() {
+            if guard.revision != rev_before {
+                guard.entries.clear();
+                guard.revision = rev_before;
+            } else if let Some(cached) = guard.entries.get(&cache_key) {
+                return cached.clone();
+            }
         }
 
-        self.query_raw_signal(signal_id, range, resolution)
+        let series = if let Some(compiled) = self.formula_engine.get(signal_id) {
+            let ast = compiled.ast.clone();
+            self.evaluate_expression(&ast, range, resolution)
+                .unwrap_or_else(|_| SignalSeries::empty_for(resolution))
+        } else {
+            self.query_raw_signal(signal_id, range, resolution)
+        };
+
+        let rev_after = self.data_revision();
+        if let Ok(mut guard) = self.query_cache.lock() {
+            if guard.revision != rev_after || guard.entries.len() >= 128 {
+                guard.entries.clear();
+                guard.revision = rev_after;
+            }
+            guard.entries.insert(cache_key, series.clone());
+        }
+
+        series
     }
 
     /// Synchronously query a raw CAN `signal_id` across `range` at exact `resolution`
@@ -595,6 +687,20 @@ impl VirtualTimelineRouter {
         target_utc_ms: i64,
     ) -> Option<(i64, f64)> {
         if self.formula_engine.contains(signal_id) {
+            let cur_rev = self.data_revision();
+            if let Ok(guard) = self.query_cache.lock()
+                && guard.revision == cur_rev
+            {
+                for (k, series) in &guard.entries {
+                    if k.signal_id == signal_id
+                        && k.start_ms <= target_utc_ms
+                        && target_utc_ms <= k.end_ms
+                        && let Some(found) = series.latest_at_or_before(target_utc_ms)
+                    {
+                        return Some(found);
+                    }
+                }
+            }
             let lookback_ms = (self.formula_engine.max_staleness_ms() * 8).max(2_000);
             let window = target_utc_ms.saturating_sub(lookback_ms)..=target_utc_ms;
             let series = self.query_signal(signal_id, window, Resolution::FullRes);
@@ -675,7 +781,16 @@ impl VirtualTimelineRouter {
     }
 
     pub fn list_track_days(&self) -> Result<Vec<TrackDay>, RouterError> {
-        Ok(self.registry.list_track_days()?)
+        if let Ok(guard) = self.cached_track_days.lock()
+            && let Some(cached) = guard.as_ref()
+        {
+            return Ok(cached.clone());
+        }
+        let days = self.registry.list_track_days()?;
+        if let Ok(mut guard) = self.cached_track_days.lock() {
+            *guard = Some(days.clone());
+        }
+        Ok(days)
     }
 
     /// Select a specific `TrackDay` (or `None` for all captured days), recomputing `day_bounds_ms`
@@ -843,14 +958,41 @@ impl VirtualTimelineRouter {
         if range.is_empty() {
             return Ok(Vec::new());
         }
-        Ok(self
+        let q_start = *range.start();
+        let q_end = *range.end();
+        if let Ok(guard) = self.cached_annotations.lock()
+            && let Some(anns) = guard.as_ref()
+        {
+            return Ok(anns
+                .iter()
+                .filter(|a| match a.end_utc_ms {
+                    None => a.start_utc_ms >= q_start && a.start_utc_ms <= q_end,
+                    Some(end_ms) => a.start_utc_ms <= q_end && end_ms >= q_start,
+                })
+                .cloned()
+                .collect());
+        }
+        let all = self
             .registry
-            .query_annotations_in_range(*range.start(), *range.end(), false)?)
+            .query_annotations_in_range(i64::MIN, i64::MAX, false)?;
+        let filtered = all
+            .iter()
+            .filter(|a| match a.end_utc_ms {
+                None => a.start_utc_ms >= q_start && a.start_utc_ms <= q_end,
+                Some(end_ms) => a.start_utc_ms <= q_end && end_ms >= q_start,
+            })
+            .cloned()
+            .collect();
+        if let Ok(mut guard) = self.cached_annotations.lock() {
+            *guard = Some(all);
+        }
+        Ok(filtered)
     }
 
     /// Insert or update an annotation in the registry and expand day bounds if needed.
     pub fn upsert_annotation(&mut self, annotation: &Annotation) -> Result<bool, RouterError> {
         let changed = self.registry.upsert_annotation(annotation)?;
+        self.invalidate_metadata_cache();
         let end_ms = annotation
             .end_utc_ms
             .unwrap_or(annotation.start_utc_ms)
@@ -879,6 +1021,7 @@ impl VirtualTimelineRouter {
         let deleted = self
             .registry
             .soft_delete_annotation(annotation_id, updated_at_ms)?;
+        self.invalidate_metadata_cache();
         if self.timeline.is_annotation_selected(annotation_id) {
             self.timeline
                 .toggle_comparison_annotation(annotation_id.to_owned(), 0, None);

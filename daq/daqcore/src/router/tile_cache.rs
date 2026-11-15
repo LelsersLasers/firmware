@@ -10,7 +10,11 @@ use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuild
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt, fs, io, path,
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread, time,
 };
 
@@ -224,6 +228,7 @@ pub struct TileCache {
     partition_dirs: HashMap<String, path::PathBuf>,
     partition_signals: HashMap<String, HashSet<SignalId>>,
     dynamic: Mutex<TileCacheDynamic>,
+    revision: AtomicU64,
     cmd_tx: mpsc::Sender<WorkerCommand>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
     worker_handle: Option<thread::JoinHandle<()>>,
@@ -288,10 +293,17 @@ impl TileCache {
                 in_flight: HashSet::new(),
                 res_rx,
             }),
+            revision: AtomicU64::new(1),
             cmd_tx,
             repaint_cb,
             worker_handle,
         }
+    }
+
+    /// Monotonically increasing revision counter bumped whenever tiles finish loading,
+    /// partitions are preloaded, or the cache is cleared.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Relaxed)
     }
 
     /// Configure a callback (e.g. `move || ctx.request_repaint()`) invoked whenever the
@@ -336,6 +348,7 @@ impl TileCache {
             dyn_guard.lru.clear();
             dyn_guard.in_flight.clear();
         }
+        self.revision.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Return the preloaded 1Hz sample-count activity buckets `(bucket_utc_ms, count)` for a partition.
@@ -388,6 +401,7 @@ impl TileCache {
             .insert(partition_id.to_owned(), Arc::new(activity_1hz));
         self.resident_states
             .insert(partition_id.to_owned(), states_map);
+        self.revision.fetch_add(1, Ordering::Relaxed);
 
         Ok(())
     }
@@ -425,10 +439,10 @@ impl TileCache {
         let Ok(mut dyn_guard) = self.dynamic.lock() else {
             return 0;
         };
-        Self::poll_completed_locked(&mut dyn_guard)
+        Self::poll_completed_locked(&mut dyn_guard, &self.revision)
     }
 
-    fn poll_completed_locked(dyn_guard: &mut TileCacheDynamic) -> usize {
+    fn poll_completed_locked(dyn_guard: &mut TileCacheDynamic, revision: &AtomicU64) -> usize {
         let mut completed = 0usize;
         while let Ok(msg) = dyn_guard.res_rx.try_recv() {
             dyn_guard.in_flight.remove(&msg.key);
@@ -447,6 +461,9 @@ impl TileCache {
                 }
             }
         }
+        if completed > 0 {
+            revision.fetch_add(1, Ordering::Relaxed);
+        }
         completed
     }
 
@@ -456,7 +473,7 @@ impl TileCache {
             return 0;
         };
         let deadline = time::Instant::now() + timeout;
-        let mut total = Self::poll_completed_locked(&mut dyn_guard);
+        let mut total = Self::poll_completed_locked(&mut dyn_guard, &self.revision);
         while !dyn_guard.in_flight.is_empty() {
             let now = time::Instant::now();
             if now >= deadline {
@@ -469,11 +486,12 @@ impl TileCache {
                     if let Ok(series) = msg.result {
                         dyn_guard.lru.insert(msg.key, series);
                         total += 1;
+                        self.revision.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 Err(_) => break,
             }
-            total += Self::poll_completed_locked(&mut dyn_guard);
+            total += Self::poll_completed_locked(&mut dyn_guard, &self.revision);
         }
         drop(dyn_guard);
         drop(self.repaint_cb.lock());
@@ -507,7 +525,7 @@ impl TileCache {
         let Ok(mut dyn_guard) = self.dynamic.lock() else {
             return resident_1hz.map(TileLookup::Ready);
         };
-        Self::poll_completed_locked(&mut dyn_guard);
+        Self::poll_completed_locked(&mut dyn_guard, &self.revision);
 
         if resolution == Resolution::Overview1Hz {
             return resident_1hz.map(TileLookup::Ready);
@@ -583,7 +601,7 @@ impl TileCache {
         };
 
         if let Ok(mut dyn_guard) = self.dynamic.lock() {
-            Self::poll_completed_locked(&mut dyn_guard);
+            Self::poll_completed_locked(&mut dyn_guard, &self.revision);
             if let Some(cached) = dyn_guard.lru.get(&key) {
                 return Ok(Some(cached));
             }
@@ -612,6 +630,7 @@ impl TileCache {
 
         if let Ok(mut dyn_guard) = self.dynamic.lock() {
             dyn_guard.lru.insert(key, Arc::clone(&series));
+            self.revision.fetch_add(1, Ordering::Relaxed);
         }
         Ok(Some(series))
     }
