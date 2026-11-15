@@ -318,6 +318,17 @@ impl Registry {
         &self.pool
     }
 
+    /// Return `true` when all canonical Parquet pyramid files (`manifest.json`,
+    /// `overview_1hz.parquet`, `overview_10hz.parquet`, `full_res.parquet`, and `states.parquet`)
+    /// are present on disk in `partition_dir`.
+    pub fn is_partition_dir_complete(partition_dir: &path::Path) -> bool {
+        partition_dir.join("manifest.json").is_file()
+            && partition_dir.join("overview_1hz.parquet").is_file()
+            && partition_dir.join("overview_10hz.parquet").is_file()
+            && partition_dir.join("full_res.parquet").is_file()
+            && partition_dir.join("states.parquet").is_file()
+    }
+
     /// Scan `<store_dir>/partitions/*/manifest.json` and ensure all on-disk partitions
     /// are registered in this [`Registry`]. Returns the count of newly inserted partitions.
     pub fn sync_from_store_dir(
@@ -344,7 +355,8 @@ impl Registry {
             }
             let bytes = fs::read(&manifest_path)?;
             let manifest: PartitionManifest = serde_json::from_slice(&bytes)?;
-            if self.register_manifest(&manifest, true)? {
+            let is_complete = Self::is_partition_dir_complete(&dir);
+            if self.register_manifest(&manifest, is_complete)? {
                 newly_inserted += 1;
             }
         }
@@ -566,6 +578,20 @@ impl Registry {
         })
     }
 
+    pub fn list_all_partitions(&self) -> Result<Vec<RegisteredPartition>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let rows = partitions::table
+            .order((
+                partitions::start_utc_ms.asc(),
+                partitions::partition_id.asc(),
+            ))
+            .select(PartitionRow::as_select())
+            .load::<PartitionRow>(&mut conn)?;
+        rows.into_iter()
+            .map(PartitionRow::into_registered)
+            .collect()
+    }
+
     pub fn list_partitions_for_day(
         &self,
         track_day_id: &str,
@@ -779,8 +805,20 @@ impl Registry {
                 // Auto-annotations from partition manifests are deterministic; never overwrite an
                 // existing row on re-import so manual edits, promotions to "manual", and
                 // soft-deletes are always preserved.
+                if from_manifest && annotation.source == "auto" {
+                    return Ok(false);
+                }
+                if annotation.deleted {
+                    if annotation.updated_at_ms < prev.updated_at_ms {
+                        return Ok(false);
+                    }
+                    diesel::update(annotations::table.filter(annotations::id.eq(&annotation.id)))
+                        .set(&row)
+                        .execute(conn)?;
+                    return Ok(true);
+                }
                 if annotation.source == "auto" {
-                    if from_manifest || prev.deleted || prev.source == "manual" {
+                    if prev.deleted || prev.source == "manual" {
                         return Ok(false);
                     }
                     let content_changed = row.name != prev.name
@@ -1245,5 +1283,75 @@ mod tests {
         );
         assert_eq!(after_edit[0].source, "manual");
         assert_eq!(after_edit[1].source, "manual");
+    }
+
+    #[test]
+    fn test_sync_from_store_dir_incomplete_vs_complete_and_tombstone_sync() {
+        let tmp = tempfile::tempdir().expect("temp store dir");
+        let part_dir = tmp.path().join("partitions").join("epoch_500000_cloud");
+        fs::create_dir_all(&part_dir).unwrap();
+
+        let auto_ann = Annotation {
+            id: "auto_stint_cloud_510000".to_owned(),
+            track_day_id: "2026-11-12".to_owned(),
+            name: "Driving Stint #1".to_owned(),
+            category: "driving_stint".to_owned(),
+            color: "#22c55e".to_owned(),
+            start_utc_ms: 510_000,
+            end_utc_ms: Some(580_000),
+            author: "daqcore".to_owned(),
+            source: "auto".to_owned(),
+            notes: String::new(),
+            updated_at_ms: 100,
+            deleted: false,
+        };
+        let manifest = sample_manifest(
+            "epoch_500000_cloud",
+            "2026-11-12",
+            500_000,
+            600_000,
+            "hash_cloud",
+            vec![auto_ann.clone()],
+        );
+        fs::write(
+            part_dir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        fs::write(part_dir.join("overview_1hz.parquet"), b"dummy").unwrap();
+        fs::write(part_dir.join("states.parquet"), b"dummy").unwrap();
+
+        let registry = Registry::open_store(tmp.path()).unwrap();
+        assert_eq!(registry.sync_from_store_dir(tmp.path()).unwrap(), 1);
+        let part = registry
+            .get_partition("epoch_500000_cloud")
+            .unwrap()
+            .expect("partition registered");
+        assert!(
+            !part.is_local,
+            "partition with only 1Hz overview + states must remain is_local = false"
+        );
+
+        // Once overview_10hz.parquet and full_res.parquet arrive, sync_from_store_dir marks is_local = true
+        fs::write(part_dir.join("overview_10hz.parquet"), b"dummy").unwrap();
+        fs::write(part_dir.join("full_res.parquet"), b"dummy").unwrap();
+        assert_eq!(registry.sync_from_store_dir(tmp.path()).unwrap(), 0);
+        let part_after = registry
+            .get_partition("epoch_500000_cloud")
+            .unwrap()
+            .unwrap();
+        assert!(part_after.is_local);
+        assert_eq!(registry.list_all_partitions().unwrap().len(), 1);
+
+        // Soft-delete tombstone from a remote peer must apply via upsert_annotation even if source == "auto"
+        let mut tombstone = auto_ann;
+        tombstone.deleted = true;
+        tombstone.updated_at_ms = 500;
+        assert!(registry.upsert_annotation(&tombstone).unwrap());
+        let fetched = registry
+            .get_annotation("auto_stint_cloud_510000")
+            .unwrap()
+            .unwrap();
+        assert!(fetched.deleted);
     }
 }
