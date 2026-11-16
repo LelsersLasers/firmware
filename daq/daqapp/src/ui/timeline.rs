@@ -138,6 +138,7 @@ pub struct TimelineUiState {
     pub show_chunk_navigator: bool,
     pub chunk_search_query: String,
     pub chunk_filter: ChunkFilter,
+    pub chunk_days_open_override: Option<bool>,
 }
 
 impl Default for TimelineUiState {
@@ -149,6 +150,7 @@ impl Default for TimelineUiState {
             show_chunk_navigator: false,
             chunk_search_query: String::new(),
             chunk_filter: ChunkFilter::All,
+            chunk_days_open_override: None,
         }
     }
 }
@@ -2141,6 +2143,22 @@ pub fn show_chunk_navigator_contents(
             }
         }
     });
+    ui.horizontal(|ui| {
+        if ui
+            .small_button("⊞ Expand All")
+            .on_hover_text("Expand all track days in the calendar navigator")
+            .clicked()
+        {
+            timeline_ui.chunk_days_open_override = Some(true);
+        }
+        if ui
+            .small_button("⊟ Collapse All")
+            .on_hover_text("Collapse all track days in the calendar navigator")
+            .clicked()
+        {
+            timeline_ui.chunk_days_open_override = Some(false);
+        }
+    });
     ui.separator();
 
     let query = timeline_ui.chunk_search_query.trim().to_lowercase();
@@ -2269,6 +2287,7 @@ pub fn show_chunk_navigator_contents(
                     eframe::egui::RichText::new(day_header).strong(),
                 )
                 .default_open(true)
+                .open(timeline_ui.chunk_days_open_override)
                 .show(ui, |ui| {
                     ui.set_max_width(ui.available_width().max(40.0));
                     ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
@@ -2458,6 +2477,8 @@ pub fn show_chunk_navigator_contents(
                 });
             }
         });
+
+    timeline_ui.chunk_days_open_override = None;
 
     if let Some(day_opt) = req_select_day {
         if let Err(err) = router.select_track_day(day_opt) {
