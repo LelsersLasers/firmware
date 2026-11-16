@@ -13,6 +13,7 @@ pub struct WorkspaceDataView<'a> {
     hover_distance_m: Cell<Option<f64>>,
     requested_setpoint_utc_ms: Cell<Option<i64>>,
     requested_zoom: Cell<Option<(i64, f64)>>,
+    requested_zoom_range_ms: Cell<Option<(i64, i64)>>,
     requested_pan_delta_ms: Cell<Option<i64>>,
     requested_open_export_modal: Cell<bool>,
     hover_touched: Cell<bool>,
@@ -43,6 +44,7 @@ impl<'a> WorkspaceDataView<'a> {
             hover_distance_m: Cell::new(hover_distance_m),
             requested_setpoint_utc_ms: Cell::new(None),
             requested_zoom: Cell::new(None),
+            requested_zoom_range_ms: Cell::new(None),
             requested_pan_delta_ms: Cell::new(None),
             requested_open_export_modal: Cell::new(false),
             hover_touched: Cell::new(false),
@@ -108,6 +110,19 @@ impl<'a> WorkspaceDataView<'a> {
     /// Pending timeline zoom `(anchor_utc_ms, zoom_factor)` requested during this render pass.
     pub fn requested_zoom(&self) -> Option<(i64, f64)> {
         self.requested_zoom.get()
+    }
+
+    /// Request zooming the global Master Timeline `[start, end]` to `[start_utc_ms, end_utc_ms]`.
+    pub fn request_zoom_range_ms(&self, start_utc_ms: i64, end_utc_ms: i64) {
+        self.requested_zoom_range_ms.set(Some((
+            start_utc_ms.min(end_utc_ms),
+            start_utc_ms.max(end_utc_ms),
+        )));
+    }
+
+    /// Pending timeline range zoom `(start_utc_ms, end_utc_ms)` requested during this render pass.
+    pub fn requested_zoom_range_ms(&self) -> Option<(i64, i64)> {
+        self.requested_zoom_range_ms.get()
     }
 
     /// Request panning the global Master Timeline `[start, end]` by `delta_ms`.

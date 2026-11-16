@@ -167,6 +167,7 @@ pub struct Scope {
     pub speed_signal_id: String,
     pub show_inline_stats: bool,
     y_bounds_override: Option<(f64, f64)>,
+    right_drag_start: Option<(f64, i64)>,
     cached_data: Option<CachedScopeData>,
 }
 
@@ -197,6 +198,7 @@ impl Scope {
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
             y_bounds_override: None,
+            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -213,6 +215,7 @@ impl Scope {
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
             y_bounds_override: None,
+            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -243,6 +246,7 @@ impl Scope {
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
             y_bounds_override: None,
+            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -274,6 +278,7 @@ impl Scope {
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
             y_bounds_override: None,
+            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -298,6 +303,7 @@ impl Scope {
             speed_signal_id,
             show_inline_stats: false,
             y_bounds_override,
+            right_drag_start: None,
             cached_data: None,
         };
         if !custom_title {
@@ -1167,6 +1173,7 @@ impl Scope {
         let (active_y_min, active_y_max) =
             self.y_bounds_override.unwrap_or((primary_min, primary_max));
         let mut next_y_override = self.y_bounds_override;
+        let mut next_right_drag_start = self.right_drag_start;
 
         let mut plot = egui_plot::Plot::new(plot_id)
             .custom_y_axes(y_axes)
@@ -1321,7 +1328,138 @@ impl Scope {
                 }
 
                 let plot_rect = plot_ui.response().rect;
-                let drag_dx = if plot_ui
+                let plot_x_to_utc_ms = |clamped_x: f64| -> Option<i64> {
+                    match x_axis_mode {
+                        ScopeXAxisMode::TrackDistance => cached
+                            .primary_distance_lookup
+                            .as_ref()
+                            .and_then(|(_, ts, ds)| interpolate_ms_at_distance(ts, ds, clamped_x)),
+                        ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
+                            Some(start_ms + (clamped_x * 1000.0).round() as i64)
+                        }
+                    }
+                };
+
+                let (sec_pressed, sec_down, sec_released, press_origin, latest_pos) =
+                    plot_ui.ctx().input(|i| {
+                        (
+                            i.pointer
+                                .button_pressed(eframe::egui::PointerButton::Secondary),
+                            i.pointer.secondary_down(),
+                            i.pointer
+                                .button_released(eframe::egui::PointerButton::Secondary),
+                            i.pointer.press_origin(),
+                            i.pointer.interact_pos().or_else(|| i.pointer.latest_pos()),
+                        )
+                    });
+
+                if next_right_drag_start.is_none()
+                    && (sec_pressed || sec_down)
+                    && let Some(origin) = press_origin
+                    && plot_rect.contains(origin)
+                {
+                    let start_x = plot_ui.plot_from_screen(origin).x.clamp(0.0, max_x_bound);
+                    if let Some(start_utc) = plot_x_to_utc_ms(start_x) {
+                        next_right_drag_start = Some((start_x, start_utc));
+                    }
+                }
+
+                if let Some((start_x, start_utc)) = next_right_drag_start {
+                    if let Some(pos) = latest_pos {
+                        let cur_x = plot_ui.plot_from_screen(pos).x.clamp(0.0, max_x_bound);
+                        let start_screen_x = plot_ui
+                            .screen_from_plot(egui_plot::PlotPoint::new(start_x, active_y_min))
+                            .x;
+                        let cur_screen_x = plot_ui
+                            .screen_from_plot(egui_plot::PlotPoint::new(cur_x, active_y_min))
+                            .x;
+                        let screen_dx = (cur_screen_x - start_screen_x).abs();
+
+                        if sec_down && !sec_released {
+                            if x_axis_mode == ScopeXAxisMode::TrackDistance {
+                                view.set_hover_distance_m(Some(cur_x));
+                            }
+                            if let Some(cur_utc) = plot_x_to_utc_ms(cur_x) {
+                                view.set_hover_utc_ms(Some(cur_utc));
+                            }
+                            if screen_dx >= 2.0 {
+                                let x_lo = start_x.min(cur_x);
+                                let x_hi = start_x.max(cur_x);
+                                let sel_color = eframe::egui::Color32::from_rgb(80, 190, 255);
+                                plot_ui.polygon(
+                                    egui_plot::Polygon::new(
+                                        "",
+                                        vec![
+                                            [x_lo, active_y_min],
+                                            [x_hi, active_y_min],
+                                            [x_hi, active_y_max],
+                                            [x_lo, active_y_max],
+                                        ],
+                                    )
+                                    .fill_color(sel_color.gamma_multiply(0.18))
+                                    .stroke(eframe::egui::Stroke::new(
+                                        1.0_f32,
+                                        sel_color.gamma_multiply(0.55),
+                                    ))
+                                    .allow_hover(false),
+                                );
+                                plot_ui.vline(
+                                    egui_plot::VLine::new("", x_lo)
+                                        .color(sel_color)
+                                        .width(1.5_f32),
+                                );
+                                plot_ui.vline(
+                                    egui_plot::VLine::new("", x_hi)
+                                        .color(sel_color)
+                                        .width(1.5_f32),
+                                );
+                                if let Some(cur_utc) = plot_x_to_utc_ms(cur_x) {
+                                    let dt_ms = (cur_utc - start_utc).abs();
+                                    let label = if dt_ms >= 1_000 {
+                                        format!("Δ {:.2} s", dt_ms as f64 / 1000.0)
+                                    } else {
+                                        format!("Δ {dt_ms} ms")
+                                    };
+                                    let mid_x = 0.5 * (x_lo + x_hi);
+                                    let top_y = active_y_min + 0.90 * (active_y_max - active_y_min);
+                                    plot_ui.text(
+                                        egui_plot::Text::new(
+                                            "",
+                                            egui_plot::PlotPoint::new(mid_x, top_y),
+                                            eframe::egui::RichText::new(label)
+                                                .size(11.0)
+                                                .strong()
+                                                .color(eframe::egui::Color32::WHITE)
+                                                .background_color(
+                                                    eframe::egui::Color32::from_rgba_unmultiplied(
+                                                        18, 24, 34, 215,
+                                                    ),
+                                                ),
+                                        )
+                                        .anchor(eframe::egui::Align2::CENTER_CENTER),
+                                    );
+                                }
+                            }
+                        } else {
+                            next_right_drag_start = None;
+                            if screen_dx >= 4.0
+                                && let Some(end_utc) = plot_x_to_utc_ms(cur_x)
+                            {
+                                let lo_ms = start_utc.min(end_utc);
+                                let hi_ms = start_utc.max(end_utc);
+                                if hi_ms > lo_ms {
+                                    view.request_zoom_range_ms(lo_ms, hi_ms);
+                                }
+                            }
+                        }
+                    } else if !sec_down || sec_released {
+                        next_right_drag_start = None;
+                    }
+                }
+
+                let drag_dx = if next_right_drag_start.is_some() {
+                    0.0
+                } else if plot_ui
                     .response()
                     .dragged_by(eframe::egui::PointerButton::Primary)
                 {
@@ -1346,9 +1484,12 @@ impl Scope {
                         (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
                     view.request_pan_delta_ms(delta_ms);
                 }
+            } else {
+                next_right_drag_start = None;
             }
         });
         self.y_bounds_override = next_y_override;
+        self.right_drag_start = next_right_drag_start;
 
         egui_tiles::UiResponse::None
     }
@@ -1826,5 +1967,117 @@ mod tests {
             "1 Hz fallback envelope must not have NaN breaks when window < 900s: {fb_pts:?}"
         );
         assert_eq!(fb_quads.len(), 9);
+    }
+
+    #[test]
+    fn right_click_drag_zooms_scope_to_selected_time_range() {
+        let base_ms = 1_788_719_000_000;
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(base_ms + 10_000),
+            10.0,
+        )
+        .expect("live router");
+        router
+            .timeline_mut()
+            .snap_to_range_ms(base_ms, base_ms + 10_000);
+
+        let mut scope = Scope::new_channel(
+            1,
+            "wheel_speeds.front_left".to_owned(),
+            "wheel_speeds.front_left".to_owned(),
+            "rpm".to_owned(),
+        );
+        let ctx = eframe::egui::Context::default();
+
+        // Frame 1: initial layout pass
+        let view1 = workspace_view::WorkspaceDataView::new(&router);
+        let raw1 = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 500.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw1, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = scope.show(ui, &view1);
+            });
+        });
+
+        // Frame 2: press secondary (right) mouse button at x=300, y=250
+        let p_start = eframe::egui::pos2(300.0, 250.0);
+        let p_end = eframe::egui::pos2(700.0, 250.0);
+        let view2 = workspace_view::WorkspaceDataView::new(&router);
+        let raw2 = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 500.0),
+            )),
+            events: vec![
+                eframe::egui::Event::PointerMoved(p_start),
+                eframe::egui::Event::PointerButton {
+                    pos: p_start,
+                    button: eframe::egui::PointerButton::Secondary,
+                    pressed: true,
+                    modifiers: eframe::egui::Modifiers::NONE,
+                },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw2, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = scope.show(ui, &view2);
+            });
+        });
+        assert!(scope.right_drag_start.is_some());
+
+        // Frame 3: drag right to x=700, y=250 while holding right button
+        let view3 = workspace_view::WorkspaceDataView::new(&router);
+        let raw3 = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 500.0),
+            )),
+            events: vec![eframe::egui::Event::PointerMoved(p_end)],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw3, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = scope.show(ui, &view3);
+            });
+        });
+        assert!(scope.right_drag_start.is_some());
+        assert_eq!(view3.requested_zoom_range_ms(), None);
+
+        // Frame 4: release right mouse button at x=700, y=250 -> emits zoom range request
+        let view4 = workspace_view::WorkspaceDataView::new(&router);
+        let raw4 = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1000.0, 500.0),
+            )),
+            events: vec![eframe::egui::Event::PointerButton {
+                pos: p_end,
+                button: eframe::egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: eframe::egui::Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw4, |ctx| {
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                let _ = scope.show(ui, &view4);
+            });
+        });
+        assert!(scope.right_drag_start.is_none());
+        let (zoom_lo, zoom_hi) = view4
+            .requested_zoom_range_ms()
+            .expect("expected right-click drag release to request zoom range");
+        assert!(zoom_lo > base_ms && zoom_hi < base_ms + 10_000);
+        assert!(zoom_hi - zoom_lo >= 2_000 && zoom_hi - zoom_lo <= 6_000);
+
+        router.timeline_mut().zoom_to_range_ms(zoom_lo, zoom_hi);
+        assert_eq!(router.timeline().start_utc_ms(), zoom_lo);
+        assert_eq!(router.timeline().end_utc_ms(), zoom_hi);
     }
 }

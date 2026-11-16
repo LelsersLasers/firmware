@@ -643,6 +643,32 @@ impl MasterTimeline {
         self.window_ms = new_span;
     }
 
+    /// Zoom the active viewport `[start, end]` to `[start_utc_ms, end_utc_ms]` (clamped to at least
+    /// [`MIN_WINDOW_MS`]), clamping `setpoint` inside the new window and freezing live marching.
+    pub fn zoom_to_range_ms(&mut self, start_utc_ms: i64, end_utc_ms: i64) {
+        let mut lo = start_utc_ms.min(end_utc_ms);
+        let mut hi = start_utc_ms.max(end_utc_ms);
+        if hi.saturating_sub(lo) < MIN_WINDOW_MS {
+            let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
+            lo = mid.saturating_sub(MIN_WINDOW_MS / 2);
+            hi = lo.saturating_add(MIN_WINDOW_MS);
+        }
+        if let Some((day_min, day_max)) = self.day_bounds_ms {
+            let max_span = (day_max - day_min).max(MIN_WINDOW_MS);
+            let span = hi.saturating_sub(lo).clamp(MIN_WINDOW_MS, max_span);
+            let max_lo = day_max.saturating_sub(span).max(day_min);
+            lo = lo.clamp(day_min, max_lo);
+            hi = lo.saturating_add(span);
+        }
+        self.start = time::Time::from_unix_millis(lo);
+        self.end = time::Time::from_unix_millis(hi);
+        self.setpoint = time::Time::from_unix_millis(self.setpoint.unix_millis().clamp(lo, hi));
+        self.start_track = Track::Frozen;
+        self.end_track = Track::Frozen;
+        self.setpoint_track = Track::Frozen;
+        self.window_ms = hi.saturating_sub(lo);
+    }
+
     pub fn selected_annotation_ids(&self) -> &[String] {
         &self.selected_annotation_ids
     }

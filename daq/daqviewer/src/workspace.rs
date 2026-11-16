@@ -308,6 +308,7 @@ pub fn show(
     let next_hover_dist = view.hover_distance_m();
     let requested_setpoint_ms = view.requested_setpoint_utc_ms();
     let requested_zoom = view.requested_zoom();
+    let requested_zoom_range_ms = view.requested_zoom_range_ms();
     let requested_pan_delta_ms = view.requested_pan_delta_ms();
     if view.requested_open_export_modal() {
         app.action_queue
@@ -322,6 +323,10 @@ pub fn show(
         app.hover_distance_m = None;
     }
     let mut timeline_changed = false;
+    if let Some((start_ms, end_ms)) = requested_zoom_range_ms {
+        app.router.timeline_mut().zoom_to_range_ms(start_ms, end_ms);
+        timeline_changed = true;
+    }
     if let Some((anchor_ms, zoom_factor)) = requested_zoom {
         app.router
             .timeline_mut()
