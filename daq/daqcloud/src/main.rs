@@ -15,6 +15,9 @@ struct Cli {
     /// Address and port to bind the HTTP/WebSocket server on
     #[arg(long)]
     bind: Option<SocketAddr>,
+    /// Maximum combined in-memory cache size in MiB for tiles and partition preloads (0 to disable)
+    #[arg(long)]
+    max_cache_mb: Option<usize>,
 }
 
 #[tokio::main]
@@ -68,15 +71,29 @@ async fn main() -> Result<(), db::Error> {
         })
         .unwrap_or(consts::BIND_ADDR);
 
-    let state = AppState::open(&db_path, &store_dir)?;
+    let max_cache_mb: usize = cli
+        .max_cache_mb
+        .or_else(|| {
+            env::var("DAQCLOUD_MAX_CACHE_MB")
+                .ok()
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(consts::DEFAULT_MAX_CACHE_MB);
+
+    let state = AppState::open_with_cache_budget(
+        &db_path,
+        &store_dir,
+        max_cache_mb.saturating_mul(1024 * 1024),
+    )?;
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     log::info!(
-        "daqcloud listening on http://{} (db: {}, store: {})",
+        "daqcloud listening on http://{} (db: {}, store: {}, max_cache: {} MiB)",
         listener.local_addr()?,
         db_path.display(),
-        store_dir.display()
+        store_dir.display(),
+        max_cache_mb
     );
 
     axum::serve(listener, app)
