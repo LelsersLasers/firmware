@@ -107,7 +107,22 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::patch(patch_annotation_id_handler).delete(delete_annotation_id_handler),
         )
         .route("/api/v1/ws", get(ws_upgrade_handler))
+        .layer(axum::middleware::from_fn(log_request_middleware))
         .with_state(state)
+}
+
+async fn log_request_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let start = std::time::Instant::now();
+    let resp = next.run(req).await;
+    let status = resp.status();
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    log::info!("{method} {uri} -> {} ({elapsed_ms:.2} ms)", status.as_u16());
+    resp
 }
 
 async fn health_handler() -> &'static str {
@@ -298,6 +313,10 @@ fn parse_resolution_param(raw: &str) -> Option<Resolution> {
 
 async fn serve_partition_preload(state: AppState, partition_id: String) -> Response {
     if let Some(cached) = state.get_cached_preload(&partition_id) {
+        log::info!(
+            "Preload {partition_id} [cache hit, {:.1} KiB]",
+            cached.len() as f64 / 1024.0
+        );
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -336,6 +355,10 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
     };
 
     let bytes = Bytes::from(bytes_vec);
+    log::info!(
+        "Preload {partition_id} [decoded from parquet, {:.1} KiB]",
+        bytes.len() as f64 / 1024.0
+    );
     state.insert_cached_preload(partition_id, bytes.clone());
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -371,6 +394,10 @@ async fn serve_partition_tile(
 
     if let Some(series) = state.get_cached_tile(&key) {
         let encoded = encode_tile_payload(&series);
+        log::info!(
+            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB]",
+            encoded.len() as f64 / 1024.0
+        );
         let mut headers = HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -418,6 +445,10 @@ async fn serve_partition_tile(
     };
 
     let encoded = encode_tile_payload(&series);
+    log::info!(
+        "Tile {partition_id} signal={signal_id} res={resolution:?} [decoded from parquet, {:.1} KiB]",
+        encoded.len() as f64 / 1024.0
+    );
     state.insert_cached_tile(key, series);
     let mut headers = HeaderMap::new();
     headers.insert(
