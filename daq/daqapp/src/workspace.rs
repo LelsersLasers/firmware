@@ -71,7 +71,21 @@ fn show_workspace_tabs_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     .fill(fill)
                     .stroke(stroke);
 
-                    if ui.add(btn).on_hover_text(preset_desc).clicked() {
+                    let resp = ui
+                        .add(btn)
+                        .on_hover_cursor(eframe::egui::CursorIcon::PointingHand)
+                        .on_hover_text(preset_desc);
+                    if resp.hovered() && !is_active {
+                        ui.painter()
+                            .rect_filled(resp.rect, 3.0, accent_color.gamma_multiply(0.14));
+                        ui.painter().rect_stroke(
+                            resp.rect,
+                            3.0,
+                            eframe::egui::Stroke::new(1.0_f32, accent_color.gamma_multiply(0.65)),
+                            eframe::egui::StrokeKind::Inside,
+                        );
+                    }
+                    if resp.clicked() {
                         app.action_queue
                             .push(action::AppAction::LoadWorkspacePreset {
                                 preset_id,
