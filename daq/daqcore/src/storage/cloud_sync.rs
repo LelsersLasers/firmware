@@ -962,6 +962,16 @@ async fn sync_catalog_and_overviews(
             .then_with(|| a.start_utc_ms.cmp(&b.start_utc_ms))
     });
 
+    // Ensure any content-addressed SuperDBC artifacts referenced by remote partitions
+    // are cached locally under `<store_dir>/superdbcs/<superdbc_hash>.json`.
+    let mut seen_superdbcs = HashSet::new();
+    for manifest in &ordered_partitions {
+        let hash = manifest.superdbc_hash.trim();
+        if !hash.is_empty() && seen_superdbcs.insert(hash.to_owned()) {
+            let _ = download_superdbc_if_missing(client, base_url, store_dir, hash).await;
+        }
+    }
+
     for manifest in &ordered_partitions {
         prefetch_single_manifest_overview(
             client, base_url, store_dir, manifest, event_tx, repaint_cb, metrics, status,
@@ -1302,6 +1312,103 @@ pub async fn upload_file_verified(
     Ok(true)
 }
 
+/// Upload a content-addressed `<store_dir>/superdbcs/<superdbc_hash>.json` artifact to
+/// `daqcloud` (`PUT /api/v1/superdbcs/{superdbc_hash}`) if present locally and not already on server.
+pub async fn upload_superdbc_if_present(
+    client: &reqwest::Client,
+    base_url: &str,
+    store_dir: &path::Path,
+    superdbc_hash: &str,
+) -> Result<bool, String> {
+    let hash = superdbc_hash.trim();
+    if hash.is_empty() || !is_safe_path_segment(hash) {
+        return Ok(false);
+    }
+    let local_path = store_dir.join("superdbcs").join(format!("{hash}.json"));
+    if !local_path.is_file() {
+        return Ok(false);
+    }
+    let (_, sha256_hex) = compute_file_sha256_hex(&local_path)
+        .map_err(|e| format!("Failed hashing {}: {e}", local_path.display()))?;
+    let url = format!("{base_url}/api/v1/superdbcs/{hash}");
+
+    if let Ok(head_resp) = client.head(&url).send().await
+        && head_resp.status().is_success()
+    {
+        return Ok(false);
+    }
+
+    let bytes = fs::read(&local_path)
+        .map_err(|e| format!("Failed reading {}: {e}", local_path.display()))?;
+    let resp = client
+        .put(&url)
+        .header(CHECKSUM_HEADER, &sha256_hex)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("PUT {url} failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("PUT {url} returned HTTP {}", resp.status()));
+    }
+    Ok(true)
+}
+
+/// Download a content-addressed `SuperDBC` artifact (`GET /api/v1/superdbcs/{superdbc_hash}`)
+/// into `<store_dir>/superdbcs/<superdbc_hash>.json` if not already present locally.
+pub async fn download_superdbc_if_missing(
+    client: &reqwest::Client,
+    base_url: &str,
+    store_dir: &path::Path,
+    superdbc_hash: &str,
+) -> Result<bool, String> {
+    let hash = superdbc_hash.trim();
+    if hash.is_empty() || !is_safe_path_segment(hash) {
+        return Ok(false);
+    }
+    let superdbcs_dir = store_dir.join("superdbcs");
+    let final_path = superdbcs_dir.join(format!("{hash}.json"));
+    if final_path.is_file() {
+        return Ok(false);
+    }
+    let url = format!("{base_url}/api/v1/superdbcs/{hash}");
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GET {url} failed: {e}"))?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    if !resp.status().is_success() {
+        return Err(format!("GET {url} returned HTTP {}", resp.status()));
+    }
+    let expected_sha = resp
+        .headers()
+        .get(CHECKSUM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_ascii_lowercase());
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed reading body from {url}: {e}"))?;
+    if let Some(exp) = &expected_sha {
+        let actual_sha = compute_sha256_hex(&bytes);
+        if &actual_sha != exp {
+            return Err(format!(
+                "SHA-256 mismatch for {url}: expected {exp}, got {actual_sha}"
+            ));
+        }
+    }
+    fs::create_dir_all(&superdbcs_dir)
+        .map_err(|e| format!("Failed creating {}: {e}", superdbcs_dir.display()))?;
+    let tmp_path = superdbcs_dir.join(format!(".{hash}.json.tmp"));
+    fs::write(&tmp_path, &bytes)
+        .map_err(|e| format!("Failed writing {}: {e}", tmp_path.display()))?;
+    fs::rename(&tmp_path, &final_path)
+        .map_err(|e| format!("Failed renaming {}: {e}", final_path.display()))?;
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn upload_local_partitions(
     client: &reqwest::Client,
@@ -1380,6 +1487,10 @@ async fn upload_local_partitions(
                 }
             }
         }
+
+        let _ =
+            upload_superdbc_if_present(client, base_url, store_dir, &part.manifest.superdbc_hash)
+                .await?;
 
         let manifest_path = part_dir.join("manifest.json");
         if upload_file_verified(

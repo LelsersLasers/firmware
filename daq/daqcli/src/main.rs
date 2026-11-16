@@ -60,9 +60,6 @@ enum Command {
         /// Export at sparse raw union timestamps without uniform grid resampling
         #[arg(long, default_value_t = false)]
         sparse: bool,
-        /// Optional SuperDBC JSON artifact for unit and discrete-signal metadata enrichment
-        #[arg(long)]
-        superdbc: Option<path::PathBuf>,
         /// Output file path (.parquet, .csv, or .mat)
         #[arg(short = 'o', long = "output")]
         output: path::PathBuf,
@@ -105,7 +102,6 @@ pub struct ExportCommandArgs {
     pub format: Option<String>,
     pub rate_hz: Option<f64>,
     pub sparse: bool,
-    pub superdbc: Option<path::PathBuf>,
     pub output: path::PathBuf,
 }
 
@@ -130,7 +126,6 @@ fn main() -> process::ExitCode {
             format,
             rate_hz,
             sparse,
-            superdbc,
             output,
         } => {
             let args = ExportCommandArgs {
@@ -143,7 +138,6 @@ fn main() -> process::ExitCode {
                 format,
                 rate_hz,
                 sparse,
-                superdbc,
                 output,
             };
             match execute_export(&args) {
@@ -254,16 +248,6 @@ fn run_import(
 
 /// Execute a headless dataset export from `args`.
 pub fn execute_export(args: &ExportCommandArgs) -> Result<ExportSummary, ExportError> {
-    let db = match &args.superdbc {
-        Some(dbc_path) => Some(Database::load(dbc_path).map_err(|e| {
-            ExportError::ConfigParse(format!(
-                "failed to load SuperDBC '{}': {e}",
-                dbc_path.display()
-            ))
-        })?),
-        None => None,
-    };
-
     let router = VirtualTimelineRouter::open_store(&args.store_dir, Time::now(), 30.0)
         .map_err(ExportError::from)?;
 
@@ -278,7 +262,6 @@ pub fn execute_export(args: &ExportCommandArgs) -> Result<ExportSummary, ExportE
         sampling_mode,
         export_format,
         &args.output,
-        db.as_ref(),
     )
 }
 
@@ -444,7 +427,6 @@ mod tests {
             format: Some("parquet".to_owned()),
             rate_hz: None,
             sparse: false,
-            superdbc: Some(dbc_path.clone()),
             output: pq_out.clone(),
         })
         .expect("execute_export parquet");
@@ -465,7 +447,6 @@ mod tests {
             format: Some("csv".to_owned()),
             rate_hz: None,
             sparse: false,
-            superdbc: Some(dbc_path.clone()),
             output: csv_out.clone(),
         })
         .expect("execute_export csv");
@@ -484,7 +465,6 @@ mod tests {
             format: None, // inferred from .mat extension
             rate_hz: None,
             sparse: false,
-            superdbc: Some(dbc_path),
             output: mat_out.clone(),
         })
         .expect("execute_export mat");

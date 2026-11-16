@@ -1,13 +1,32 @@
+use clap::Parser as _;
 use daqcloud::{AppState, build_router, consts, db};
 use std::{env, net::SocketAddr, path::PathBuf};
+
+/// PER DAQ schema-agnostic central partition, raw log, SuperDBC, and annotation archive server.
+#[derive(clap::Parser)]
+#[command(name = "daqcloud")]
+struct Cli {
+    /// Store directory containing `partitions/`, `raw/`, and `superdbcs/`
+    #[arg(long)]
+    store_dir: Option<PathBuf>,
+    /// Path to the SQLite metadata registry (`cloud_registry.sqlite`)
+    #[arg(long)]
+    db_path: Option<PathBuf>,
+    /// Address and port to bind the HTTP/WebSocket server on
+    #[arg(long)]
+    bind: Option<SocketAddr>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), db::Error> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let store_dir = env::var("DAQCLOUD_STORE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
+    let cli = Cli::parse();
+
+    let store_dir = cli
+        .store_dir
+        .or_else(|| env::var("DAQCLOUD_STORE_DIR").ok().map(PathBuf::from))
+        .unwrap_or_else(|| {
             let local = PathBuf::from(consts::STORE_DIR);
             if local.exists() {
                 return local;
@@ -20,9 +39,10 @@ async fn main() -> Result<(), db::Error> {
             }
             local
         });
-    let db_path = env::var("DAQCLOUD_DB_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
+    let db_path = cli
+        .db_path
+        .or_else(|| env::var("DAQCLOUD_DB_PATH").ok().map(PathBuf::from))
+        .unwrap_or_else(|| {
             let local = PathBuf::from(consts::DATABASE_URL);
             if local.exists() {
                 return local;
@@ -39,9 +59,13 @@ async fn main() -> Result<(), db::Error> {
             }
             store_dir.join(consts::DATABASE_URL)
         });
-    let bind_addr: SocketAddr = env::var("DAQCLOUD_BIND_ADDR")
-        .ok()
-        .and_then(|s| s.parse().ok())
+    let bind_addr: SocketAddr = cli
+        .bind
+        .or_else(|| {
+            env::var("DAQCLOUD_BIND_ADDR")
+                .ok()
+                .and_then(|s| s.parse().ok())
+        })
         .unwrap_or(consts::BIND_ADDR);
 
     let state = AppState::open(&db_path, &store_dir)?;

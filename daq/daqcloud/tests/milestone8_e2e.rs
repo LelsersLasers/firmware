@@ -2,7 +2,7 @@ use daqcloud::{AppState, build_router};
 use daqcore::{
     router::{Resolution, SignalSeries, VirtualTimelineRouter},
     storage::{
-        Annotation, compute_file_sha256_hex, download_file_resumable,
+        Annotation, compute_file_sha256_hex, download_file_resumable, load_archived_superdbc,
         sync_store_with_cloud_blocking,
     },
     superdbc::database::Database,
@@ -354,6 +354,19 @@ async fn resumable_partial_download_and_cli_sync_roundtrip() {
     assert_eq!(down_summary.remote_track_days, 1);
     assert_eq!(down_summary.remote_partitions, 1);
     assert_eq!(down_summary.full_partitions_downloaded, 1);
+
+    // 4. Verify content-addressed SuperDBC provenance archive (`superdbcs/<hash>.json`)
+    //    was archived on store_a and synced to store_b via `/api/v1/superdbcs/{hash}`
+    let dbc_hash = &import_summary.manifests[0].superdbc_hash;
+    let archived_a = load_archived_superdbc(store_a.path(), dbc_hash)
+        .expect("load archived superdbc on store_a")
+        .expect("superdbc must exist on store_a");
+    let archived_b = load_archived_superdbc(store_b.path(), dbc_hash)
+        .expect("load archived superdbc on store_b")
+        .expect("superdbc must be synced to store_b");
+    assert_eq!(archived_a.content_hash(), db.content_hash());
+    assert_eq!(archived_b.content_hash(), db.content_hash());
+    assert_eq!(archived_b.version_hash(), db.version_hash());
 
     server_handle.abort();
 }

@@ -2017,6 +2017,18 @@ pub fn import_all_per26(
 ) -> Result<Per26ImportReport, ImportError> {
     let mut report = Per26ImportReport::default();
 
+    // Archive all era-specific SuperDBC artifacts by their SHA-256 content_hash into `<store_dir>/superdbcs/`
+    if let Ok(entries) = fs::read_dir(superdbc_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json")
+                && let Ok(db) = Database::load(&path)
+            {
+                let _ = storage::archive_superdbc_to_store(store_dir, &db);
+            }
+        }
+    }
+
     let mut run_or_skip =
         |day_ids: &[(&str, usize)],
          label: &str,
@@ -2095,9 +2107,14 @@ pub fn import_all_per26(
     log::info!("Importing PER26 [9/9]: 2026-09-06...");
     import_day_2026_09_06(per26_dir, store_dir, superdbc_dir, &mut report)?;
 
+    if let Ok(reg) = Registry::open_store(store_dir) {
+        let _ = reg.checkpoint_wal();
+    }
     let local_db = store_dir.join(storage::LOCAL_REGISTRY_FILENAME);
     let cloud_db = store_dir.join("cloud_registry.sqlite");
     if local_db.is_file() {
+        let _ = fs::remove_file(store_dir.join("cloud_registry.sqlite-wal"));
+        let _ = fs::remove_file(store_dir.join("cloud_registry.sqlite-shm"));
         let _ = fs::copy(&local_db, &cloud_db);
     }
 

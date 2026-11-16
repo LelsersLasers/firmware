@@ -37,6 +37,13 @@ pub fn build_router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::disable()),
         )
         .route(
+            "/api/v1/superdbcs/{superdbc_hash}",
+            put(put_superdbc_handler)
+                .get(get_superdbc_handler)
+                .head(head_superdbc_handler)
+                .layer(DefaultBodyLimit::disable()),
+        )
+        .route(
             "/api/v1/annotations",
             get(get_annotations_handler)
                 .post(post_annotations_handler)
@@ -460,6 +467,205 @@ async fn put_partition_file_handler(
             filename,
             size_bytes: final_size,
             sha256_hex: final_sha256,
+        }),
+    )
+        .into_response()
+}
+
+fn normalize_superdbc_hash(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    let hash = trimmed.strip_suffix(".json").unwrap_or(trimmed);
+    if hash.is_empty() || !is_safe_path_segment(hash) {
+        return None;
+    }
+    Some(hash)
+}
+
+async fn head_superdbc_handler(
+    State(state): State<AppState>,
+    Path(raw_hash): Path<String>,
+) -> Response {
+    let Some(hash) = normalize_superdbc_hash(&raw_hash) else {
+        return (StatusCode::BAD_REQUEST, "Invalid superdbc_hash").into_response();
+    };
+    let file_path = state
+        .store_dir
+        .join("superdbcs")
+        .join(format!("{hash}.json"));
+    if !file_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let (size_bytes, sha256_hex) = match state.cached_file_sha256(&file_path) {
+        Ok(res) => res,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to hash SuperDBC: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&size_bytes.to_string()).unwrap(),
+    );
+    if let Ok(etag) = HeaderValue::from_str(&format!("\"{sha256_hex}\"")) {
+        headers.insert(header::ETAG, etag);
+    }
+    if let Ok(val) = HeaderValue::from_str(&sha256_hex) {
+        headers.insert(CHECKSUM_HEADER, val);
+    }
+
+    (StatusCode::OK, headers).into_response()
+}
+
+async fn get_superdbc_handler(
+    State(state): State<AppState>,
+    Path(raw_hash): Path<String>,
+) -> Response {
+    let Some(hash) = normalize_superdbc_hash(&raw_hash) else {
+        return (StatusCode::BAD_REQUEST, "Invalid superdbc_hash").into_response();
+    };
+    let file_path = state
+        .store_dir
+        .join("superdbcs")
+        .join(format!("{hash}.json"));
+    if !file_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let (_, full_sha256) = match state.cached_file_sha256(&file_path) {
+        Ok(res) => res,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to hash SuperDBC: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let bytes = match fs::read(&file_path) {
+        Ok(b) => b,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read SuperDBC: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
+    );
+    if let Ok(etag) = HeaderValue::from_str(&format!("\"{full_sha256}\"")) {
+        headers.insert(header::ETAG, etag);
+    }
+    if let Ok(val) = HeaderValue::from_str(&full_sha256) {
+        headers.insert(CHECKSUM_HEADER, val);
+    }
+
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
+async fn put_superdbc_handler(
+    State(state): State<AppState>,
+    Path(raw_hash): Path<String>,
+    req_headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(hash) = normalize_superdbc_hash(&raw_hash) else {
+        return (StatusCode::BAD_REQUEST, "Invalid superdbc_hash").into_response();
+    };
+
+    let expected_sha256 = req_headers
+        .get(CHECKSUM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_ascii_lowercase());
+    let computed_sha256 = compute_sha256_hex(&body);
+    if let Some(expected) = &expected_sha256
+        && expected != &computed_sha256
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("SHA-256 checksum mismatch: expected {expected}, got {computed_sha256}"),
+        )
+            .into_response();
+    }
+
+    let Ok(json_str) = std::str::from_utf8(&body) else {
+        return (StatusCode::BAD_REQUEST, "SuperDBC body must be valid UTF-8").into_response();
+    };
+    let db = match daqcore::superdbc::database::Database::from_json(json_str) {
+        Ok(db) => db,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid SuperDBC JSON: {err}"),
+            )
+                .into_response();
+        }
+    };
+    if db.content_hash() != hash {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!(
+                "SuperDBC content_hash '{}' does not match path '{hash}'",
+                db.content_hash()
+            ),
+        )
+            .into_response();
+    }
+
+    let superdbcs_dir = state.store_dir.join("superdbcs");
+    if let Err(err) = fs::create_dir_all(&superdbcs_dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create superdbcs directory: {err}"),
+        )
+            .into_response();
+    }
+    let filename = format!("{hash}.json");
+    let target_path = superdbcs_dir.join(&filename);
+    let tmp_path = superdbcs_dir.join(format!(".{filename}.tmp"));
+    if let Err(err) = fs::write(&tmp_path, &body).and_then(|()| fs::rename(&tmp_path, &target_path))
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write SuperDBC file: {err}"),
+        )
+            .into_response();
+    }
+
+    let final_size = body.len() as u64;
+    state.insert_cached_sha256(target_path, final_size, computed_sha256.clone());
+
+    let mut headers = HeaderMap::new();
+    if let Ok(etag) = HeaderValue::from_str(&format!("\"{computed_sha256}\"")) {
+        headers.insert(header::ETAG, etag);
+    }
+    if let Ok(val) = HeaderValue::from_str(&computed_sha256) {
+        headers.insert(CHECKSUM_HEADER, val);
+    }
+
+    (
+        StatusCode::OK,
+        headers,
+        Json(AssetUploadResponse {
+            partition_id: "superdbcs".to_owned(),
+            filename,
+            size_bytes: final_size,
+            sha256_hex: computed_sha256,
         }),
     )
         .into_response()

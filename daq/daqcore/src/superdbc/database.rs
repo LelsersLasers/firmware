@@ -14,6 +14,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct Database {
     path: Option<path::PathBuf>,
+    raw_json: String,
     content_hash: String,
     version_hash: String,
     schema_version: String,
@@ -165,6 +166,7 @@ impl Database {
         // Hashes are metadata supplied by the generator, not load-time checks.
         Ok(Self {
             path: None,
+            raw_json: json.to_owned(),
             content_hash: document.content_hash.into(),
             version_hash: document.versions.hash.into(),
             schema_version: document.versions.schema_version,
@@ -178,6 +180,11 @@ impl Database {
     /// Return the supplied file path for [`Self::load`], or `None` for [`Self::from_json`].
     pub fn path(&self) -> Option<&path::Path> {
         self.path.as_deref()
+    }
+
+    /// Return the raw UTF-8 SuperDBC JSON document from which this database was compiled.
+    pub fn raw_json(&self) -> &str {
+        &self.raw_json
     }
 
     /// Return the artifact's content-hash metadata, exactly as supplied.

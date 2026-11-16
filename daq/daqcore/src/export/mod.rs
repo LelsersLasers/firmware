@@ -4,7 +4,6 @@ use crate::{
         resample_discrete_hold, series_to_timestamp_values,
     },
     router::{Resolution, RouterError, SignalSeries, VirtualTimelineRouter},
-    superdbc::database::Database,
 };
 use arrow::{
     array::{ArrayRef, Float64Array, Int64Array, RecordBatch},
@@ -368,7 +367,6 @@ pub struct ExportSummary {
 pub fn discover_available_signals(
     router: &VirtualTimelineRouter,
     range: RangeInclusive<i64>,
-    _database: Option<&Database>,
 ) -> IndexMap<String, ExportSignalMeta> {
     let mut catalog: IndexMap<String, ExportSignalMeta> = IndexMap::new();
 
@@ -429,9 +427,8 @@ pub fn expand_signal_patterns(
     signal_patterns: &[String],
     router: &VirtualTimelineRouter,
     range: RangeInclusive<i64>,
-    database: Option<&Database>,
 ) -> Result<Vec<ExportSignalMeta>, ExportError> {
-    let catalog = discover_available_signals(router, range, database);
+    let catalog = discover_available_signals(router, range);
     let any_active_in_range = catalog.values().any(|m| m.has_samples_in_range);
     let mut selected: IndexMap<String, ExportSignalMeta> = IndexMap::new();
 
@@ -505,7 +502,6 @@ pub fn materialize_export_table(
     range: RangeInclusive<i64>,
     signal_patterns: &[String],
     sampling_mode: SamplingMode,
-    database: Option<&Database>,
 ) -> Result<ExportTable, ExportError> {
     let start_utc_ms = *range.start();
     let end_utc_ms = *range.end();
@@ -521,7 +517,7 @@ pub fn materialize_export_table(
         return Err(ExportError::InvalidSamplingRate(rate_hz));
     }
 
-    let metas = expand_signal_patterns(signal_patterns, router, range.clone(), database)?;
+    let metas = expand_signal_patterns(signal_patterns, router, range.clone())?;
 
     // Collect all required raw leaf signals (both directly requested and referenced by derived formulas)
     let mut raw_ids_needed: BTreeSet<String> = BTreeSet::new();
@@ -743,9 +739,8 @@ pub fn export_dataset(
     sampling_mode: SamplingMode,
     format: ExportFormat,
     output_path: impl AsRef<Path>,
-    database: Option<&Database>,
 ) -> Result<ExportSummary, ExportError> {
-    let table = materialize_export_table(router, range, signal_patterns, sampling_mode, database)?;
+    let table = materialize_export_table(router, range, signal_patterns, sampling_mode)?;
     let out_path = output_path.as_ref().to_path_buf();
     if let Some(parent) = out_path.parent()
         && !parent.as_os_str().is_empty()
@@ -1091,6 +1086,7 @@ mod tests {
     use super::*;
     use crate::{
         frame::{FrameKind, ParsedFrame},
+        superdbc::database::Database,
         time::Time,
     };
 
@@ -1170,7 +1166,6 @@ mod tests {
             vd_preset.default_sampling,
             ExportFormat::Parquet,
             &pq_path,
-            Some(&db),
         )
         .expect("export vd parquet");
         assert_eq!(pq_summary.row_count, 1001); // 10.0s at 100 Hz inclusive
@@ -1199,7 +1194,6 @@ mod tests {
             vd_preset.default_sampling,
             ExportFormat::Csv,
             &csv_path,
-            Some(&db),
         )
         .expect("export vd csv");
         assert_eq!(csv_summary.row_count, 1001);
@@ -1218,7 +1212,6 @@ mod tests {
             vd_preset.default_sampling,
             ExportFormat::MatlabMat,
             &mat_path,
-            Some(&db),
         )
         .expect("export vd mat");
         assert_eq!(mat_summary.row_count, 1001);
@@ -1301,7 +1294,6 @@ mod tests {
             t0.unix_millis()..=(t0.unix_millis() + 100),
             &["pack_stats.*".to_owned(), "battery.power_w".to_owned()],
             SamplingMode::SparseRaw,
-            Some(&db),
         )
         .expect("materialize sparse table");
         assert_eq!(table.row_count(), 5);

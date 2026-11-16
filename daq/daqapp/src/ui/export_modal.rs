@@ -103,7 +103,7 @@ impl ExportModalState {
             let e = router.timeline().end_utc_ms();
             s..=e.max(s)
         });
-        if let Ok(expanded) = expand_signal_patterns(&preset.signals, router, range, None) {
+        if let Ok(expanded) = expand_signal_patterns(&preset.signals, router, range) {
             self.selected_signals = expanded.into_iter().map(|m| m.signal_id).collect();
         } else {
             self.selected_signals.clear();
@@ -145,7 +145,6 @@ impl ExportModalState {
             sampling_mode,
             self.format,
             self.output_path.trim(),
-            None,
         ) {
             Ok(summary) => {
                 self.status_banner = Some(Ok(format!(
@@ -494,7 +493,7 @@ fn collect_available_signals(
     router: &VirtualTimelineRouter,
     range: RangeInclusive<i64>,
 ) -> Vec<String> {
-    let catalog = discover_available_signals(router, range, None);
+    let catalog = discover_available_signals(router, range);
     let set: BTreeSet<String> = catalog
         .into_iter()
         .filter(|(_, meta)| meta.has_samples_in_range)

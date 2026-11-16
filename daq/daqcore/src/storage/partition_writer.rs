@@ -202,6 +202,41 @@ fn compute_partition_id(
     format!("epoch_{start_utc_ms}_{prefix}")
 }
 
+/// Content-address and archive the raw `SuperDBC` JSON document into
+/// `<store_dir>/superdbcs/<superdbc_hash>.json` if not already present on disk.
+pub fn archive_superdbc_to_store(
+    store_dir: &path::Path,
+    database: &superdbc::database::Database,
+) -> io::Result<path::PathBuf> {
+    let hash = database.content_hash().trim();
+    let superdbcs_dir = store_dir.join("superdbcs");
+    fs::create_dir_all(&superdbcs_dir)?;
+    let target_path = superdbcs_dir.join(format!("{hash}.json"));
+    if !target_path.is_file() && !database.raw_json().is_empty() {
+        let tmp_path = superdbcs_dir.join(format!(".{hash}.json.tmp"));
+        fs::write(&tmp_path, database.raw_json())?;
+        fs::rename(&tmp_path, &target_path)?;
+    }
+    Ok(target_path)
+}
+
+/// Load a content-addressed `SuperDBC` artifact from `<store_dir>/superdbcs/<superdbc_hash>.json`
+/// if it exists in the store.
+pub fn load_archived_superdbc(
+    store_dir: &path::Path,
+    superdbc_hash: &str,
+) -> Result<Option<superdbc::database::Database>, superdbc::error::LoadError> {
+    let hash = superdbc_hash.trim();
+    if hash.is_empty() || !storage::is_safe_path_segment(hash) {
+        return Ok(None);
+    }
+    let path = store_dir.join("superdbcs").join(format!("{hash}.json"));
+    if !path.is_file() {
+        return Ok(None);
+    }
+    superdbc::database::Database::load(&path).map(Some)
+}
+
 /// Slice correlated boot epochs into <= 15-minute sub-partitions and write canonical
 /// Parquet pyramids (`full_res.parquet`, `overview_10hz.parquet`, `overview_1hz.parquet`,
 /// `states.parquet`, and `manifest.json`) into `<store_dir>/partitions/<partition_id>/`.
@@ -258,6 +293,7 @@ where
 {
     let partitions_root = store_dir.join("partitions");
     fs::create_dir_all(&partitions_root)?;
+    let _ = archive_superdbc_to_store(store_dir, database)?;
     let registry = storage::Registry::open_store(store_dir)?;
 
     let mut summary = ImportSummary {

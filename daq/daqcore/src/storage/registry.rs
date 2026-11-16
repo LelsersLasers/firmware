@@ -318,6 +318,14 @@ impl Registry {
         &self.pool
     }
 
+    /// Flush and truncate the SQLite write-ahead log (`PRAGMA wal_checkpoint(TRUNCATE);`)
+    /// so the main `.sqlite` file on disk is completely self-contained.
+    pub fn checkpoint_wal(&self) -> Result<(), RegistryError> {
+        let mut conn = self.pool.get()?;
+        conn.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        Ok(())
+    }
+
     /// Return `true` when all canonical Parquet pyramid files (`manifest.json`,
     /// `overview_1hz.parquet`, `overview_10hz.parquet`, `full_res.parquet`, and `states.parquet`)
     /// are present on disk in `partition_dir`.

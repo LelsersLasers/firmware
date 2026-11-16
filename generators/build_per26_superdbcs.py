@@ -520,11 +520,6 @@ def main() -> None:
                         s["description"] = "VBATT analog pack voltage reading"
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_09_06.json", "per26_2026_09_06_vbatt_fixed", buses_0906)
 
-    # 9. Unified superdbc_per26_all.json combining 2026_09_06 + TCAN (CT3 + CT3_2)
-    buses_all = copy.deepcopy(buses_0906)
-    buses_all["TCAN"] = copy.deepcopy(tcan_combined)
-    write_superdbc(SUPERDBC_DIR / "superdbc_per26_all.json", "per26_all_combined", buses_all)
-
 
 if __name__ == "__main__":
     main()

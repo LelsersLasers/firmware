@@ -22,6 +22,7 @@ impl AppState {
         let store_dir = store_dir.into();
         fs::create_dir_all(store_dir.join("partitions"))?;
         fs::create_dir_all(store_dir.join("raw"))?;
+        fs::create_dir_all(store_dir.join("superdbcs"))?;
         let _ = registry.sync_from_store_dir(&store_dir)?;
         let (ws_tx, _) = broadcast::channel(WS_BROADCAST_CAPACITY);
         Ok(Self {

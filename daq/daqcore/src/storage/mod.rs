@@ -13,7 +13,8 @@ pub use cloud_sync::{
 
 pub use partition_writer::{
     ImportError, ImportSummary, PartitionManifest, RawSample, SignalColumnAccumulator,
-    SignalManifestEntry, write_column_accumulators_to_store, write_correlated_epochs_to_store,
+    SignalManifestEntry, archive_superdbc_to_store, load_archived_superdbc,
+    write_column_accumulators_to_store, write_correlated_epochs_to_store,
     write_correlated_epochs_to_store_for_day, write_correlated_epochs_to_store_with_progress,
 };
 pub use registry::{
