@@ -6,19 +6,12 @@ use std::{
     time,
 };
 
-pub const WINDOWS_SECS: [u64; 4] = [1, 5, 10, 30];
+pub use daqcore::bus_load::{BusLoadReading, WINDOWS_SECS};
 const MAX_WINDOW: time::Duration = time::Duration::from_secs(WINDOWS_SECS[WINDOWS_SECS.len() - 1]);
 const UPDATE_INTERVAL: time::Duration = time::Duration::from_millis(200);
 const BITS_PER_BYTE: usize = 8;
 /// Estimated classic CAN framing, arbitration, CRC, and stuff-bit overhead per frame.
 const CLASSIC_CAN_OVERHEAD_BITS: usize = 66;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct BusLoadReading {
-    pub bus_id: u8,
-    pub bus_name: String,
-    pub values: [f32; 4],
-}
 
 pub struct BusLoadTracker {
     frames: BTreeMap<u8, VecDeque<(time::Instant, usize)>>,

@@ -1293,10 +1293,33 @@ dependencies = [
 name = "daqcore"
 version = "0.1.0"
 dependencies = [
- "arrow",
  "bytemuck",
  "bytes",
  "chrono",
+ "globset",
+ "indexmap",
+ "log",
+ "prettyplease",
+ "regress",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syn 2.0.119",
+ "tempfile",
+ "typify",
+ "uuid",
+]
+
+[[package]]
+name = "daqnative"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "base64 0.22.1",
+ "bytemuck",
+ "bytes",
+ "chrono",
+ "daqcore",
  "diesel",
  "diesel_migrations",
  "futures-util",
@@ -1305,9 +1328,7 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "parquet",
- "prettyplease",
  "rand 0.10.2",
- "regress",
  "reqwest",
  "rusb",
  "serde",
@@ -1315,12 +1336,11 @@ dependencies = [
  "serialport",
  "sha2",
  "slcan",
- "syn 2.0.119",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
- "typify",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]

@@ -4,27 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-arrow.workspace = true
-parquet.workspace = true
-diesel.workspace = true
-diesel_migrations.workspace = true
-libsqlite3-sys.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 bytes.workspace = true
-futures-util.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-tokio-tungstenite.workspace = true
 chrono.workspace = true
 log.workspace = true
 bytemuck.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-slcan.workspace = true
-serialport.workspace = true
-rusb.workspace = true
-rand = { version = "0.10.1" }
 globset = { version = "0.4.18" }
 indexmap = { version = "2.14.0", features = ["serde"] }
 regress = "0.12"
@@ -34,7 +21,4 @@ typify = { version = "=0.8.0", default-features = false }
 serde_json.workspace = true
 syn = { version = "2", features = ["full"] }
 prettyplease = "0.2"
-tempfile = "3"
-
-[dev-dependencies]
 tempfile = "3"

@@ -1,5 +1,5 @@
 use crate::{
-    log_parse::{auto_annotate, correlate},
+    log_parse::correlate,
     storage::{
         partition_writer::PartitionManifest,
         schema::{annotations, partitions, raw_assets, track_days},
@@ -11,8 +11,6 @@ use diesel::r2d2::{self, ConnectionManager, CustomizeConnection, Pool};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness as _, embed_migrations};
 use std::{fmt, fs, io, path, time};
-
-pub const LOCAL_REGISTRY_FILENAME: &str = "local_registry.sqlite";
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
@@ -68,40 +66,10 @@ impl From<serde_json::Error> for RegistryError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TrackDay {
-    pub id: String,
-    pub title: String,
-    pub location: String,
-    pub start_utc_ms: i64,
-    pub end_utc_ms: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RegisteredPartition {
-    pub partition_id: String,
-    pub track_day_id: String,
-    pub start_utc_ms: i64,
-    pub end_utc_ms: i64,
-    pub clock_mapping: correlate::ClockMapping,
-    pub superdbc_hash: String,
-    pub relative_path: String,
-    pub is_local: bool,
-    pub manifest: PartitionManifest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct RawAssetRecord {
-    pub sha256_hex: String,
-    pub track_day_id: String,
-    pub file_name: String,
-    pub rtc_timestamp_ms: Option<i64>,
-    pub mtime_unix_ms: i64,
-    pub relative_path: String,
-    pub is_local: bool,
-}
-
-pub use auto_annotate::Annotation;
+pub use daqcore::storage::{
+    Annotation, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, TrackDay,
+    default_track_day_title,
+};
 
 #[derive(Debug, Clone, Queryable, Selectable, Insertable, AsChangeset)]
 #[diesel(table_name = track_days)]
@@ -252,10 +220,6 @@ impl CustomizeConnection<SqliteConnection, r2d2::Error> for SqliteConnectionCust
         )
         .map_err(r2d2::Error::QueryError)
     }
-}
-
-fn default_track_day_title(track_day_id: &str) -> String {
-    format!("Track Day {track_day_id}")
 }
 
 /// Shared Diesel + SQLite metadata, manifest, and annotation registry used identically

@@ -10,68 +10,7 @@ mod run;
 pub mod tx;
 use crate::{can, can_thread, firmware, frame, hil, superdbc, time};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum BusSelection {
-    Vehicle,
-    Charger,
-    Single(u8),
-}
-
-impl Default for BusSelection {
-    fn default() -> Self {
-        Self::Single(0)
-    }
-}
-
-impl BusSelection {
-    pub const VEHICLE_BUS_NAMES: [&'static str; 3] = ["VCAN", "MCAN", "SCAN"];
-    pub const CHARGER_BUS_NAMES: [&'static str; 3] = ["VCAN", "CCAN", "SCAN"];
-
-    pub fn is_multi_bus(self) -> bool {
-        matches!(self, Self::Vehicle | Self::Charger)
-    }
-
-    pub fn default_single(database: &superdbc::database::Database) -> Option<Self> {
-        database
-            .bus_by_id(0)
-            .or_else(|| database.buses().first())
-            .map(|bus| Self::Single(bus.bus_id()))
-    }
-
-    pub fn resolve_buses(
-        self,
-        database: &superdbc::database::Database,
-    ) -> Option<Vec<&superdbc::database::Bus>> {
-        match self {
-            Self::Vehicle => Self::VEHICLE_BUS_NAMES
-                .into_iter()
-                .map(|name| database.bus(name))
-                .collect(),
-            Self::Charger => Self::CHARGER_BUS_NAMES
-                .into_iter()
-                .map(|name| database.bus(name))
-                .collect(),
-            Self::Single(bus_id) => database.bus_by_id(bus_id).map(|bus| vec![bus]),
-        }
-    }
-
-    pub fn display_name(self, database: &superdbc::database::Database) -> String {
-        match self {
-            Self::Vehicle => "Vehicle (VCAN, MCAN, SCAN)".to_owned(),
-            Self::Charger => "Charger (VCAN, CCAN, SCAN)".to_owned(),
-            Self::Single(bus_id) => match database.bus_by_id(bus_id) {
-                Some(bus) => format!("{} ({})", bus.name(), bus_id),
-                None => format!("Bus {bus_id}"),
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DatabaseSource {
-    pub path: path::PathBuf,
-    pub selection: BusSelection,
-}
+pub use daqcore::superdbc::{BusSelection, DatabaseSelection, DatabaseSource};
 
 /// A file replacement loads on the worker.
 /// A bus change reuses its active database.

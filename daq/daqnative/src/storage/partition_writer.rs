@@ -20,45 +20,9 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SignalManifestEntry {
-    pub signal_id: storage::SignalId,
-    pub unit: String,
-    pub is_discrete: bool,
-    pub bus_name: String,
-    pub bus_id: u8,
-    pub can_id: u32,
-    pub transmitter: String,
-    pub nominal_period_ms: Option<u32>,
-    pub description: String,
-    pub sample_count: u64,
-    pub min_utc_ms: i64,
-    pub max_utc_ms: i64,
-    pub min_val: f64,
-    pub max_val: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PartitionManifest {
-    pub partition_id: String,
-    pub track_day_id: String,
-    pub start_utc_ms: i64,
-    pub end_utc_ms: i64,
-    pub clock_mapping: correlate::ClockMapping,
-    pub superdbc_hash: String,
-    pub raw_log_hashes: Vec<parse::SourceLogFile>,
-    pub signals: Vec<SignalManifestEntry>,
-    pub annotations: Vec<auto_annotate::Annotation>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ImportSummary {
-    pub log_files_parsed: usize,
-    pub boot_epochs_detected: usize,
-    pub partitions_written: usize,
-    pub partitions_skipped_existing: usize,
-    pub manifests: Vec<PartitionManifest>,
-}
+pub use daqcore::storage::{
+    ImportSummary, PartitionManifest, RawSample, SignalManifestEntry,
+};
 
 #[derive(Debug)]
 pub enum ImportError {
@@ -76,7 +40,7 @@ impl fmt::Display for ImportError {
             Self::Parquet(e) => write!(f, "Parquet error: {e}"),
             Self::Arrow(e) => write!(f, "Arrow error: {e}"),
             Self::Json(e) => write!(f, "JSON serialization error: {e}"),
-            Self::Registry(e) => write!(f, "Registry error: {e}"),
+            Self::Registry(e) => write!(f, "SQLite registry error: {e}"),
         }
     }
 }
@@ -111,15 +75,6 @@ impl From<storage::RegistryError> for ImportError {
     fn from(value: storage::RegistryError) -> Self {
         Self::Registry(value)
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct RawSample {
-    pub utc_ms: i64,
-    pub ticks_ms: u32,
-    pub physical: f64,
-    pub raw_int: i64,
-    pub enum_label: Option<String>,
 }
 
 #[derive(Debug, Clone)]
