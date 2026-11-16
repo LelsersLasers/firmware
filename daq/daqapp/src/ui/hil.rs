@@ -210,7 +210,10 @@ impl Hil {
         }
     }
 
-    fn show_preset_summary(ui: &mut eframe::egui::Ui, tests: &[daqnative::hil::run::HilRunningTest]) {
+    fn show_preset_summary(
+        ui: &mut eframe::egui::Ui,
+        tests: &[daqnative::hil::run::HilRunningTest],
+    ) {
         if tests.is_empty() || !tests.iter().all(|t| t.is_finished()) {
             return;
         }

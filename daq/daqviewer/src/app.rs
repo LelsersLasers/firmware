@@ -147,8 +147,12 @@ pub trait ViewerPlatform {
         format: daqcore::export::ExportFormat,
         output_path: &str,
     ) -> Result<daqcore::export::ExportSummary, daqcore::export::ExportError> {
-        let table =
-            daqcore::export::materialize_export_table(router, range, signal_patterns, sampling_mode)?;
+        let table = daqcore::export::materialize_export_table(
+            router,
+            range,
+            signal_patterns,
+            sampling_mode,
+        )?;
         let out_path = path::PathBuf::from(output_path);
         if let Some(parent) = out_path.parent()
             && !parent.as_os_str().is_empty()
@@ -314,7 +318,8 @@ impl ViewerState {
                     .tiles()
                     .filter(|tile| matches!(tile, egui_tiles::Tile::Pane(w) if w.kind() == kind))
                     .count();
-                let created = widget_type.create_all(&mut self.widget_ids, platform, existing_count);
+                let created =
+                    widget_type.create_all(&mut self.widget_ids, platform, existing_count);
                 if created.is_empty() {
                     log::warn!("Maximum number of {:?} widgets already open", kind);
                 } else {
@@ -582,9 +587,9 @@ impl ViewerState {
 
     pub fn update_frame(&mut self, platform: &mut dyn ViewerPlatform, ctx: &eframe::egui::Context) {
         self.record_frame(ctx);
-        platform.poll_platform(self, ctx);
         self.router.poll_background_tiles();
         self.router.poll_cloud_sync();
+        platform.poll_platform(self, ctx);
         if let Some(ppp) = self.pixels_per_point {
             ctx.set_pixels_per_point(ppp);
         }

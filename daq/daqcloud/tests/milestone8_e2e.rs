@@ -1,13 +1,14 @@
 use daqcloud::{AppState, build_router};
-use daqcore::{
+use daqnative::{
     log_parse::{
         correlate::{ClockConfidence, ClockMapping, CorrelationChunkResult},
         parse::{ParsedMessage, SourceLogFile},
     },
     router::{Resolution, SignalSeries, VirtualTimelineRouter},
     storage::{
-        Annotation, ImportSummary, compute_file_sha256_hex, download_file_resumable,
-        load_archived_superdbc, sync_store_with_cloud_blocking, write_correlated_epochs_to_store,
+        Annotation, ImportSummary, NativeRouterExt as _, compute_file_sha256_hex,
+        download_file_resumable, load_archived_superdbc, sync_store_with_cloud_blocking,
+        write_correlated_epochs_to_store,
     },
     superdbc::database::Database,
     time::Time,
@@ -123,7 +124,7 @@ fn prepare_fixture_store(store_dir: &path::Path) -> (Database, ImportSummary) {
             raw_dir.path().join("log-2026-09-06--20-21-44.log"),
         )
         .expect("copy PER26 raw log");
-        let summary = daqcore::log_parse::import_logs_to_store(raw_dir.path(), store_dir, &db)
+        let summary = daqnative::log_parse::import_logs_to_store(raw_dir.path(), store_dir, &db)
             .expect("import PER26 log into store");
         return (db, summary);
     }
@@ -477,6 +478,225 @@ async fn resumable_partial_download_and_cli_sync_roundtrip() {
     assert_eq!(archived_a.content_hash(), db.content_hash());
     assert_eq!(archived_b.content_hash(), db.content_hash());
     assert_eq!(archived_b.version_hash(), db.version_hash());
+
+    server_handle.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn daqweb_routes_preload_tile_and_export_e2e() {
+    let (base_url, _cloud_tmp, server_handle) = spawn_local_daqcloud().await;
+    let client = reqwest::Client::new();
+
+    // 1. Verify home route `/` and share route `/daqview/daqview1:...` serve the daqweb SPA HTML shell
+    for path in ["/", "/daqview/daqview1:eJyrVspNLS5OTE8FAAnfA2E"] {
+        let resp = client
+            .get(format!("{base_url}{path}"))
+            .send()
+            .await
+            .expect("GET web route");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let ct = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(ct.starts_with("text/html"));
+        let html = resp.text().await.unwrap();
+        assert!(html.contains("daqweb_canvas"));
+    }
+
+    // 2. Upload a real partition and verify `/api/v1/partitions/{id}/preload` and `/tile`
+    let store_a = tempfile::tempdir().unwrap();
+    let (_db, import_summary) = prepare_fixture_store(store_a.path());
+    let m0 = &import_summary.manifests[0];
+    let part_id = &m0.partition_id;
+    let up_summary =
+        sync_store_with_cloud_blocking(store_a.path(), &base_url, false).expect("CLI sync upload");
+    assert_eq!(up_summary.partitions_uploaded, 1);
+
+    let preload_bytes = client
+        .get(format!("{base_url}/api/v1/partitions/{part_id}/preload"))
+        .send()
+        .await
+        .expect("GET preload")
+        .bytes()
+        .await
+        .expect("preload bytes");
+    let decoded_preload =
+        daqcore::router::decode_preload_payload(&preload_bytes).expect("decode DAQP preload");
+    assert_eq!(decoded_preload.partition_id, *part_id);
+    assert!(
+        decoded_preload
+            .overview_1hz
+            .contains_key("IMU_acceleration.X_axis")
+    );
+    assert!(!decoded_preload.activity_1hz.is_empty());
+
+    let tile_bytes = client
+        .get(format!("{base_url}/api/v1/partitions/{part_id}/tile"))
+        .query(&[
+            ("signal_id", "IMU_acceleration.X_axis"),
+            ("resolution", "full"),
+        ])
+        .send()
+        .await
+        .expect("GET tile")
+        .bytes()
+        .await
+        .expect("tile bytes");
+    let decoded_tile = daqcore::router::decode_tile_payload(&tile_bytes).expect("decode DAQT tile");
+    assert!(matches!(decoded_tile, SignalSeries::Exact { .. }));
+    assert!(!decoded_tile.is_empty());
+
+    // 3. Verify `POST /api/v1/export` exports a valid ZSTD Parquet file
+    let export_req = daqcore::export::DatasetExportRequest {
+        start_utc_ms: m0.start_utc_ms,
+        end_utc_ms: (m0.start_utc_ms + 3_000).min(m0.end_utc_ms),
+        signal_patterns: vec!["IMU_acceleration.*".to_owned()],
+        sampling_mode: daqcore::export::SamplingMode::UniformGridHz(50.0),
+        format: daqcore::export::ExportFormat::Parquet,
+        output_path: "export.parquet".to_owned(),
+        custom_formulas: Vec::new(),
+    };
+    let export_resp = client
+        .post(format!("{base_url}/api/v1/export"))
+        .json(&export_req)
+        .send()
+        .await
+        .expect("POST /api/v1/export");
+    assert_eq!(export_resp.status(), reqwest::StatusCode::OK);
+    let pq_bytes = export_resp.bytes().await.unwrap();
+    assert!(pq_bytes.starts_with(b"PAR1"));
+
+    // 4. Boot `daqweb::build_web_viewer_app` against this live `daqcloud` server using a `/daqview/daqview1:...`
+    //    share URL, and verify automatic preload, on-demand FullRes tile streaming, and browser downloads!
+    let custom_view = daqviewer::workspace_io::WorkspaceView {
+        id: Some("e2e_shared_view".to_owned()),
+        schema_version: 1,
+        name: "E2E Shared Web View".to_owned(),
+        description: "Restored via /daqview/ URL against live daqcloud".to_owned(),
+        context: Some(daqviewer::workspace_io::WorkspaceTimeContext {
+            track_day_id: Some(m0.track_day_id.clone()),
+            viewport_start_utc_ms: m0.start_utc_ms + 200,
+            viewport_end_utc_ms: (m0.start_utc_ms + 2_500).min(m0.end_utc_ms),
+            setpoint_utc_ms: Some(m0.start_utc_ms + 1_000),
+            compare_annotation_ids: Vec::new(),
+            gap_folding_enabled: true,
+        }),
+        custom_formulas: vec![daqcore::analysis::DerivedSignalDef {
+            id: "custom.double_accel_x".to_owned(),
+            label: "2x Accel X".to_owned(),
+            expression: "IMU_acceleration.X_axis * 2.0".to_owned(),
+            unit: "G".to_owned(),
+        }],
+        layout: Some(daqviewer::workspace_io::FlexibleLayout::Tree(
+            daqviewer::workspace_io::WorkspaceLayoutNode::Pane {
+                spec: daqviewer::workspace_io::PaneSpec::Scope {
+                    title: "Restored Web Scope".to_owned(),
+                    custom_title: true,
+                    x_mode: daqviewer::ui::scope::ScopeXAxisMode::default(),
+                    speed_signal_id: "IMU_acceleration.X_axis".to_owned(),
+                    y_bounds: None,
+                    channels: vec![daqviewer::workspace_io::ScopeChannelSpec {
+                        signal_id: "custom.double_accel_x".to_owned(),
+                        label: "2x Accel X".to_owned(),
+                        unit: "G".to_owned(),
+                        color_rgb: None,
+                    }],
+                    axes: Vec::new(),
+                },
+            },
+        )),
+        panes: Default::default(),
+    };
+    let share_str = custom_view.to_share_string().expect("encode share string");
+    let browser =
+        daqweb::platform::MemoryBrowserEnv::new(&base_url, format!("/daqview/{share_str}"));
+    let egui_ctx = eframe::egui::Context::default();
+    let mut web_app = daqweb::build_web_viewer_app(browser.clone(), Some(&egui_ctx));
+
+    let preload_deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < preload_deadline {
+        web_app.state.router.poll_cloud_sync();
+        web_app.state.router.poll_background_tiles();
+        daqviewer::ViewerPlatform::poll_platform(
+            &mut web_app.platform,
+            &mut web_app.state,
+            &egui_ctx,
+        );
+        if web_app.state.router.captured_time_span().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(web_app.state.router.partitions().len(), 1);
+    assert!(web_app.state.router.captured_time_span().is_some());
+    assert_eq!(
+        web_app.state.router.timeline().start_utc_ms(),
+        m0.start_utc_ms + 200
+    );
+
+    // Trigger async FullRes tile stream via `WebTileLoader`
+    let tile_deadline = Instant::now() + Duration::from_secs(5);
+    let mut full_res_streamed = false;
+    while Instant::now() < tile_deadline {
+        web_app.state.router.poll_cloud_sync();
+        web_app.state.router.poll_background_tiles();
+        if let SignalSeries::Exact { timestamps_ms, .. } = web_app.state.router.query_signal(
+            "IMU_acceleration.X_axis",
+            m0.start_utc_ms..=m0.end_utc_ms,
+            Resolution::FullRes,
+        ) && !timestamps_ms.is_empty()
+        {
+            full_res_streamed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        full_res_streamed,
+        "daqweb must stream FullRes binary tile from daqcloud"
+    );
+
+    // Trigger CSV and Parquet exports from `WebPlatform` and verify browser downloads
+    daqviewer::ViewerPlatform::execute_dataset_export(
+        &mut web_app.platform,
+        &mut web_app.state.router,
+        m0.start_utc_ms..=(m0.start_utc_ms + 2_000).min(m0.end_utc_ms),
+        &["IMU_acceleration.X_axis".to_owned()],
+        daqcore::export::SamplingMode::UniformGridHz(20.0),
+        daqcore::export::ExportFormat::Csv,
+        "web_export.csv",
+    )
+    .expect("web CSV export");
+    daqviewer::ViewerPlatform::execute_dataset_export(
+        &mut web_app.platform,
+        &mut web_app.state.router,
+        m0.start_utc_ms..=(m0.start_utc_ms + 2_000).min(m0.end_utc_ms),
+        &["IMU_acceleration.X_axis".to_owned()],
+        daqcore::export::SamplingMode::UniformGridHz(20.0),
+        daqcore::export::ExportFormat::Parquet,
+        "web_export.parquet",
+    )
+    .expect("web Parquet export");
+
+    let dl_deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < dl_deadline {
+        daqviewer::ViewerPlatform::poll_platform(
+            &mut web_app.platform,
+            &mut web_app.state,
+            &egui_ctx,
+        );
+        if browser.downloads().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let downloads = browser.downloads();
+    assert_eq!(downloads.len(), 2);
+    assert_eq!(downloads[0].filename, "web_export.csv");
+    assert_eq!(downloads[1].filename, "web_export.parquet");
+    assert!(downloads[1].bytes.starts_with(b"PAR1"));
 
     server_handle.abort();
 }

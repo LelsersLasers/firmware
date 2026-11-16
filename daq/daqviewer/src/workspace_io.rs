@@ -1476,14 +1476,8 @@ impl WorkspaceViewModalState {
         if let Some(apply_time_context) = do_import_with_context {
             match WorkspaceView::from_str_flexible(self.import_payload.trim()).and_then(|view| {
                 let name = view.name.clone();
-                view.apply_to_workspace(
-                    tile_tree,
-                    widget_ids,
-                    router,
-                    platform,
-                    apply_time_context,
-                )
-                .map(|()| name)
+                view.apply_to_workspace(tile_tree, widget_ids, router, platform, apply_time_context)
+                    .map(|()| name)
             }) {
                 Ok(name) => {
                     workspace_changed = true;
@@ -1545,7 +1539,8 @@ mod tests {
     }
 
     #[test]
-    fn daqview_json_share_string_and_share_url_round_trip_preserves_layout_formulas_and_time_context() {
+    fn daqview_json_share_string_and_share_url_round_trip_preserves_layout_formulas_and_time_context()
+     {
         let registry = WorkspacePresetRegistry::with_builtin();
         let mut view = registry
             .get("vd_handling_suspension")

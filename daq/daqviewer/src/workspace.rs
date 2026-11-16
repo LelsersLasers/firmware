@@ -310,7 +310,8 @@ pub fn show(
     let requested_zoom = view.requested_zoom();
     let requested_pan_delta_ms = view.requested_pan_delta_ms();
     if view.requested_open_export_modal() {
-        app.action_queue.push(action::AppAction::OpenExportDataModal);
+        app.action_queue
+            .push(action::AppAction::OpenExportDataModal);
     }
 
     if hover_touched {

@@ -102,7 +102,9 @@ pub fn export_dataset_bytes(
     Ok((bytes, summary))
 }
 
-fn build_parquet_record_batch(table: &ExportTable) -> Result<(Arc<Schema>, RecordBatch), ExportError> {
+fn build_parquet_record_batch(
+    table: &ExportTable,
+) -> Result<(Arc<Schema>, RecordBatch), ExportError> {
     let mut fields = Vec::with_capacity(table.columns.len() + 2);
 
     let mut utc_meta = HashMap::new();

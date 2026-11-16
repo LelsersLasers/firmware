@@ -211,7 +211,10 @@ impl TileLoader for NativeTileLoader {
             .lock()
             .ok()
             .and_then(|dirs| dirs.get(&key.partition_id).cloned())
-            .is_some_and(|dir| dir.join(Self::resolution_filename(key.resolution)).is_file());
+            .is_some_and(|dir| {
+                dir.join(Self::resolution_filename(key.resolution))
+                    .is_file()
+            });
         if local_exists {
             return true;
         }
@@ -389,7 +392,10 @@ impl RouterBackend for NativeRouterBackend {
         Ok(self.registry.list_partitions_for_day(track_day_id)?)
     }
 
-    fn get_partition(&self, partition_id: &str) -> Result<Option<RegisteredPartition>, RouterError> {
+    fn get_partition(
+        &self,
+        partition_id: &str,
+    ) -> Result<Option<RegisteredPartition>, RouterError> {
         Ok(self.registry.get_partition(partition_id)?)
     }
 

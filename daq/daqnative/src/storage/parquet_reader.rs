@@ -7,9 +7,7 @@ use crate::{
     storage::{PartitionManifest, SignalId, SignalManifestEntry},
 };
 use arrow::{
-    array::{
-        Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array,
-    },
+    array::{Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array},
     datatypes::Int32Type,
 };
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
@@ -404,8 +402,8 @@ pub fn build_partition_preload_payload(
     partition_id: &str,
     part_dir: &Path,
 ) -> Result<Vec<u8>, RouterError> {
-    let payload = preload_partition_dir_from_parquet(partition_id, part_dir, None)?
-        .ok_or_else(|| {
+    let payload =
+        preload_partition_dir_from_parquet(partition_id, part_dir, None)?.ok_or_else(|| {
             RouterError::Format(format!(
                 "overview_1hz.parquet missing in {}",
                 part_dir.display()

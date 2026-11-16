@@ -11,28 +11,73 @@ use axum::{
     routing::{get, put},
 };
 use daqcore::{
+    export::{DatasetExportRequest, ExportFormat},
+    router::{Resolution, TileKey, wire::encode_tile_payload},
     storage::{
         Annotation, AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse,
         CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, PartitionManifest, RANGE_CHECKSUM_HEADER,
-        Registry, compute_file_sha256_hex, compute_sha256_hex, is_safe_path_segment,
+        compute_sha256_hex, is_safe_path_segment,
     },
     time::Time,
+};
+use daqnative::storage::{
+    NativeRouterExt as _, Registry, build_partition_preload_payload, compute_file_sha256_hex,
+    read_single_signal_full_res, read_single_signal_overview,
 };
 use std::{
     fs,
     io::{Read as _, Seek as _, SeekFrom, Write as _},
     path,
+    sync::Arc,
 };
 use tokio::sync::broadcast::error::RecvError;
 
+const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>PER — DaqWeb Telemetry Viewer</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        canvas#daqweb_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="daqweb_canvas"></canvas>
+    <script type="module" src="/assets/daqweb.js"></script>
+</body>
+</html>
+"#;
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(health_handler))
+        .route("/", get(web_index_handler))
+        .route("/daqview/{*payload}", get(web_daqview_handler))
+        .route("/assets/{*asset_path}", get(web_asset_handler))
+        .route("/api/v1/health", get(health_handler))
         .route("/api/v1/catalog", get(get_catalog_handler))
         .route(
             "/api/v1/track-days",
             axum::routing::post(post_track_day_handler),
         )
+        .route("/api/v1/export", axum::routing::post(post_export_handler))
         .route(
             "/api/v1/partitions/{partition_id}/{filename}",
             put(put_partition_file_handler)
@@ -64,6 +109,68 @@ pub fn build_router(state: AppState) -> Router {
 
 async fn health_handler() -> &'static str {
     "daqcloud\n"
+}
+
+async fn web_index_handler(State(state): State<AppState>) -> Response {
+    serve_web_index_html(&state)
+}
+
+async fn web_daqview_handler(
+    State(state): State<AppState>,
+    Path(_payload): Path<String>,
+) -> Response {
+    serve_web_index_html(&state)
+}
+
+fn serve_web_index_html(state: &AppState) -> Response {
+    let index_path = state.web_dist_dir.join("index.html");
+    let html_bytes =
+        fs::read(&index_path).unwrap_or_else(|_| FALLBACK_WEB_INDEX_HTML.as_bytes().to_vec());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    (StatusCode::OK, headers, html_bytes).into_response()
+}
+
+async fn web_asset_handler(
+    State(state): State<AppState>,
+    Path(asset_path): Path<String>,
+) -> Response {
+    let clean_rel = asset_path.trim_start_matches('/');
+    if clean_rel.is_empty() || clean_rel.contains("..") || clean_rel.contains('\\') {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let candidate_dirs = [
+        state.web_dist_dir.join("assets").join(clean_rel),
+        state.web_dist_dir.join(clean_rel),
+    ];
+    let Some(file_path) = candidate_dirs.into_iter().find(|p| p.is_file()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(bytes) = fs::read(&file_path) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let mime = if clean_rel.ends_with(".wasm") {
+        "application/wasm"
+    } else if clean_rel.ends_with(".js") || clean_rel.ends_with(".mjs") {
+        "application/javascript; charset=utf-8"
+    } else if clean_rel.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if clean_rel.ends_with(".png") {
+        "image/png"
+    } else if clean_rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else if clean_rel.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+    (StatusCode::OK, headers, bytes).into_response()
 }
 
 async fn get_catalog_handler(
@@ -169,13 +276,226 @@ async fn head_partition_file_handler(
     (StatusCode::OK, headers).into_response()
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct TileQueryParams {
+    #[serde(default)]
+    signal_id: Option<String>,
+    #[serde(default)]
+    resolution: Option<String>,
+}
+
+fn parse_resolution_param(raw: &str) -> Option<Resolution> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1hz" | "overview_1hz" | "overview1hz" => Some(Resolution::Overview1Hz),
+        "10hz" | "overview_10hz" | "overview10hz" => Some(Resolution::Overview10Hz),
+        "full" | "full_res" | "fullres" => Some(Resolution::FullRes),
+        _ => None,
+    }
+}
+
+async fn serve_partition_preload(state: AppState, partition_id: String) -> Response {
+    if let Some(cached) = state.get_cached_preload(&partition_id) {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        return (StatusCode::OK, headers, cached).into_response();
+    }
+
+    let part_dir = state.store_dir.join("partitions").join(&partition_id);
+    if !part_dir.join("overview_1hz.parquet").is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let part_id_clone = partition_id.clone();
+    let encoded_res = tokio::task::spawn_blocking(move || {
+        build_partition_preload_payload(&part_id_clone, &part_dir)
+    })
+    .await;
+
+    let bytes_vec = match encoded_res {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(err)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build preload payload: {err}"),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let bytes = Bytes::from(bytes_vec);
+    state.insert_cached_preload(partition_id, bytes.clone());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
+async fn serve_partition_tile(
+    state: AppState,
+    partition_id: String,
+    query: TileQueryParams,
+) -> Response {
+    let Some(signal_id) = query.signal_id.filter(|s| !s.trim().is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "GET /api/v1/partitions/{id}/tile requires ?signal_id=<id>",
+        )
+            .into_response();
+    };
+    let resolution = query
+        .resolution
+        .as_deref()
+        .and_then(parse_resolution_param)
+        .unwrap_or(Resolution::FullRes);
+
+    let key = TileKey {
+        partition_id: partition_id.clone(),
+        signal_id: signal_id.clone(),
+        resolution,
+    };
+
+    if let Some(series) = state.get_cached_tile(&key) {
+        let encoded = encode_tile_payload(&series);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        return (StatusCode::OK, headers, encoded).into_response();
+    }
+
+    let part_dir = state.store_dir.join("partitions").join(&partition_id);
+    let parquet_filename = match resolution {
+        Resolution::Overview1Hz => "overview_1hz.parquet",
+        Resolution::Overview10Hz => "overview_10hz.parquet",
+        Resolution::FullRes => "full_res.parquet",
+    };
+    let parquet_path = part_dir.join(parquet_filename);
+    if !parquet_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let sig_clone = signal_id.clone();
+    let series_res = tokio::task::spawn_blocking(move || match resolution {
+        Resolution::Overview1Hz | Resolution::Overview10Hz => {
+            read_single_signal_overview(&parquet_path, &sig_clone)
+        }
+        Resolution::FullRes => read_single_signal_full_res(&parquet_path, &sig_clone),
+    })
+    .await;
+
+    let series = match series_res {
+        Ok(Ok(s)) => Arc::new(s),
+        Ok(Err(err)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read signal tile: {err}"),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let encoded = encode_tile_payload(&series);
+    state.insert_cached_tile(key, series);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    (StatusCode::OK, headers, encoded).into_response()
+}
+
+async fn post_export_handler(
+    State(state): State<AppState>,
+    Json(req): Json<DatasetExportRequest>,
+) -> Response {
+    let store_dir = state.store_dir.clone();
+    let export_res = tokio::task::spawn_blocking(move || {
+        let mut router = daqcore::router::VirtualTimelineRouter::open_store(
+            &store_dir,
+            Time::from_unix_millis(req.end_utc_ms.max(0)),
+            30.0,
+        )
+        .map_err(|e| daqnative::export::ExportError::Router(e))?;
+        if !req.custom_formulas.is_empty() {
+            router
+                .formula_engine_mut()
+                .merge_defs(&req.custom_formulas)
+                .map_err(daqnative::export::ExportError::Analysis)?;
+        }
+        daqnative::export::export_dataset_bytes(
+            &router,
+            req.start_utc_ms..=req.end_utc_ms,
+            &req.signal_patterns,
+            req.sampling_mode,
+            req.format,
+        )
+    })
+    .await;
+
+    let (bytes, summary) = match export_res {
+        Ok(Ok(res)) => res,
+        Ok(Err(err)) => {
+            return (StatusCode::BAD_REQUEST, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Export task error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let ext = summary.format.extension();
+    let content_type = match summary.format {
+        ExportFormat::Parquet => "application/octet-stream",
+        ExportFormat::Csv => "text/csv; charset=utf-8",
+        ExportFormat::MatlabMat => "application/octet-stream",
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    if let Ok(cd) = HeaderValue::from_str(&format!("attachment; filename=\"per_daq_export.{ext}\""))
+    {
+        headers.insert(header::CONTENT_DISPOSITION, cd);
+    }
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
 async fn get_partition_file_handler(
     State(state): State<AppState>,
     Path((partition_id, filename)): Path<(String, String)>,
+    Query(tile_query): Query<TileQueryParams>,
     req_headers: HeaderMap,
 ) -> Response {
     if !is_safe_path_segment(&partition_id) || !is_safe_path_segment(&filename) {
         return (StatusCode::BAD_REQUEST, "Invalid partition_id or filename").into_response();
+    }
+
+    if filename == "preload" {
+        return serve_partition_preload(state, partition_id).await;
+    }
+    if filename == "tile" {
+        return serve_partition_tile(state, partition_id, tile_query).await;
     }
 
     let Some(file_path) = resolve_existing_asset_path(&state.store_dir, &partition_id, &filename)
@@ -437,6 +757,7 @@ async fn put_partition_file_handler(
     }
 
     state.insert_cached_sha256(target_path.clone(), final_size, final_sha256.clone());
+    state.invalidate_partition_cache(&partition_id);
 
     if filename == "manifest.json" {
         let manifest_bytes = match fs::read(&target_path) {
@@ -983,7 +1304,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
     }
 }
 
-fn internal_registry_err(err: daqcore::storage::RegistryError) -> (StatusCode, String) {
+fn internal_registry_err(err: daqnative::storage::RegistryError) -> (StatusCode, String) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("Registry error: {err}"),

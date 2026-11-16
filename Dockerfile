@@ -59,6 +59,7 @@ RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
         --profile minimal \
         --default-toolchain stable \
     && rustup component add clippy rustfmt \
+    && rustup target add wasm32-unknown-unknown \
     && rm /tmp/rustup-init.sh
 
 # install diesel CLI

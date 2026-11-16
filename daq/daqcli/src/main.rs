@@ -191,8 +191,11 @@ fn main() -> process::ExitCode {
             store_dir,
             superdbc_dir,
         } => {
-            match daqnative::log_parse::per26::import_all_per26(&per26_dir, &store_dir, &superdbc_dir)
-            {
+            match daqnative::log_parse::per26::import_all_per26(
+                &per26_dir,
+                &store_dir,
+                &superdbc_dir,
+            ) {
                 Ok(report) => {
                     log::info!(
                         "PER26 import complete: {} track days, {} partitions written ({} skipped existing), {} annotations -> {}",

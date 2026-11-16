@@ -1280,6 +1280,10 @@ dependencies = [
  "bytes",
  "clap",
  "daqcore",
+ "daqnative",
+ "daqviewer",
+ "daqweb",
+ "eframe",
  "env_logger",
  "futures-util",
  "log",
@@ -1368,6 +1372,27 @@ dependencies = [
  "toml",
  "uuid",
  "walkers",
+ "web-time",
+]
+
+[[package]]
+name = "daqweb"
+version = "26.0.0"
+dependencies = [
+ "daqcore",
+ "daqviewer",
+ "eframe",
+ "egui_extras",
+ "egui_tiles",
+ "ehttp",
+ "js-sys",
+ "log",
+ "serde",
+ "serde_json",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "web-time",
 ]
 

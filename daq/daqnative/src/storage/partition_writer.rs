@@ -20,9 +20,7 @@ use std::{
     sync::Arc,
 };
 
-pub use daqcore::storage::{
-    ImportSummary, PartitionManifest, RawSample, SignalManifestEntry,
-};
+pub use daqcore::storage::{ImportSummary, PartitionManifest, RawSample, SignalManifestEntry};
 
 #[derive(Debug)]
 pub enum ImportError {

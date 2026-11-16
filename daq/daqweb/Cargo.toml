@@ -1,0 +1,44 @@
+[package]
+name = "daqweb"
+version = "26.0.0"
+edition.workspace = true
+
+[lib]
+name = "daqweb"
+
+[[bin]]
+name = "daqweb"
+path = "src/main.rs"
+
+[dependencies]
+daqcore = { workspace = true }
+daqviewer = { workspace = true }
+
+eframe = "0.33.3"
+egui_tiles = "0.14.1"
+egui_extras = { version = "0.33.3", features = ["all_loaders"] }
+ehttp = { version = "0.6.0", default-features = false }
+web-time = "1.1.0"
+
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = "2.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.0"
+js-sys = "0.3.77"
+web-sys = { version = "0.3.77", features = [
+    "Window",
+    "Document",
+    "Location",
+    "History",
+    "Storage",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+    "HtmlAnchorElement",
+    "HtmlCanvasElement",
+    "Element",
+] }

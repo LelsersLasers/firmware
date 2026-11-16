@@ -1,20 +1,45 @@
 use crate::db;
-use daqcore::storage::{CloudWsMessage, Registry, compute_file_sha256_hex};
+use bytes::Bytes;
+use daqcore::{
+    router::{DEFAULT_TILE_CACHE_BYTES, LruTileMap, SignalSeries, TileKey},
+    storage::CloudWsMessage,
+};
+use daqnative::storage::{Registry, compute_file_sha256_hex};
 use std::{
     collections::HashMap,
-    fs, io, path,
+    env, fs, io, path,
     sync::{Arc, Mutex},
 };
 use tokio::sync::broadcast;
 
 const WS_BROADCAST_CAPACITY: usize = 512;
 
+fn resolve_default_web_dist_dir() -> path::PathBuf {
+    if let Ok(custom) = env::var("DAQCLOUD_WEB_DIST_DIR") {
+        return path::PathBuf::from(custom);
+    }
+    let candidates = [
+        path::PathBuf::from("dist"),
+        path::PathBuf::from("daqweb/dist"),
+        path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../daqweb/dist"),
+    ];
+    for c in &candidates {
+        if c.is_dir() {
+            return c.clone();
+        }
+    }
+    candidates[2].clone()
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Registry,
     pub store_dir: path::PathBuf,
+    pub web_dist_dir: path::PathBuf,
     pub ws_tx: broadcast::Sender<CloudWsMessage>,
     sha256_cache: Arc<Mutex<HashMap<(path::PathBuf, u64), String>>>,
+    tile_cache: Arc<Mutex<LruTileMap>>,
+    preload_cache: Arc<Mutex<HashMap<String, Bytes>>>,
 }
 
 impl AppState {
@@ -28,8 +53,11 @@ impl AppState {
         Ok(Self {
             registry,
             store_dir,
+            web_dist_dir: resolve_default_web_dist_dir(),
             ws_tx,
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
+            tile_cache: Arc::new(Mutex::new(LruTileMap::new(DEFAULT_TILE_CACHE_BYTES))),
+            preload_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -61,6 +89,35 @@ impl AppState {
         if let Ok(mut guard) = self.sha256_cache.lock() {
             guard.retain(|(p, _), _| p != &path);
             guard.insert((path, size), sha256_hex);
+        }
+    }
+
+    pub fn get_cached_preload(&self, partition_id: &str) -> Option<Bytes> {
+        self.preload_cache
+            .lock()
+            .ok()
+            .and_then(|g| g.get(partition_id).cloned())
+    }
+
+    pub fn insert_cached_preload(&self, partition_id: String, payload: Bytes) {
+        if let Ok(mut g) = self.preload_cache.lock() {
+            g.insert(partition_id, payload);
+        }
+    }
+
+    pub fn get_cached_tile(&self, key: &TileKey) -> Option<Arc<SignalSeries>> {
+        self.tile_cache.lock().ok().and_then(|mut g| g.get(key))
+    }
+
+    pub fn insert_cached_tile(&self, key: TileKey, series: Arc<SignalSeries>) {
+        if let Ok(mut g) = self.tile_cache.lock() {
+            g.insert(key, series);
+        }
+    }
+
+    pub fn invalidate_partition_cache(&self, partition_id: &str) {
+        if let Ok(mut g) = self.preload_cache.lock() {
+            g.remove(partition_id);
         }
     }
 }

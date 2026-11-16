@@ -1,6 +1,6 @@
 use std::{error, path};
 
-use daqcore::storage::Registry;
+use daqnative::storage::Registry;
 
 pub type Error = Box<dyn error::Error + Send + Sync>;
 

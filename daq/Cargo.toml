@@ -5,6 +5,7 @@ members = [
     "daqcore",
     "daqnative",
     "daqviewer",
+    "daqweb",
     "daqcli",
     "daqcloud",
 ]

@@ -1,8 +1,6 @@
 use crate::{
     router::{
-        types::{
-            BUCKET_1HZ_MS, BUCKET_10HZ_MS, Resolution, SignalSeries, StateInterval,
-        },
+        types::{BUCKET_1HZ_MS, BUCKET_10HZ_MS, Resolution, SignalSeries, StateInterval},
         wire::PartitionPreloadPayload,
     },
     storage::{self, RegisteredPartition, SignalId},
@@ -362,10 +360,8 @@ impl TileCache {
             .insert(payload.partition_id.clone(), signal_set);
         self.resident_1hz
             .insert(payload.partition_id.clone(), payload.overview_1hz);
-        self.resident_activity_1hz.insert(
-            payload.partition_id.clone(),
-            Arc::new(payload.activity_1hz),
-        );
+        self.resident_activity_1hz
+            .insert(payload.partition_id.clone(), Arc::new(payload.activity_1hz));
         self.resident_states
             .insert(payload.partition_id, payload.states);
         self.revision.fetch_add(1, Ordering::Relaxed);

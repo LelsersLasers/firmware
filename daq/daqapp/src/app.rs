@@ -206,7 +206,8 @@ impl DesktopPlatform {
         if !self.supports_multi_bus()
             && let Some(db) = &state.database
             && db.selection.is_multi_bus()
-            && let Some(fallback) = daqnative::can_thread::BusSelection::default_single(&db.database)
+            && let Some(fallback) =
+                daqnative::can_thread::BusSelection::default_single(&db.database)
         {
             self.request_bus_selection(state, fallback);
         }
@@ -350,7 +351,8 @@ impl DesktopPlatform {
                     daqnative::can_thread::BusSelection::Charger,
                 ];
                 for preset in presets {
-                    let supported = multi_bus_allowed && preset.resolve_buses(&selection.database).is_some();
+                    let supported =
+                        multi_bus_allowed && preset.resolve_buses(&selection.database).is_some();
                     ui.add_enabled_ui(supported, |ui| {
                         ui.selectable_value(
                             &mut current_selection,
@@ -639,7 +641,8 @@ impl ViewerPlatform for DesktopPlatform {
                         (true, "Simulated (connected)"),
                         (false, "Simulated (disconnected)"),
                     ] {
-                        let sim_source = daqnative::connection::ConnectionSource::Simulated(connected);
+                        let sim_source =
+                            daqnative::connection::ConnectionSource::Simulated(connected);
                         if ui
                             .selectable_value(&mut self.selected_source, Some(sim_source), label)
                             .changed()
@@ -721,7 +724,9 @@ impl ViewerPlatform for DesktopPlatform {
                     return;
                 }
                 state.log_folder = Some(path.clone());
-                state.action_queue.push(action::AppAction::AttachStore(path));
+                state
+                    .action_queue
+                    .push(action::AppAction::AttachStore(path));
                 self.save_settings(state);
             }
 
@@ -848,7 +853,8 @@ impl DAQApp {
             30.0
         };
 
-        let mut router = daqnative::storage::live_router(daqnative::time::Time::now(), window_secs)?;
+        let mut router =
+            daqnative::storage::live_router(daqnative::time::Time::now(), window_secs)?;
         let egui_ctx = cc.egui_ctx.clone();
         router.set_repaint_callback(Some(std::sync::Arc::new(move || {
             egui_ctx.request_repaint();
@@ -915,8 +921,7 @@ impl DAQApp {
 
         if let Some(saved_view) = &settings.workspace_view {
             let has_local_store = state.router.partitions().iter().any(|p| p.is_local);
-            if let Err(err) =
-                saved_view.apply_to_state(&mut state, &mut platform, has_local_store)
+            if let Err(err) = saved_view.apply_to_state(&mut state, &mut platform, has_local_store)
             {
                 log::warn!("Failed to restore workspace view from settings: {err}");
             }
@@ -1202,8 +1207,11 @@ mod tests {
 
         let mut ids = widget_ids::WidgetIds::new();
         let mut platform = test_desktop_platform();
-        let gg_widgets =
-            widget_constructor::WidgetConstructor::PresetGgDiagram.create_all(&mut ids, &mut platform, 0);
+        let gg_widgets = widget_constructor::WidgetConstructor::PresetGgDiagram.create_all(
+            &mut ids,
+            &mut platform,
+            0,
+        );
         assert_eq!(gg_widgets.len(), 1);
         let understeer_widgets = widget_constructor::WidgetConstructor::PresetHandlingUndersteer
             .create_all(&mut ids, &mut platform, 0);
@@ -1248,11 +1256,9 @@ mod tests {
         let m1 = &summary.manifests[0];
         let m2 = &summary.manifests[1];
 
-        let mut router = daqnative::storage::live_router(
-            Time::from_unix_millis(m2.end_utc_ms),
-            30.0,
-        )
-        .expect("live router");
+        let mut router =
+            daqnative::storage::live_router(Time::from_unix_millis(m2.end_utc_ms), 30.0)
+                .expect("live router");
         router
             .attach_store(tmp_store.path())
             .expect("attach PER26 store");
@@ -1324,8 +1330,8 @@ mod tests {
             .snap_to_range_ms(m2.start_utc_ms, m2.start_utc_ms + 20_000);
         tree = egui_tiles::Tree::empty("cleared");
 
-        let decoded =
-            workspace_io::WorkspaceView::from_str_flexible(&share_str).expect("decode share string");
+        let decoded = workspace_io::WorkspaceView::from_str_flexible(&share_str)
+            .expect("decode share string");
         decoded
             .apply_to_workspace(&mut tree, &mut ids, &mut router, &mut platform, false)
             .expect("apply layout only");
@@ -1495,19 +1501,26 @@ mod tests {
             return;
         }
 
-        let database = daqnative::superdbc::database::Database::load(&dbc_path).expect("load PER26");
+        let database =
+            daqnative::superdbc::database::Database::load(&dbc_path).expect("load PER26");
         let tmp_store = tempfile::tempdir().expect("temp store");
         let tmp_raw1 = tempfile::tempdir().expect("temp raw 1");
         let tmp_raw2 = tempfile::tempdir().expect("temp raw 2");
         std::fs::copy(&log1, tmp_raw1.path().join("log-2026-09-06--18-36-02.log")).unwrap();
         std::fs::copy(&log2, tmp_raw2.path().join("log-2026-09-06--20-21-44.log")).unwrap();
 
-        let summary_1 =
-            daqnative::log_parse::import_logs_to_store(tmp_raw1.path(), tmp_store.path(), &database)
-                .expect("import stint 1");
-        let summary_2 =
-            daqnative::log_parse::import_logs_to_store(tmp_raw2.path(), tmp_store.path(), &database)
-                .expect("import stint 2");
+        let summary_1 = daqnative::log_parse::import_logs_to_store(
+            tmp_raw1.path(),
+            tmp_store.path(),
+            &database,
+        )
+        .expect("import stint 1");
+        let summary_2 = daqnative::log_parse::import_logs_to_store(
+            tmp_raw2.path(),
+            tmp_store.path(),
+            &database,
+        )
+        .expect("import stint 2");
         assert!(!summary_1.manifests.is_empty() && !summary_2.manifests.is_empty());
 
         let m1_start = summary_1.manifests[0].start_utc_ms;

@@ -91,7 +91,8 @@ pub trait RouterBackend: Send {
         track_day_id: &str,
     ) -> Result<Vec<RegisteredPartition>, RouterError>;
 
-    fn get_partition(&self, partition_id: &str) -> Result<Option<RegisteredPartition>, RouterError>;
+    fn get_partition(&self, partition_id: &str)
+    -> Result<Option<RegisteredPartition>, RouterError>;
 
     fn query_all_annotations(&self) -> Result<Vec<Annotation>, RouterError>;
 
@@ -207,7 +208,10 @@ impl RouterBackend for InMemoryRouterBackend {
             .collect())
     }
 
-    fn get_partition(&self, partition_id: &str) -> Result<Option<RegisteredPartition>, RouterError> {
+    fn get_partition(
+        &self,
+        partition_id: &str,
+    ) -> Result<Option<RegisteredPartition>, RouterError> {
         Ok(self.catalog.get_partition(partition_id))
     }
 
@@ -377,12 +381,13 @@ impl VirtualTimelineRouter {
                 .then_with(|| a.partition_id.cmp(&b.partition_id))
         });
 
-        let newly_preloaded = if let Some(store_dir) = self.backend.store_dir().map(path::Path::to_path_buf) {
-            self.tile_cache
-                .preload_registered_partitions(&store_dir, &all_partitions)?
-        } else {
-            0
-        };
+        let newly_preloaded =
+            if let Some(store_dir) = self.backend.store_dir().map(path::Path::to_path_buf) {
+                self.tile_cache
+                    .preload_registered_partitions(&store_dir, &all_partitions)?
+            } else {
+                0
+            };
 
         let active_missing = self
             .timeline
