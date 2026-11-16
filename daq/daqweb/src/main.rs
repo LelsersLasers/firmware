@@ -87,8 +87,11 @@ mod wasm_entry {
             let Some(document) = window.document() else {
                 return;
             };
-            let Some(canvas_elem) = document.get_element_by_id("the_canvas_id") else {
-                log::error!("Failed to find #the_canvas_id in index.html");
+            let Some(canvas_elem) = document
+                .get_element_by_id("daqweb_canvas")
+                .or_else(|| document.get_element_by_id("the_canvas_id"))
+            else {
+                log::error!("Failed to find #daqweb_canvas in index.html");
                 return;
             };
             let Ok(canvas) = canvas_elem.dyn_into::<web_sys::HtmlCanvasElement>() else {

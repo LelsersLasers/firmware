@@ -61,7 +61,10 @@ const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
 </head>
 <body>
     <canvas id="daqweb_canvas"></canvas>
-    <script type="module" src="/assets/daqweb.js"></script>
+    <script type="module">
+        import init from '/assets/daqweb.js';
+        init('/assets/daqweb_bg.wasm');
+    </script>
 </body>
 </html>
 "#;
