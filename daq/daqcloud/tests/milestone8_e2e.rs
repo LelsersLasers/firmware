@@ -1,9 +1,13 @@
 use daqcloud::{AppState, build_router};
 use daqcore::{
+    log_parse::{
+        correlate::{ClockConfidence, ClockMapping, CorrelationChunkResult},
+        parse::{ParsedMessage, SourceLogFile},
+    },
     router::{Resolution, SignalSeries, VirtualTimelineRouter},
     storage::{
-        Annotation, compute_file_sha256_hex, download_file_resumable, load_archived_superdbc,
-        sync_store_with_cloud_blocking,
+        Annotation, ImportSummary, compute_file_sha256_hex, download_file_resumable,
+        load_archived_superdbc, sync_store_with_cloud_blocking, write_correlated_epochs_to_store,
     },
     superdbc::database::Database,
     time::Time,
@@ -30,34 +34,152 @@ async fn spawn_local_daqcloud() -> (String, tempfile::TempDir, tokio::task::Join
     (base_url, tmp, handle)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
+fn synthetic_superdbc_json() -> &'static str {
+    r#"{
+      "versions": { "schema_version": "1.1", "hash": "e2e_synth_v1" },
+      "content_hash": "e2e_synthetic_superdbc_hash_0001",
+      "buses": {
+        "VCAN": {
+          "bus_id": 0,
+          "baud_rate": 500000,
+          "nodes": [{ "name": "MAIN", "is_external": false }],
+          "messages": [
+            {
+              "id": 100,
+              "is_extended_id": false,
+              "message_name": "IMU_acceleration",
+              "transmitter": "MAIN",
+              "receivers": [],
+              "length_bytes": 2,
+              "nominal_period_ms": 100,
+              "priority": 2,
+              "description": "Longitudinal acceleration",
+              "signals": [
+                {
+                  "signal_name": "X_axis",
+                  "description": "Longitudinal acceleration",
+                  "data_type": "float",
+                  "raw_type": "signed",
+                  "start_bit": 0,
+                  "bit_length": 16,
+                  "byte_order": "little_endian",
+                  "scale": 0.01,
+                  "offset": 0.0,
+                  "limits": null,
+                  "unit": "g",
+                  "choices": null,
+                  "display_format": null
+                }
+              ]
+            },
+            {
+              "id": 101,
+              "is_extended_id": false,
+              "message_name": "main_hb",
+              "transmitter": "MAIN",
+              "receivers": [],
+              "length_bytes": 1,
+              "nominal_period_ms": 500,
+              "priority": 2,
+              "description": "Main heartbeat",
+              "signals": [
+                {
+                  "signal_name": "car_state",
+                  "description": "",
+                  "data_type": "car_state_t",
+                  "raw_type": "unsigned",
+                  "start_bit": 0,
+                  "bit_length": 8,
+                  "byte_order": "little_endian",
+                  "scale": 1.0,
+                  "offset": 0.0,
+                  "limits": null,
+                  "unit": "",
+                  "choices": { "1": "idle", "5": "ready2drive" },
+                  "display_format": null
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }"#
+}
+
+fn prepare_fixture_store(store_dir: &path::Path) -> (Database, ImportSummary) {
     let manifest_dir = path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
     let log_path =
         manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
-    assert!(
-        dbc_path.is_file() && log_path.is_file(),
-        "PER26 dataset and superdbc_per26.json must exist"
-    );
 
+    if dbc_path.is_file() && log_path.is_file() {
+        let db = Database::load(&dbc_path).expect("load superdbc_per26.json");
+        let raw_dir = tempfile::tempdir().expect("raw_dir");
+        fs::copy(
+            &log_path,
+            raw_dir.path().join("log-2026-09-06--20-21-44.log"),
+        )
+        .expect("copy PER26 raw log");
+        let summary = daqcore::log_parse::import_logs_to_store(raw_dir.path(), store_dir, &db)
+            .expect("import PER26 log into store");
+        return (db, summary);
+    }
+
+    // CI fallback when gitignored PER26/ fixtures are absent: generate a real Parquet pyramid
+    // partition + content-addressed SuperDBC using the exact same storage writer.
+    let db = Database::from_json(synthetic_superdbc_json()).expect("valid synthetic superdbc");
+    let base_utc_ms: i64 = 1_788_726_104_000; // 2026-09-06T20:21:44Z
+    let mut parsed_msgs = Vec::new();
+    for step in 0..=80u32 {
+        let ticks_ms = step * 100;
+        let accel_g = ((step as f64) * 0.1).sin();
+        let accel_payload = db.encode(0, 100, &[("X_axis", accel_g)]).unwrap();
+        parsed_msgs.push(ParsedMessage {
+            timestamp: ticks_ms,
+            source_file_idx: 0,
+            bus_name: "VCAN".to_owned(),
+            decoded: db.decode(0, 100, &accel_payload).unwrap(),
+        });
+        if step.is_multiple_of(10) {
+            let state = if step < 40 { 1.0 } else { 5.0 };
+            let hb_payload = db.encode(0, 101, &[("car_state", state)]).unwrap();
+            parsed_msgs.push(ParsedMessage {
+                timestamp: ticks_ms,
+                source_file_idx: 0,
+                bus_name: "VCAN".to_owned(),
+                decoded: db.decode(0, 101, &hb_payload).unwrap(),
+            });
+        }
+    }
+
+    let source_files = vec![SourceLogFile {
+        file_name: "log-2026-09-06--20-21-44.log".to_owned(),
+        sha256_hex: "synthetic_ci_log_sha256".to_owned(),
+        rtc_timestamp_ms: Some(base_utc_ms),
+        mtime_unix_ms: base_utc_ms,
+    }];
+    let epochs = vec![CorrelationChunkResult {
+        clock_mapping: ClockMapping {
+            slope: 1.0,
+            intercept_ms: base_utc_ms as f64,
+            confidence: ClockConfidence::RtcEstimated,
+        },
+        parsed_msgs,
+    }];
+    let summary = write_correlated_epochs_to_store(store_dir, &source_files, epochs, &db)
+        .expect("write synthetic store");
+    (db, summary)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     let (base_url, _cloud_tmp, server_handle) = spawn_local_daqcloud().await;
 
     // -------------------------------------------------------------------------
-    // 1. Instance A: Import PER26 SD card log and connect to daqcloud
+    // 1. Instance A: Import SD card log (or CI synthetic fixture) and connect to daqcloud
     // -------------------------------------------------------------------------
-    let db = Database::load(&dbc_path).expect("load superdbc_per26.json");
-    let raw_dir_a = tempfile::tempdir().expect("raw_dir_a");
-    fs::copy(
-        &log_path,
-        raw_dir_a.path().join("log-2026-09-06--20-21-44.log"),
-    )
-    .expect("copy PER26 raw log");
-
     let store_dir_a = tempfile::tempdir().expect("store_dir_a");
-    let import_summary =
-        daqcore::log_parse::import_logs_to_store(raw_dir_a.path(), store_dir_a.path(), &db)
-            .expect("import PER26 log into Instance A store");
+    let (_db, import_summary) = prepare_fixture_store(store_dir_a.path());
     assert_eq!(import_summary.partitions_written, 1);
     let manifest_a = &import_summary.manifests[0];
     let part_id = manifest_a.partition_id.clone();
@@ -291,25 +413,10 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resumable_partial_download_and_cli_sync_roundtrip() {
-    let manifest_dir = path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-    let log_path =
-        manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
-    assert!(dbc_path.is_file() && log_path.is_file());
-
     let (base_url, _cloud_tmp, server_handle) = spawn_local_daqcloud().await;
 
-    let db = Database::load(&dbc_path).unwrap();
-    let raw_dir = tempfile::tempdir().unwrap();
-    fs::copy(
-        &log_path,
-        raw_dir.path().join("log-2026-09-06--20-21-44.log"),
-    )
-    .unwrap();
-
     let store_a = tempfile::tempdir().unwrap();
-    let import_summary =
-        daqcore::log_parse::import_logs_to_store(raw_dir.path(), store_a.path(), &db).unwrap();
+    let (db, import_summary) = prepare_fixture_store(store_a.path());
     let part_id = &import_summary.manifests[0].partition_id;
 
     // 1. Upload store_a using synchronous CLI helper (`sync_store_with_cloud_blocking`)
