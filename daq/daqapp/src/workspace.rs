@@ -403,7 +403,7 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
         state: &egui_tiles::TabState,
     ) -> eframe::egui::Stroke {
         if state.active {
-            eframe::egui::Stroke::new(1.5, self.accent_color)
+            eframe::egui::Stroke::new(1.5_f32, self.accent_color)
         } else {
             eframe::egui::Stroke::NONE
         }
