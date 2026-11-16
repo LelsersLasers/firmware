@@ -115,10 +115,10 @@ impl ShortcutHandler {
             }
 
             // `Shift + K/J`, `Shift + Up/Down`, `K/J`, `Up/Down`, or `+/-` = shrink / enlarge window around playhead
-            if (shift_only || no_mods) && up_pressed
-                || (no_mods || shift_only)
-                    && (input.key_pressed(eframe::egui::Key::Plus)
-                        || input.key_pressed(eframe::egui::Key::Equals))
+            if (shift_only || no_mods)
+                && (up_pressed
+                    || input.key_pressed(eframe::egui::Key::Plus)
+                    || input.key_pressed(eframe::egui::Key::Equals))
             {
                 actions.push(action::AppAction::ZoomWindow { factor: 0.8 });
             } else if (shift_only || no_mods) && down_pressed

@@ -196,19 +196,19 @@ impl ViewerTable {
                                 elapsed_ms > timeout_ms
                             });
 
-                    if !search.is_empty()
-                        && !name.to_lowercase().contains(&search)
-                        && !node.to_lowercase().contains(&search)
-                        && !bus_name.to_lowercase().contains(&search)
-                        && !(stale && "stale".contains(&search))
-                        && !format!("{:03X}", frame.identity)
+                    let matches_search = search.is_empty()
+                        || name.to_lowercase().contains(&search)
+                        || node.to_lowercase().contains(&search)
+                        || bus_name.to_lowercase().contains(&search)
+                        || (stale && "stale".contains(&search))
+                        || format!("{:03X}", frame.identity)
                             .to_lowercase()
                             .contains(&search)
-                        && !decoded.is_some_and(|d| {
+                        || decoded.is_some_and(|d| {
                             d.iter()
                                 .any(|(name, _)| name.to_lowercase().contains(&search))
-                        })
-                    {
+                        });
+                    if !matches_search {
                         continue;
                     }
 

@@ -793,7 +793,8 @@ impl eframe::App for DAQApp {
 
             match event {
                 daqcore::can_thread::CanThreadEvent::DatabaseSelected { request_id, result } => {
-                    if self.apply_database_result(request_id, result) {
+                    let applied = self.apply_database_result(request_id, result);
+                    if applied {
                         self.save_settings();
                     }
                 }
