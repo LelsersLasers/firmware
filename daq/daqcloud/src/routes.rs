@@ -32,12 +32,15 @@ use std::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
+const EMBEDDED_PER_LOGO_PNG: &[u8] = include_bytes!("../../daqviewer/assets/per_logo.png");
+
 const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>PER — DaqWeb Telemetry Viewer</title>
+    <link rel="icon" type="image/png" href="/assets/per_logo.png" />
     <style>
         html, body {
             margin: 0;
@@ -72,6 +75,7 @@ const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(web_index_handler))
+        .route("/favicon.ico", get(favicon_handler))
         .route("/daqview/{*payload}", get(web_daqview_handler))
         .route("/assets/{*asset_path}", get(web_asset_handler))
         .route("/api/v1/health", get(health_handler))
@@ -153,6 +157,12 @@ fn serve_web_index_html(state: &AppState) -> Response {
     (StatusCode::OK, headers, html_bytes).into_response()
 }
 
+async fn favicon_handler() -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    (StatusCode::OK, headers, EMBEDDED_PER_LOGO_PNG).into_response()
+}
+
 async fn web_asset_handler(
     State(state): State<AppState>,
     Path(asset_path): Path<String>,
@@ -160,6 +170,9 @@ async fn web_asset_handler(
     let clean_rel = asset_path.trim_start_matches('/');
     if clean_rel.is_empty() || clean_rel.contains("..") || clean_rel.contains('\\') {
         return StatusCode::BAD_REQUEST.into_response();
+    }
+    if clean_rel == "per_logo.png" || clean_rel == "favicon.ico" {
+        return favicon_handler().await;
     }
     let candidate_dirs = [
         state.web_dist_dir.join("assets").join(clean_rel),

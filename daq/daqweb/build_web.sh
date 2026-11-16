@@ -32,6 +32,7 @@ cargo build --release -p daqweb --target wasm32-unknown-unknown --locked
 
 mkdir -p "${DIST_DIR}/assets"
 cp "${SCRIPT_DIR}/index.html" "${DIST_DIR}/index.html"
+cp "${DAQ_DIR}/daqviewer/assets/per_logo.png" "${DIST_DIR}/assets/per_logo.png"
 
 echo "==> Running wasm-bindgen into ${DIST_DIR}/assets..."
 wasm-bindgen \
