@@ -120,7 +120,7 @@ fn parse_cell_value(
         .label_to_int
         .get(&lower)
         .copied()
-        .unwrap_or_else(|| match lower.as_str() {
+        .unwrap_or(match lower.as_str() {
             "off" | "false" | "fatal" | "unlatched" => 0,
             "on" | "true" | "idle" | "latched" | "charging" => 1,
             "precharging" | "running" => 2,
@@ -479,8 +479,9 @@ fn import_csv_boot_group(
     database: &Database,
     store_dir: &Path,
 ) -> Result<ImportSummary, ImportError> {
+    type ParsedCsvRow = (Option<i64>, u32, SignalId, f64, i64, Option<String>);
     let lookup = build_signal_lookup(database);
-    let mut raw_rows: Vec<(Option<i64>, u32, SignalId, f64, i64, Option<String>)> = Vec::new();
+    let mut raw_rows: Vec<ParsedCsvRow> = Vec::new();
     let mut meta_by_id: HashMap<SignalId, ResolvedSignalMeta> = HashMap::new();
     let mut gps_points: Vec<(u32, i64)> = Vec::new();
     let mut source_files = Vec::new();
@@ -891,10 +892,10 @@ fn import_day_2025_09_20(
                     continue;
                 };
                 let ticks_ms = (daq_sec * 1000.0).round() as u32;
-                if let Some(utc_ms) = extract_gps_point_from_cells(&cells, &header.gps_cols, 2025) {
-                    if gps_pts.last().map(|&(_, u)| u) != Some(utc_ms) {
-                        gps_pts.push((ticks_ms, utc_ms));
-                    }
+                if let Some(utc_ms) = extract_gps_point_from_cells(&cells, &header.gps_cols, 2025)
+                    && gps_pts.last().map(|&(_, u)| u) != Some(utc_ms)
+                {
+                    gps_pts.push((ticks_ms, utc_ms));
                 }
             }
             if gps_pts.len() < 10 {
@@ -1474,7 +1475,8 @@ fn import_days_2026_05(
     let p2 = may_root.join("may3_part2");
     let p3 = may_root.join("may3_part3");
 
-    let may3_boots: &[(&str, &str, Vec<(PathBuf, Option<(f64, f64)>)>)] = &[
+    type CsvBootSpec<'a> = (&'a str, &'a str, Vec<(PathBuf, Option<(f64, f64)>)>);
+    let may3_boots: &[CsvBootSpec<'_>] = &[
         (
             "may3_p1_b1",
             "May 3 Part 1 — Run 1",
@@ -1579,7 +1581,7 @@ fn import_days_2026_05(
     let hunter = may_root.join("may10-hunter-runs");
     let accel = may_root.join("may10-accel-skids");
 
-    let may10_boots: &[(&str, &str, Vec<(PathBuf, Option<(f64, f64)>)>)] = &[
+    let may10_boots: &[CsvBootSpec<'_>] = &[
         (
             "may10_hunter",
             "May 10 — Hunter Runs",

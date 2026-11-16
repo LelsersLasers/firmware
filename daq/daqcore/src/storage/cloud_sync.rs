@@ -47,14 +47,14 @@ pub struct AssetUploadResponse {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum AnnotationUpsertPayload {
-    Single(Annotation),
+    Single(Box<Annotation>),
     Batch(Vec<Annotation>),
 }
 
 impl AnnotationUpsertPayload {
     pub fn into_vec(self) -> Vec<Annotation> {
         match self {
-            Self::Single(ann) => vec![ann],
+            Self::Single(ann) => vec![*ann],
             Self::Batch(list) => list,
         }
     }
@@ -398,12 +398,11 @@ impl CloudSyncHandle {
         // Seed `localized_partitions` with partitions that are already local on disk.
         if let Ok(reg) = Registry::open_store(&store_dir)
             && let Ok(parts) = reg.list_all_partitions()
+            && let Ok(mut guard) = localized_partitions.lock()
         {
-            if let Ok(mut guard) = localized_partitions.lock() {
-                for p in parts {
-                    if p.is_local {
-                        guard.insert(p.partition_id);
-                    }
+            for p in parts {
+                if p.is_local {
+                    guard.insert(p.partition_id);
                 }
             }
         }
@@ -510,10 +509,10 @@ impl CloudSyncHandle {
         {
             return false;
         }
-        if let Ok(mut req) = self.requested_downloads.lock() {
-            if !req.insert(partition_id.to_owned()) {
-                return false;
-            }
+        if let Ok(mut req) = self.requested_downloads.lock()
+            && !req.insert(partition_id.to_owned())
+        {
+            return false;
         }
         let _ = self.cmd_tx.send(CloudSyncCommand::DownloadPartition {
             partition_id: partition_id.to_owned(),
@@ -828,7 +827,7 @@ async fn run_cloud_sync_runtime(
             }
             CloudSyncCommand::PushAnnotation { annotation } => {
                 let url = format!("{base_url}/api/v1/annotations");
-                let payload = AnnotationUpsertPayload::Single(annotation);
+                let payload = AnnotationUpsertPayload::Single(Box::new(annotation));
                 if let Err(err) = client.post(&url).json(&payload).send().await {
                     log::warn!("Failed to push annotation to {url}: {err}");
                 }
