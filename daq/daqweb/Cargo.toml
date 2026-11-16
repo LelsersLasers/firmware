@@ -26,10 +26,10 @@ serde_json = { workspace = true }
 url = "2.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.0"
-js-sys = "0.3.77"
-web-sys = { version = "0.3.77", features = [
+wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "=0.4.58"
+js-sys = "=0.3.85"
+web-sys = { version = "=0.3.85", features = [
     "Window",
     "Document",
     "Location",

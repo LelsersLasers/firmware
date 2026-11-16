@@ -16,8 +16,15 @@ CLI_VERSION="$(wasm-bindgen --version | awk '{print $2}')"
 LOCK_VERSION="$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/"/, "", $3); print $3; exit}' Cargo.lock)"
 
 if [[ -n "${CLI_VERSION}" && -n "${LOCK_VERSION}" && "${CLI_VERSION}" != "${LOCK_VERSION}" ]]; then
-    echo "==> Aligning Cargo.lock wasm-bindgen (${LOCK_VERSION}) with installed wasm-bindgen CLI (${CLI_VERSION})..."
-    cargo update -p wasm-bindgen --precise "${CLI_VERSION}"
+    echo "==> Aligning Cargo.lock wasm-bindgen family (${LOCK_VERSION}) with installed wasm-bindgen CLI (${CLI_VERSION})..."
+    cargo update \
+        -p wasm-bindgen \
+        -p wasm-bindgen-macro \
+        -p wasm-bindgen-macro-support \
+        -p wasm-bindgen-shared \
+        -p js-sys \
+        -p web-sys \
+        -p wasm-bindgen-futures
 fi
 
 echo "==> Compiling daqweb for wasm32-unknown-unknown (release)..."
