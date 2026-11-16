@@ -145,6 +145,9 @@ enum WebCloudEvent {
     CatalogLoaded {
         catalog: CatalogResponse,
     },
+    AnnotationsPolled {
+        annotations: Vec<Annotation>,
+    },
     PreloadLoaded {
         partition_id: String,
         payload: PartitionPreloadPayload,
@@ -174,6 +177,8 @@ pub struct WebCloudRouterBackend {
     preloaded_partitions: HashSet<String>,
     last_catalog_poll: Option<web_time::Instant>,
     catalog_in_flight: bool,
+    initial_catalog_loaded: bool,
+    last_annotation_sync_ms: i64,
 }
 
 impl WebCloudRouterBackend {
@@ -191,6 +196,8 @@ impl WebCloudRouterBackend {
             preloaded_partitions: HashSet::new(),
             last_catalog_poll: None,
             catalog_in_flight: false,
+            initial_catalog_loaded: false,
+            last_annotation_sync_ms: 0,
         }
     }
 
@@ -223,6 +230,51 @@ impl WebCloudRouterBackend {
                 Ok(resp) => WebCloudEvent::Error {
                     url: url_for_ev,
                     error: format!("Catalog HTTP {}", resp.status),
+                },
+                Err(err) => WebCloudEvent::Error {
+                    url: url_for_ev,
+                    error: err,
+                },
+            };
+            let _ = tx.send(ev);
+            if let Some(cb) = &repaint {
+                cb();
+            }
+        });
+    }
+
+    fn spawn_annotations_poll(&mut self) {
+        let Some(base_url) = self.base_url.clone() else {
+            return;
+        };
+        if self.catalog_in_flight {
+            return;
+        }
+        self.catalog_in_flight = true;
+        self.last_catalog_poll = Some(web_time::Instant::now());
+
+        let trimmed = base_url.trim_end_matches('/');
+        let since_ms = self.last_annotation_sync_ms.saturating_add(1);
+        let url =
+            format!("{trimmed}/api/v1/annotations?since_utc_ms={since_ms}&include_deleted=true");
+        let tx = self.ev_tx.clone();
+        let repaint = self.repaint_cb.clone();
+        let url_for_ev = base_url;
+
+        ehttp::fetch(ehttp::Request::get(&url), move |resp_res| {
+            let ev = match resp_res {
+                Ok(resp) if resp.ok => {
+                    match serde_json::from_slice::<Vec<Annotation>>(&resp.bytes) {
+                        Ok(annotations) => WebCloudEvent::AnnotationsPolled { annotations },
+                        Err(e) => WebCloudEvent::Error {
+                            url: url_for_ev,
+                            error: format!("Invalid annotations JSON: {e}"),
+                        },
+                    }
+                }
+                Ok(resp) => WebCloudEvent::Error {
+                    url: url_for_ev,
+                    error: format!("Annotations HTTP {}", resp.status),
                 },
                 Err(err) => WebCloudEvent::Error {
                     url: url_for_ev,
@@ -408,6 +460,8 @@ impl RouterBackend for WebCloudRouterBackend {
         self.base_url = Some(normalized.clone());
         self.status = CloudSyncStatus::Connecting { url: normalized };
         self.catalog_in_flight = false;
+        self.initial_catalog_loaded = false;
+        self.last_annotation_sync_ms = 0;
         self.spawn_catalog_fetch();
         Ok(())
     }
@@ -418,6 +472,8 @@ impl RouterBackend for WebCloudRouterBackend {
         self.status = CloudSyncStatus::Disconnected;
         self.in_flight_preloads.clear();
         self.catalog_in_flight = false;
+        self.initial_catalog_loaded = false;
+        self.last_annotation_sync_ms = 0;
     }
 
     fn cloud_status(&self) -> CloudSyncStatus {
@@ -430,15 +486,19 @@ impl RouterBackend for WebCloudRouterBackend {
     }
 
     fn poll_cloud_sync(&mut self, tile_cache: &mut TileCache) -> CloudPollOutcome {
-        // Periodically poll `/api/v1/catalog` every 2.5 seconds while connected so live teammate
-        // annotations and newly uploaded partitions appear automatically.
+        // Once the initial catalog is loaded, poll lightweight `/api/v1/annotations?since_utc_ms=...`
+        // every 2.5 seconds instead of re-fetching the entire partition catalog.
         if self.base_url.is_some()
             && !self.catalog_in_flight
             && self
                 .last_catalog_poll
                 .is_none_or(|t| t.elapsed().as_secs_f32() >= 2.5)
         {
-            self.spawn_catalog_fetch();
+            if self.initial_catalog_loaded {
+                self.spawn_annotations_poll();
+            } else {
+                self.spawn_catalog_fetch();
+            }
         }
 
         let mut outcome = CloudPollOutcome::default();
@@ -449,6 +509,7 @@ impl RouterBackend for WebCloudRouterBackend {
             match ev {
                 WebCloudEvent::CatalogLoaded { catalog } => {
                     self.catalog_in_flight = false;
+                    self.initial_catalog_loaded = true;
                     let prev_part_count = self.catalog.list_partitions().len();
                     for td in &catalog.track_days {
                         self.catalog.upsert_track_day(td);
@@ -464,12 +525,25 @@ impl RouterBackend for WebCloudRouterBackend {
                         }
                     }
                     for ann in &catalog.annotations {
+                        self.last_annotation_sync_ms =
+                            self.last_annotation_sync_ms.max(ann.updated_at_ms);
                         if self.catalog.upsert_annotation(ann) {
                             outcome.invalidate_annotations = true;
                         }
                     }
                     if catalog.partitions.len() != prev_part_count {
                         outcome.reload_partitions = true;
+                    }
+                    self.update_connected_status();
+                }
+                WebCloudEvent::AnnotationsPolled { annotations } => {
+                    self.catalog_in_flight = false;
+                    for ann in &annotations {
+                        self.last_annotation_sync_ms =
+                            self.last_annotation_sync_ms.max(ann.updated_at_ms);
+                        if self.catalog.upsert_annotation(ann) {
+                            outcome.invalidate_annotations = true;
+                        }
                     }
                     self.update_connected_status();
                 }
@@ -495,6 +569,8 @@ impl RouterBackend for WebCloudRouterBackend {
                     self.update_connected_status();
                 }
                 WebCloudEvent::AnnotationSaved(ann) => {
+                    self.last_annotation_sync_ms =
+                        self.last_annotation_sync_ms.max(ann.updated_at_ms);
                     self.catalog.upsert_annotation(&ann);
                     outcome.invalidate_annotations = true;
                 }
