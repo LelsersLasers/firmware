@@ -290,6 +290,21 @@ impl Registry {
         Ok(())
     }
 
+    /// Delete auto-detected fault annotations (`category = 'fault' AND source = 'auto'`)
+    /// before re-registering normalized partition manifests.
+    pub fn clear_auto_fault_annotations(&self) -> Result<usize, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let deleted = diesel::delete(
+            annotations::table.filter(
+                annotations::category
+                    .eq("fault")
+                    .and(annotations::source.eq("auto")),
+            ),
+        )
+        .execute(&mut conn)?;
+        Ok(deleted)
+    }
+
     /// Return `true` when all canonical Parquet pyramid files (`manifest.json`,
     /// `overview_1hz.parquet`, `overview_10hz.parquet`, `full_res.parquet`, and `states.parquet`)
     /// are present on disk in `partition_dir`.

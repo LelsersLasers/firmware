@@ -1181,6 +1181,225 @@ fn write_record_batch_atomic(
     Ok(())
 }
 
+/// Read all full-resolution samples from `<partition_dir>/full_res.parquet` into a
+/// [`BTreeMap<SignalId, SignalColumnAccumulator>`] seeded with metadata from `manifest`.
+pub fn read_partition_column_accumulators(
+    partition_dir: &path::Path,
+    manifest: &PartitionManifest,
+) -> Result<BTreeMap<storage::SignalId, SignalColumnAccumulator>, ImportError> {
+    use arrow::array::{
+        Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array,
+    };
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+    let mut columns: BTreeMap<storage::SignalId, SignalColumnAccumulator> = BTreeMap::new();
+    for entry in &manifest.signals {
+        let (msg_name, sig_name) = entry
+            .signal_id
+            .split_once('.')
+            .unwrap_or(("", entry.signal_id.as_str()));
+        let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+        columns.insert(
+            entry.signal_id.clone(),
+            SignalColumnAccumulator {
+                unit: entry.unit.clone(),
+                is_discrete: entry.is_discrete,
+                is_fault_flag,
+                bus_name: entry.bus_name.clone(),
+                bus_id: entry.bus_id,
+                can_id: entry.can_id,
+                transmitter: entry.transmitter.clone(),
+                nominal_period_ms: entry.nominal_period_ms,
+                description: entry.description.clone(),
+                samples: Vec::with_capacity(entry.sample_count as usize),
+            },
+        );
+    }
+
+    let full_res_path = partition_dir.join("full_res.parquet");
+    let file = fs::File::open(&full_res_path)?;
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
+
+    for batch_res in reader {
+        let batch = batch_res?;
+        let sig_col = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<DictionaryArray<Int32Type>>()
+            .ok_or_else(|| {
+                ImportError::Io(io::Error::other(
+                    "full_res col 0 must be Dictionary<Int32, Utf8>",
+                ))
+            })?;
+        let dict_vals = sig_col
+            .values()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                ImportError::Io(io::Error::other("full_res dictionary values must be Utf8"))
+            })?;
+        let utc_col = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| ImportError::Io(io::Error::other("utc_ms must be Int64")))?;
+        let ticks_col = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| ImportError::Io(io::Error::other("ticks_ms must be UInt32")))?;
+        let val_col = batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .ok_or_else(|| ImportError::Io(io::Error::other("value must be Float64")))?;
+
+        let keys = sig_col.keys().values();
+        let utcs = utc_col.values();
+        let ticks = ticks_col.values();
+        let vals = val_col.values();
+
+        let mut cur_key: Option<i32> = None;
+        let mut cur_acc: Option<&mut SignalColumnAccumulator> = None;
+
+        for row in 0..batch.num_rows() {
+            let k = keys[row];
+            if cur_key != Some(k) {
+                cur_key = Some(k);
+                let sig_id = dict_vals.value(k as usize);
+                if !columns.contains_key(sig_id) {
+                    let (msg_name, sig_name) = sig_id.split_once('.').unwrap_or(("", sig_id));
+                    let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+                    columns.insert(
+                        sig_id.to_owned(),
+                        SignalColumnAccumulator {
+                            unit: String::new(),
+                            is_discrete: is_fault_flag,
+                            is_fault_flag,
+                            bus_name: "VCAN".to_owned(),
+                            bus_id: 0,
+                            can_id: 0,
+                            transmitter: String::new(),
+                            nominal_period_ms: None,
+                            description: String::new(),
+                            samples: Vec::new(),
+                        },
+                    );
+                }
+                cur_acc = columns.get_mut(sig_id);
+            }
+            if let Some(acc) = cur_acc.as_deref_mut() {
+                let physical = vals[row];
+                let raw_int = physical.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+                acc.samples.push(RawSample {
+                    utc_ms: utcs[row],
+                    ticks_ms: ticks[row],
+                    physical,
+                    raw_int,
+                    enum_label: None,
+                });
+            }
+        }
+    }
+
+    Ok(columns)
+}
+
+/// Atomically rewrite `<partition_dir>/{full_res,overview_10hz,overview_1hz,states}.parquet` and
+/// `manifest.json` from the normalized `columns`.
+pub fn rewrite_partition_in_place(
+    partition_dir: &path::Path,
+    manifest: &mut PartitionManifest,
+    superdbc_hash: &str,
+    columns: &BTreeMap<storage::SignalId, SignalColumnAccumulator>,
+) -> Result<(), ImportError> {
+    write_full_res_parquet(&partition_dir.join("full_res.parquet"), columns)?;
+    write_overview_parquet(
+        &partition_dir.join("overview_10hz.parquet"),
+        columns,
+        consts::BUCKET_10HZ_MS,
+    )?;
+    write_overview_parquet(
+        &partition_dir.join("overview_1hz.parquet"),
+        columns,
+        consts::BUCKET_1HZ_MS,
+    )?;
+    write_states_parquet(&partition_dir.join("states.parquet"), columns)?;
+
+    let updated_at_ms = time::Time::now().unix_millis();
+    // Retain existing non-fault annotations (e.g. driving_stint, session, manual event annotations)
+    // and regenerate fault transition annotations using the normalized canonical signal IDs.
+    let mut annotations: Vec<auto_annotate::Annotation> = manifest
+        .annotations
+        .iter()
+        .filter(|a| !(a.category == "fault" && a.source == "auto"))
+        .cloned()
+        .collect();
+
+    let mut signal_entries = Vec::with_capacity(columns.len());
+    for (signal_id, acc) in columns {
+        if acc.samples.is_empty() {
+            continue;
+        }
+        let min_utc_ms = acc.samples.first().map(|s| s.utc_ms).unwrap_or(0);
+        let max_utc_ms = acc.samples.last().map(|s| s.utc_ms).unwrap_or(0);
+        let mut min_val = f64::INFINITY;
+        let mut max_val = f64::NEG_INFINITY;
+        for sample in &acc.samples {
+            if sample.physical.is_finite() {
+                min_val = min_val.min(sample.physical);
+                max_val = max_val.max(sample.physical);
+            }
+        }
+        if !min_val.is_finite() {
+            min_val = 0.0;
+            max_val = 0.0;
+        }
+
+        if acc.is_fault_flag {
+            let raw_pairs: Vec<(i64, i64)> =
+                acc.samples.iter().map(|s| (s.utc_ms, s.raw_int)).collect();
+            annotations.extend(auto_annotate::detect_signal_fault_transitions(
+                signal_id,
+                &raw_pairs,
+                &manifest.track_day_id,
+                updated_at_ms,
+            ));
+        }
+
+        signal_entries.push(SignalManifestEntry {
+            signal_id: signal_id.clone(),
+            unit: acc.unit.clone(),
+            is_discrete: acc.is_discrete,
+            bus_name: acc.bus_name.clone(),
+            bus_id: acc.bus_id,
+            can_id: acc.can_id,
+            transmitter: acc.transmitter.clone(),
+            nominal_period_ms: acc.nominal_period_ms,
+            description: acc.description.clone(),
+            sample_count: acc.samples.len() as u64,
+            min_utc_ms,
+            max_utc_ms,
+            min_val,
+            max_val,
+        });
+    }
+
+    annotations.sort_by_key(|a| (a.start_utc_ms, a.id.clone()));
+    annotations.dedup_by(|a, b| a.id == b.id);
+
+    manifest.superdbc_hash = superdbc_hash.to_owned();
+    manifest.signals = signal_entries;
+    manifest.annotations = annotations;
+
+    let manifest_path = partition_dir.join("manifest.json");
+    let tmp_manifest_path = partition_dir.join("manifest.json.tmp");
+    let manifest_json = serde_json::to_vec_pretty(&manifest)?;
+    fs::write(&tmp_manifest_path, manifest_json)?;
+    fs::rename(&tmp_manifest_path, &manifest_path)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

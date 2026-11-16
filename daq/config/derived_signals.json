@@ -3,7 +3,7 @@
     {
       "id": "battery.voltage_v",
       "label": "Battery pack voltage (vbatt_adc scaled)",
-      "expression": "pack_stats.vbatt_adc * 0.14659808276",
+      "expression": "pack_stats.vbatt_adc",
       "unit": "V"
     },
     {

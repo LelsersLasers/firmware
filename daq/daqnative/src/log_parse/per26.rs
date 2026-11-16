@@ -2110,6 +2110,11 @@ pub fn import_all_per26(
     log::info!("Importing PER26 [9/9]: 2026-09-06...");
     import_day_2026_09_06(per26_dir, store_dir, superdbc_dir, &mut report)?;
 
+    let canonical_dbc_path = superdbc_dir.join("superdbc_per26.json");
+    if canonical_dbc_path.is_file() {
+        let _ = normalize_per26_store(store_dir, &canonical_dbc_path)?;
+    }
+
     if let Ok(reg) = Registry::open_store(store_dir) {
         let _ = reg.checkpoint_wal();
     }
@@ -2122,4 +2127,309 @@ pub fn import_all_per26(
     }
 
     Ok(report)
+}
+
+/// Normalize all legacy PER26 / PER25 signal IDs, physical units, and scaling factors in `columns`
+/// to match the canonical `superdbc_per26.json` schema.
+pub fn normalize_per26_columns_to_canonical(
+    columns: &mut BTreeMap<SignalId, SignalColumnAccumulator>,
+    track_day_id: &str,
+    canonical_dbc: &Database,
+) {
+    let lookup = build_signal_lookup(canonical_dbc);
+    let mut canonical_by_id: HashMap<String, ResolvedSignalMeta> = HashMap::new();
+    for meta in lookup.into_values() {
+        canonical_by_id.insert(meta.signal_id.clone(), meta);
+    }
+
+    let old_columns = std::mem::take(columns);
+    let had_max_temp = old_columns.contains_key("pack_stats.max_temp")
+        || old_columns.contains_key("max_cell_temp.max_temp");
+
+    let mut mapped: BTreeMap<SignalId, SignalColumnAccumulator> = BTreeMap::new();
+
+    for (old_id, mut acc) in old_columns {
+        type TransformFn = fn(f64) -> f64;
+        let (target_id, transform): (String, TransformFn) = match old_id.as_str() {
+            // 1. Shockpots (2025-09-20 zero-centered deflection -> canonical length mm, and 2026-04-05 ADC -> mm)
+            "shock_front.left_shock" => ("front_shockpots.left".to_owned(), |v| 188.0 + v),
+            "shock_front.right_shock" => ("front_shockpots.right".to_owned(), |v| 188.0 + v),
+            "shock_rear.left_shock" => ("rear_shockpots.left".to_owned(), |v| 175.0 + v),
+            "shock_rear.right_shock" => ("rear_shockpots.right".to_owned(), |v| 175.0 + v),
+            "front_shockpots.left"
+            | "front_shockpots.right"
+            | "rear_shockpots.left"
+            | "rear_shockpots.right"
+                if track_day_id == "2026-04-05" || acc.unit.contains("ADC") =>
+            {
+                (old_id, |v| {
+                    145.0 + ((4095.0 - v.clamp(0.0, 4095.0)) / 4095.0) * 75.0
+                })
+            }
+
+            // 2. IMU Acceleration (m/s^2 -> g) & Angular Rate (rad/s -> deg/s)
+            "imu_accel.imu_accel_x" => ("IMU_acceleration.X_axis".to_owned(), |v| v / 9.80665),
+            "imu_accel.imu_accel_y" => ("IMU_acceleration.Y_axis".to_owned(), |v| v / 9.80665),
+            "imu_accel.imu_accel_z" => ("IMU_acceleration.Z_axis".to_owned(), |v| v / 9.80665),
+            "imu_gyro.imu_gyro_x" => ("IMU_angular_rate.X_axis".to_owned(), |v| {
+                v * (180.0 / std::f64::consts::PI)
+            }),
+            "imu_gyro.imu_gyro_y" => ("IMU_angular_rate.Y_axis".to_owned(), |v| {
+                v * (180.0 / std::f64::consts::PI)
+            }),
+            "imu_gyro.imu_gyro_z" => ("IMU_angular_rate.Z_axis".to_owned(), |v| {
+                v * (180.0 / std::f64::consts::PI)
+            }),
+
+            // 3. GPS Coordinates (1e-7 deg integer -> deg), Speed & Heading
+            "gps_coordinates.latitude" | "gps_coordinates.longitude" => {
+                (old_id, |v| if v.abs() > 1000.0 { v * 1e-7 } else { v })
+            }
+            "gps_speed.gps_speed" => ("gps_speed_heading.gps_speed".to_owned(), |v| v),
+            "gps_speed.gps_heading" => ("gps_speed_heading.gps_heading".to_owned(), |v| v),
+
+            // 4. Bosch LWS Steering Sensor
+            "LWS_Standard.Cal" => ("LWS_Standard.CAL".to_owned(), |v| v),
+            "LWS_Standard.Ok" => ("LWS_Standard.OK".to_owned(), |v| v),
+            "LWS_Standard.Trim" => ("LWS_Standard.TRIM".to_owned(), |v| v),
+            "LWS_Standard.Reserved_1" => ("LWS_Standard.reserved1".to_owned(), |v| v),
+            "LWS_Standard.Reserved_2" => ("LWS_Standard.reserved2".to_owned(), |v| v),
+
+            // 5. Pedals
+            "filt_throttle_brake.throttle" => ("pedals.throttle".to_owned(), |v| v),
+            "filt_throttle_brake.brake" => ("pedals.brake".to_owned(), |v| v),
+
+            // 6. Wheel Speeds (rad/s -> motor shaft rpm)
+            "rear_wheel_speeds.left_speed_sensor" => ("wheel_speeds.rear_left".to_owned(), |v| {
+                v * (60.0 / (2.0 * std::f64::consts::PI)) * 11.86
+            }),
+            "rear_wheel_speeds.right_speed_sensor" => ("wheel_speeds.rear_right".to_owned(), |v| {
+                v * (60.0 / (2.0 * std::f64::consts::PI)) * 11.86
+            }),
+
+            // 7. Pack Stats, Accumulator & Charging
+            "orion_currents_volts.pack_voltage" => ("pack_stats.pack_voltage".to_owned(), |v| v),
+            "orion_currents_volts.pack_current" => ("pack_stats.pack_current".to_owned(), |v| v),
+            "max_cell_temp.max_temp" => ("pack_stats.max_temp".to_owned(), |v| v),
+            "pack_stats.avg_temp" => {
+                if had_max_temp {
+                    continue;
+                }
+                ("pack_stats.max_temp".to_owned(), |v| v)
+            }
+            "elcon_charger_command.voltage_limit" => {
+                ("elcon_command.voltage_limit".to_owned(), |v| v)
+            }
+            "elcon_charger_command.current_limit" => {
+                ("elcon_command.current_limit".to_owned(), |v| v)
+            }
+            "elcon_charger_command.charge_disable" => {
+                ("elcon_command.charger_disable".to_owned(), |v| v)
+            }
+            "pack_charge_status.voltage" => ("charging_telemetry.pack_voltage".to_owned(), |v| v),
+            "pack_charge_status.current" => ("charging_telemetry.pack_current".to_owned(), |v| v),
+
+            // 8. Torque Requests & Gearbox Oil Temps
+            "VCU_torques_speeds.TO_VT_left" => ("vcu_torque_request.rear_left".to_owned(), |v| {
+                v * (100.0 / 21.0)
+            }),
+            "VCU_torques_speeds.TO_VT_right" => ("vcu_torque_request.rear_right".to_owned(), |v| {
+                v * (100.0 / 21.0)
+            }),
+            "gearbox.l_temp" => ("rear_oil_temps.left".to_owned(), |v| v),
+            "gearbox.r_temp" => ("rear_oil_temps.right".to_owned(), |v| v),
+
+            // 9. Coolant Outputs, SDC Fault Sync, Start Button & Precharge
+            "coolant_out.dt_pump" => ("coolant_out.is_powertrain_pumps_enabled".to_owned(), |v| {
+                if v > 0.0 { 1.0 } else { 0.0 }
+            }),
+            "coolant_out.dt_fan" => ("coolant_out.is_hx_fan_enabled".to_owned(), |v| {
+                if v > 0.0 { 1.0 } else { 0.0 }
+            }),
+            "coolant_out.bat_fan" => ("coolant_out.is_batt_fans_enabled".to_owned(), |v| {
+                if v > 0.0 { 1.0 } else { 0.0 }
+            }),
+            "sdc_status.IMD" => ("main_module_fault_sync.SDC1_IMD".to_owned(), |v| v),
+            "sdc_status.BMS" => ("main_module_fault_sync.SDC2_BMS".to_owned(), |v| v),
+            "sdc_status.BSPD" => ("main_module_fault_sync.SDC3_BSPD".to_owned(), |v| v),
+            "sdc_status.main" => ("main_module_fault_sync.SDC4_MAIN_OK".to_owned(), |v| v),
+            "sdc_status.BOTS" => ("main_module_fault_sync.SDC5_BOTS".to_owned(), |v| v),
+            "sdc_status.inertia" => ("main_module_fault_sync.SDC6_INERTIA".to_owned(), |v| v),
+            "sdc_status.c_estop" => (
+                "main_module_fault_sync.SDC7_COCKPIT_ESTOP".to_owned(),
+                |v| v,
+            ),
+            "sdc_status.r_estop" => ("main_module_fault_sync.SDC10_RIGHT_ESTOP".to_owned(), |v| v),
+            "sdc_status.l_estop" => ("main_module_fault_sync.SDC11_LEFT_ESTOP".to_owned(), |v| v),
+            "sdc_status.HVD" => ("main_module_fault_sync.SDC12_MSD".to_owned(), |v| v),
+            "sdc_status.emeter" => ("main_module_fault_sync.SDC13_E_METER".to_owned(), |v| v),
+            "sdc_status.hub" => (
+                "main_module_fault_sync.SDC15_REAR_INTERLOCK".to_owned(),
+                |v| v,
+            ),
+            "sdc_status.TSMS" => ("main_module_fault_sync.SDC16_TSMS".to_owned(), |v| v),
+            "sdc_status.pchg_out" => ("main_module_fault_sync.SDC17_AIR_M".to_owned(), |v| v),
+            "main_hb.precharge_state" => ("main_hb_amk.precharge_state".to_owned(), |v| v),
+            "start_button.start" => ("start_button.is_pressed".to_owned(), |v| v),
+
+            other => {
+                if let Some(rest) = other.strip_prefix("INVA_LOG_SET.") {
+                    (format!("INVA_SET.{rest}"), |v| v)
+                } else if let Some(rest) = other.strip_prefix("INVB_LOG_SET.") {
+                    (format!("INVB_SET.{rest}"), |v| v)
+                } else {
+                    (old_id, |v| v)
+                }
+            }
+        };
+
+        if !canonical_by_id.contains_key(&target_id) {
+            continue;
+        }
+
+        for sample in &mut acc.samples {
+            sample.physical = transform(sample.physical);
+            sample.raw_int = sample
+                .physical
+                .round()
+                .clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+        }
+
+        mapped.entry(target_id).or_insert(acc);
+    }
+
+    // Cross-mirror equivalent sensor pairs so every track day has complete coverage for all presets & formulas
+    let mirror_pairs: &[(&str, &str)] = &[
+        ("IZZE_acceleration.X_axis", "IMU_acceleration.X_axis"),
+        ("IZZE_acceleration.Y_axis", "IMU_acceleration.Y_axis"),
+        ("IZZE_acceleration.Z_axis", "IMU_acceleration.Z_axis"),
+        (
+            "IZZE_acceleration.temperature",
+            "IMU_acceleration.temperature",
+        ),
+        ("IZZE_angular_rate.X_axis", "IMU_angular_rate.X_axis"),
+        ("IZZE_angular_rate.Y_axis", "IMU_angular_rate.Y_axis"),
+        ("IZZE_angular_rate.Z_axis", "IMU_angular_rate.Z_axis"),
+        ("IZZE_angular_rate.reserved", "IMU_angular_rate.reserved"),
+        ("LWS_Standard.LWS_ANGLE", "steering_angle.angle"),
+        ("steering_angle.angle", "LWS_Standard.LWS_ANGLE"),
+        ("LWS_Standard.LWS_SPEED", "steering_angle.angular_rate"),
+        ("steering_angle.angular_rate", "LWS_Standard.LWS_SPEED"),
+        ("LWS_Standard.OK", "steering_angle.data_valid"),
+        ("steering_angle.data_valid", "LWS_Standard.OK"),
+        ("INVA_CRIT.AMK_ActualSpeed", "wheel_speeds.front_left"),
+        ("INVB_CRIT.AMK_ActualSpeed", "wheel_speeds.front_right"),
+        ("pack_stats.pack_voltage", "pack_stats.vbatt_adc"),
+    ];
+
+    for &(src_id, dst_id) in mirror_pairs {
+        if !mapped.contains_key(dst_id)
+            && canonical_by_id.contains_key(dst_id)
+            && let Some(src_acc) = mapped.get(src_id)
+        {
+            mapped.insert(
+                dst_id.to_owned(),
+                SignalColumnAccumulator {
+                    unit: src_acc.unit.clone(),
+                    is_discrete: src_acc.is_discrete,
+                    is_fault_flag: src_acc.is_fault_flag,
+                    bus_name: src_acc.bus_name.clone(),
+                    bus_id: src_acc.bus_id,
+                    can_id: src_acc.can_id,
+                    transmitter: src_acc.transmitter.clone(),
+                    nominal_period_ms: src_acc.nominal_period_ms,
+                    description: src_acc.description.clone(),
+                    samples: src_acc.samples.clone(),
+                },
+            );
+        }
+    }
+
+    // Apply canonical SuperDBC metadata (units, descriptions, bus_name, can_id, choices) to every column
+    for (sig_id, acc) in &mut mapped {
+        if let Some(meta) = canonical_by_id.get(sig_id) {
+            acc.unit = meta.unit.clone();
+            acc.is_discrete = meta.is_discrete;
+            acc.is_fault_flag = meta.is_fault_flag;
+            acc.bus_name = meta.bus_name.clone();
+            acc.bus_id = meta.bus_id;
+            acc.can_id = meta.can_id;
+            acc.transmitter = meta.transmitter.clone();
+            acc.nominal_period_ms = meta.nominal_period_ms;
+            acc.description = meta.description.clone();
+            if acc.is_discrete {
+                for sample in &mut acc.samples {
+                    sample.raw_int = sample
+                        .physical
+                        .round()
+                        .clamp(i64::MIN as f64, i64::MAX as f64)
+                        as i64;
+                    sample.enum_label =
+                        meta.int_to_label.get(&sample.raw_int).cloned().or_else(|| {
+                            Some(match sample.raw_int {
+                                0 => "OFF".to_owned(),
+                                1 => "ON".to_owned(),
+                                n => format!("RAW_{n}"),
+                            })
+                        });
+                }
+            }
+        }
+    }
+
+    *columns = mapped;
+}
+
+/// Normalize all existing partitions in `<store_dir>/partitions/*` in place to match `canonical_dbc_path`,
+/// and synchronize `<store_dir>/local_registry.sqlite` and `<store_dir>/cloud_registry.sqlite`.
+pub fn normalize_per26_store(
+    store_dir: &Path,
+    canonical_dbc_path: &Path,
+) -> Result<usize, ImportError> {
+    let canonical_dbc = Database::load(canonical_dbc_path)
+        .map_err(|e| ImportError::Io(io::Error::other(e.to_string())))?;
+    let _ = storage::archive_superdbc_to_store(store_dir, &canonical_dbc)?;
+    let superdbc_hash = canonical_dbc.content_hash().to_owned();
+
+    let partitions_dir = store_dir.join("partitions");
+    if !partitions_dir.is_dir() {
+        return Ok(0);
+    }
+
+    let mut part_dirs: Vec<PathBuf> = fs::read_dir(&partitions_dir)?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_dir() && p.join("manifest.json").is_file() && p.join("full_res.parquet").is_file()
+        })
+        .collect();
+    part_dirs.sort();
+
+    let registry = Registry::open_store(store_dir)?;
+    let _ = registry.clear_auto_fault_annotations()?;
+
+    let mut rewritten = 0usize;
+    for part_dir in part_dirs {
+        let mf_path = part_dir.join("manifest.json");
+        let mf_bytes = fs::read(&mf_path)?;
+        let mut manifest: storage::PartitionManifest = serde_json::from_slice(&mf_bytes)
+            .map_err(|e| ImportError::Io(io::Error::other(e.to_string())))?;
+
+        let mut columns = storage::read_partition_column_accumulators(&part_dir, &manifest)?;
+        normalize_per26_columns_to_canonical(&mut columns, &manifest.track_day_id, &canonical_dbc);
+        storage::rewrite_partition_in_place(&part_dir, &mut manifest, &superdbc_hash, &columns)?;
+        registry.register_manifest(&manifest, true)?;
+        rewritten += 1;
+    }
+
+    let _ = registry.checkpoint_wal();
+    let local_db = store_dir.join(storage::LOCAL_REGISTRY_FILENAME);
+    let cloud_db = store_dir.join("cloud_registry.sqlite");
+    if local_db.is_file() {
+        let _ = fs::remove_file(store_dir.join("cloud_registry.sqlite-wal"));
+        let _ = fs::remove_file(store_dir.join("cloud_registry.sqlite-shm"));
+        let _ = fs::copy(&local_db, &cloud_db);
+    }
+
+    Ok(rewritten)
 }

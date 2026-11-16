@@ -506,9 +506,10 @@ def main() -> None:
     buses_0614, _ = build_from_canpiler_commit("28d6bfa2", "can_library")
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_06_14.json", "per26_2026_06_14_28d6bfa2", buses_0614)
 
-    # 8. 2026-09-06 (based on superdbc_per26.json with calibrated vbatt_adc Volts)
+    # 8. Canonical superdbc_per26.json & 2026-09-06 (calibrated vbatt_adc Volts + TCAN CT3 WFT)
     base_0906 = json.loads((SUPERDBC_DIR / "superdbc_per26.json").read_text(encoding="utf-8"))
     buses_0906 = copy.deepcopy(base_0906["buses"])
+    buses_0906["TCAN"] = copy.deepcopy(tcan_combined)
     for b in buses_0906.values():
         for m in b["messages"]:
             if m["message_name"] == "pack_stats":
@@ -518,6 +519,7 @@ def main() -> None:
                         s["scale"] = 300.0 * 0.5 * (5.7 / 4.7) * (3.3 / 4095.0)
                         s["unit"] = "V"
                         s["description"] = "VBATT analog pack voltage reading"
+    write_superdbc(SUPERDBC_DIR / "superdbc_per26.json", base_0906.get("source_hash", "per26_canonical"), buses_0906)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_09_06.json", "per26_2026_09_06_vbatt_fixed", buses_0906)
 
 

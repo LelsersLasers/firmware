@@ -25,6 +25,7 @@ pub use parquet_reader::{
 pub use partition_writer::{
     ImportError, ImportSummary, PartitionManifest, RawSample, SignalColumnAccumulator,
     SignalManifestEntry, archive_superdbc_to_store, load_archived_superdbc,
+    read_partition_column_accumulators, rewrite_partition_in_place,
     write_column_accumulators_to_store, write_correlated_epochs_to_store,
     write_correlated_epochs_to_store_for_day, write_correlated_epochs_to_store_with_progress,
 };

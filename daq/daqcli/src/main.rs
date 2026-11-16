@@ -89,6 +89,15 @@ enum Command {
         #[arg(long, default_value = "superdbc")]
         superdbc_dir: path::PathBuf,
     },
+    /// Normalize all existing PER26 partitions in a store directory to the canonical superdbc_per26.json schema
+    NormalizePer26 {
+        /// Path to the Parquet partition store directory (e.g. ./cloud_store)
+        #[arg(long)]
+        store_dir: path::PathBuf,
+        /// Path to the canonical superdbc_per26.json file
+        #[arg(long, default_value = "../superdbc/superdbc_per26.json")]
+        superdbc: path::PathBuf,
+    },
 }
 
 /// Configuration for executing a headless CLI dataset export.
@@ -213,6 +222,23 @@ fn main() -> process::ExitCode {
                 }
             }
         }
+        Command::NormalizePer26 {
+            store_dir,
+            superdbc,
+        } => match daqnative::log_parse::per26::normalize_per26_store(&store_dir, &superdbc) {
+            Ok(count) => {
+                log::info!(
+                    "Normalized {count} partitions in {} to canonical schema {}",
+                    store_dir.display(),
+                    superdbc.display()
+                );
+                process::ExitCode::SUCCESS
+            }
+            Err(err) => {
+                log::error!("PER26 store normalization failed: {err}");
+                process::ExitCode::FAILURE
+            }
+        },
     }
 }
 

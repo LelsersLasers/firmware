@@ -37,10 +37,10 @@
                 "title": "Requested and Actual Torque",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "vcu_torque_request.front_left", "label": "Req Torque FL", "unit": "Nm" },
-                  { "signal_id": "vcu_torque_request.front_right", "label": "Req Torque FR", "unit": "Nm" },
-                  { "signal_id": "vcu_torque_request.rear_left", "label": "Req Torque RL", "unit": "Nm" },
-                  { "signal_id": "vcu_torque_request.rear_right", "label": "Req Torque RR", "unit": "Nm" },
+                  { "signal_id": "vcu_torque_request.front_left", "label": "Req Torque FL", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.front_right", "label": "Req Torque FR", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.rear_left", "label": "Req Torque RL", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.rear_right", "label": "Req Torque RR", "unit": "%" },
                   { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "Actual Torque INVA", "unit": "Nm" },
                   { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "Actual Torque INVB", "unit": "Nm" },
                   { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "Actual Torque INVC", "unit": "Nm" },
@@ -63,13 +63,13 @@
               {
                 "type": "pane",
                 "widget": "scope",
-                "title": "Motor Speeds",
+                "title": "Wheel / Motor Speeds",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "motor_speeds.front_left", "label": "Motor Speed FL", "unit": "rpm" },
-                  { "signal_id": "motor_speeds.front_right", "label": "Motor Speed FR", "unit": "rpm" },
-                  { "signal_id": "motor_speeds.rear_left", "label": "Motor Speed RL", "unit": "rpm" },
-                  { "signal_id": "motor_speeds.rear_right", "label": "Motor Speed RR", "unit": "rpm" }
+                  { "signal_id": "wheel_speeds.front_left", "label": "Motor Speed FL", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.front_right", "label": "Motor Speed FR", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.rear_left", "label": "Motor Speed RL", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.rear_right", "label": "Motor Speed RR", "unit": "rpm" }
                 ]
               }
             ]
