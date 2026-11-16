@@ -224,7 +224,20 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     .map(str::to_owned);
                 let mut requested_day_change: Option<Option<String>> = None;
 
-                let day_text = active_day_id.as_deref().unwrap_or("All Track Days");
+                let day_text = match active_day_id.as_deref() {
+                    Some(id) => track_days
+                        .iter()
+                        .find(|td| td.id == id)
+                        .map(|td| {
+                            if td.location.is_empty() {
+                                td.id.clone()
+                            } else {
+                                format!("{} ({})", td.id, td.location)
+                            }
+                        })
+                        .unwrap_or_else(|| id.to_owned()),
+                    None => "All Track Days".to_owned(),
+                };
                 eframe::egui::ComboBox::from_id_salt("header_track_day_selector")
                     .selected_text(eframe::egui::RichText::new(day_text).small().strong())
                     .show_ui(ui, |ui| {

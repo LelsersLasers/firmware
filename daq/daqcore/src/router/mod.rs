@@ -1167,6 +1167,21 @@ impl VirtualTimelineRouter {
         Ok(days)
     }
 
+    /// Update the human-readable label (`location` and `title`) for `track_day_id`,
+    /// invalidating the cached track day list and pushing the update to `daqcloud` if connected.
+    pub fn set_track_day_label(
+        &mut self,
+        track_day_id: &str,
+        label: &str,
+    ) -> Result<TrackDay, RouterError> {
+        let updated = self.registry.set_track_day_label(track_day_id, label)?;
+        self.invalidate_metadata_cache();
+        if let Some(sync) = &self.cloud_sync {
+            sync.push_track_day(updated.clone());
+        }
+        Ok(updated)
+    }
+
     /// Select a specific `TrackDay` (or `None` for all captured days), recomputing `day_bounds_ms`
     /// and snapping the viewport `[start, end]` to the selected day's bounds.
     pub fn select_track_day(

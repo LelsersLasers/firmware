@@ -30,6 +30,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(health_handler))
         .route("/api/v1/catalog", get(get_catalog_handler))
         .route(
+            "/api/v1/track-days",
+            axum::routing::post(post_track_day_handler),
+        )
+        .route(
             "/api/v1/partitions/{partition_id}/{filename}",
             put(put_partition_file_handler)
                 .get(get_partition_file_handler)
@@ -87,6 +91,21 @@ async fn get_catalog_handler(
         partitions,
         annotations,
     }))
+}
+
+async fn post_track_day_handler(
+    State(state): State<AppState>,
+    Json(day): Json<daqcore::storage::TrackDay>,
+) -> Result<Json<daqcore::storage::TrackDay>, (StatusCode, String)> {
+    state
+        .registry
+        .upsert_track_day(&day)
+        .map_err(internal_registry_err)?;
+    let updated = state
+        .registry
+        .set_track_day_label(&day.id, &day.location)
+        .map_err(internal_registry_err)?;
+    Ok(Json(updated))
 }
 
 fn resolve_existing_asset_path(

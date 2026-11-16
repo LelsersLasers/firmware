@@ -281,6 +281,8 @@ pub enum CloudSyncCommand {
     UploadLocalPartitions,
     /// Immediately push an upserted local annotation to `daqcloud`.
     PushAnnotation { annotation: Annotation },
+    /// Immediately push an updated `TrackDay` label/metadata to `daqcloud`.
+    PushTrackDay { day: TrackDay },
     /// Immediately push an annotation soft-delete tombstone to `daqcloud`.
     DeleteAnnotation {
         annotation_id: String,
@@ -531,6 +533,10 @@ impl CloudSyncHandle {
         let _ = self
             .cmd_tx
             .send(CloudSyncCommand::PushAnnotation { annotation });
+    }
+
+    pub fn push_track_day(&self, day: TrackDay) {
+        let _ = self.cmd_tx.send(CloudSyncCommand::PushTrackDay { day });
     }
 
     pub fn delete_annotation(&self, annotation_id: String, updated_at_ms: i64) {
@@ -830,6 +836,12 @@ async fn run_cloud_sync_runtime(
                 let payload = AnnotationUpsertPayload::Single(Box::new(annotation));
                 if let Err(err) = client.post(&url).json(&payload).send().await {
                     log::warn!("Failed to push annotation to {url}: {err}");
+                }
+            }
+            CloudSyncCommand::PushTrackDay { day } => {
+                let url = format!("{base_url}/api/v1/track-days");
+                if let Err(err) = client.post(&url).json(&day).send().await {
+                    log::warn!("Failed to push track day to {url}: {err}");
                 }
             }
             CloudSyncCommand::DeleteAnnotation {

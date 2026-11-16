@@ -444,6 +444,62 @@ impl Registry {
         Ok(TrackDay::from(row))
     }
 
+    /// Explicitly set (or clear when `label` is empty) the human-readable label (`location` and `title`)
+    /// for `track_day_id`.
+    pub fn set_track_day_label(
+        &self,
+        track_day_id: &str,
+        label: &str,
+    ) -> Result<TrackDay, RegistryError> {
+        let trimmed = label.trim();
+        let title = if trimmed.is_empty() {
+            default_track_day_title(track_day_id)
+        } else {
+            format!("{track_day_id} — {trimmed}")
+        };
+        let location = trimmed.to_owned();
+
+        let mut conn = self.pool.get()?;
+        conn.immediate_transaction(|conn| {
+            let existing = track_days::table
+                .filter(track_days::id.eq(track_day_id))
+                .select(TrackDayRow::as_select())
+                .first::<TrackDayRow>(conn)
+                .optional()?;
+
+            let row = match existing {
+                Some(prev) => {
+                    let updated = TrackDayRow {
+                        id: prev.id,
+                        title,
+                        location,
+                        start_utc_ms: prev.start_utc_ms,
+                        end_utc_ms: prev.end_utc_ms,
+                    };
+                    diesel::update(track_days::table.filter(track_days::id.eq(track_day_id)))
+                        .set(&updated)
+                        .execute(conn)?;
+                    updated
+                }
+                None => {
+                    let inserted = TrackDayRow {
+                        id: track_day_id.to_owned(),
+                        title,
+                        location,
+                        start_utc_ms: 0,
+                        end_utc_ms: 0,
+                    };
+                    diesel::insert_into(track_days::table)
+                        .values(&inserted)
+                        .execute(conn)?;
+                    inserted
+                }
+            };
+            Ok::<_, diesel::result::Error>(TrackDay::from(row))
+        })
+        .map_err(RegistryError::from)
+    }
+
     pub fn get_track_day(&self, track_day_id: &str) -> Result<Option<TrackDay>, RegistryError> {
         let mut conn = self.pool.get()?;
         let row = track_days::table

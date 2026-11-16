@@ -139,6 +139,7 @@ pub struct TimelineUiState {
     pub chunk_search_query: String,
     pub chunk_filter: ChunkFilter,
     pub chunk_days_open_override: Option<bool>,
+    pub editing_track_day: Option<(String, String)>,
 }
 
 impl Default for TimelineUiState {
@@ -151,6 +152,7 @@ impl Default for TimelineUiState {
             chunk_search_query: String::new(),
             chunk_filter: ChunkFilter::All,
             chunk_days_open_override: None,
+            editing_track_day: None,
         }
     }
 }
@@ -2208,6 +2210,7 @@ pub fn show_chunk_navigator_contents(
     let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
 
     let mut req_select_day: Option<Option<String>> = None;
+    let mut req_set_day_label: Option<(String, String)> = None;
     let mut req_snap_range: Option<(String, i64, i64)> = None;
     let mut req_single_ann: Option<(String, String, i64, Option<i64>)> = None;
     let mut req_compare_ann: Option<(String, i64, Option<i64>)> = None;
@@ -2226,6 +2229,10 @@ pub fn show_chunk_navigator_contents(
 
             // Show newest track days first for fast multi-day navigation
             for day_id in day_ids.into_iter().rev() {
+                let day_meta = track_days.iter().find(|td| td.id == day_id);
+                let day_label = day_meta.map(|td| td.location.as_str()).unwrap_or("");
+                let day_title = day_meta.map(|td| td.title.as_str()).unwrap_or("");
+
                 let mut day_parts: Vec<&(String, String, i64, i64, usize)> = all_partitions
                     .iter()
                     .filter(|(d, p_id, s, e, _)| {
@@ -2233,7 +2240,7 @@ pub fn show_chunk_navigator_contents(
                             && (timeline_ui.chunk_filter == ChunkFilter::All
                                 || timeline_ui.chunk_filter == ChunkFilter::Partitions)
                             && matches(&format!(
-                                "{day_id} {p_id} {} {}",
+                                "{day_id} {day_label} {day_title} {p_id} {} {}",
                                 daqcore::time::Time::from_unix_millis(*s).label(),
                                 daqcore::time::Time::from_unix_millis(*e).label()
                             ))
@@ -2249,7 +2256,7 @@ pub fn show_chunk_navigator_contents(
                             && (timeline_ui.chunk_filter == ChunkFilter::All
                                 || timeline_ui.chunk_filter == ChunkFilter::StintsAndEvents)
                             && matches(&format!(
-                                "{day_id} {} {} {}",
+                                "{day_id} {day_label} {day_title} {} {} {}",
                                 a.name,
                                 a.category,
                                 a.notes
@@ -2266,7 +2273,7 @@ pub fn show_chunk_navigator_contents(
                             && a.category == "fault"
                             && (timeline_ui.chunk_filter == ChunkFilter::All
                                 || timeline_ui.chunk_filter == ChunkFilter::Faults)
-                            && matches(&format!("{day_id} {}", a.name))
+                            && matches(&format!("{day_id} {day_label} {day_title} {}", a.name))
                     })
                     .collect();
                 day_faults.sort_by_key(|a| a.start_utc_ms);
@@ -2275,9 +2282,14 @@ pub fn show_chunk_navigator_contents(
                     continue;
                 }
 
+                let day_display = if day_label.is_empty() {
+                    day_id.clone()
+                } else {
+                    format!("{day_id} \"{day_label}\"")
+                };
                 let day_header = format!(
                     "📅 {}  ({} stints · {} parts · {} faults)",
-                    day_id,
+                    day_display,
                     day_stints.len(),
                     day_parts.len(),
                     day_faults.len()
@@ -2286,11 +2298,17 @@ pub fn show_chunk_navigator_contents(
                 eframe::egui::CollapsingHeader::new(
                     eframe::egui::RichText::new(day_header).strong(),
                 )
+                .id_salt(("chunk_nav_day_header", &day_id))
                 .default_open(true)
                 .open(timeline_ui.chunk_days_open_override)
                 .show(ui, |ui| {
                     ui.set_max_width(ui.available_width().max(40.0));
                     ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
+
+                    let is_editing_this_day = timeline_ui
+                        .editing_track_day
+                        .as_ref()
+                        .is_some_and(|(id, _)| id == &day_id);
 
                     ui.horizontal(|ui| {
                         if ui
@@ -2300,7 +2318,64 @@ pub fn show_chunk_navigator_contents(
                         {
                             req_select_day = Some(Some(day_id.clone()));
                         }
+                        if !is_editing_this_day
+                            && ui
+                                .small_button("✏ Edit Label")
+                                .on_hover_text(
+                                    "Edit Track Day label (e.g. 'Purdue / Comp Prep' or 'KMS')",
+                                )
+                                .clicked()
+                        {
+                            timeline_ui.editing_track_day =
+                                Some((day_id.clone(), day_label.to_owned()));
+                        }
                     });
+
+                    if let Some((edit_id, draft)) = &mut timeline_ui.editing_track_day
+                        && edit_id == &day_id
+                    {
+                        let mut commit_edit = false;
+                        let mut cancel_edit = false;
+                        ui.horizontal(|ui| {
+                            let edit_w = (ui.available_width() - 78.0).max(60.0);
+                            let resp = ui.add(
+                                eframe::egui::TextEdit::singleline(draft)
+                                    .id_salt(("track_day_label_input", &day_id))
+                                    .desired_width(edit_w)
+                                    .hint_text("Track / event label (e.g. Purdue / Comp Prep)…"),
+                            );
+                            if resp.lost_focus()
+                                && ui.input(|i| i.key_pressed(eframe::egui::Key::Enter))
+                            {
+                                commit_edit = true;
+                            }
+                            if resp.has_focus()
+                                && ui.input(|i| i.key_pressed(eframe::egui::Key::Escape))
+                            {
+                                cancel_edit = true;
+                            }
+                            if ui
+                                .small_button("Save")
+                                .on_hover_text("Save Track Day label (Enter)")
+                                .clicked()
+                            {
+                                commit_edit = true;
+                            }
+                            if ui
+                                .small_button("×")
+                                .on_hover_text("Cancel editing (Esc)")
+                                .clicked()
+                            {
+                                cancel_edit = true;
+                            }
+                        });
+                        if commit_edit {
+                            req_set_day_label = Some((day_id.clone(), draft.trim().to_owned()));
+                            timeline_ui.editing_track_day = None;
+                        } else if cancel_edit {
+                            timeline_ui.editing_track_day = None;
+                        }
+                    }
 
                     // 1. Driving Stints & Event Annotations (Primary Subchunks)
                     if !day_stints.is_empty() {
@@ -2480,6 +2555,11 @@ pub fn show_chunk_navigator_contents(
 
     timeline_ui.chunk_days_open_override = None;
 
+    if let Some((day_id, new_label)) = req_set_day_label
+        && let Err(err) = router.set_track_day_label(&day_id, &new_label)
+    {
+        *diagnostic = Some(format!("Failed to update track day label: {err}"));
+    }
     if let Some(day_opt) = req_select_day {
         if let Err(err) = router.select_track_day(day_opt) {
             *diagnostic = Some(format!("Failed to select track day: {err}"));
