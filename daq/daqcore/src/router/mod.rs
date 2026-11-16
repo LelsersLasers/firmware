@@ -766,10 +766,11 @@ impl VirtualTimelineRouter {
 
         let mut overlapping_ids: Vec<String> = Vec::new();
         for part in &self.partitions {
-            if part.start_utc_ms <= end_ms && part.end_utc_ms >= start_ms {
-                if self.is_partition_readable(part) {
-                    overlapping_ids.push(part.partition_id.clone());
-                }
+            if part.start_utc_ms <= end_ms
+                && part.end_utc_ms >= start_ms
+                && self.is_partition_readable(part)
+            {
+                overlapping_ids.push(part.partition_id.clone());
             }
         }
 

@@ -435,7 +435,7 @@ async fn post_export_handler(
             Time::from_unix_millis(req.end_utc_ms.max(0)),
             30.0,
         )
-        .map_err(|e| daqnative::export::ExportError::Router(e))?;
+        .map_err(daqnative::export::ExportError::Router)?;
         if !req.custom_formulas.is_empty() {
             router
                 .formula_engine_mut()

@@ -1,6 +1,7 @@
 use crate::widget_constructor;
 use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct WidgetIds {
     counters: HashMap<widget_constructor::WidgetKind, usize>,
 }

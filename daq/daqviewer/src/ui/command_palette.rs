@@ -1,5 +1,6 @@
 use crate::action;
 
+#[derive(Default)]
 pub struct CommandPalette {
     show_command_palette: bool,
     palette_search: String,
