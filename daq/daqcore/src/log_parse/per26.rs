@@ -1789,7 +1789,8 @@ fn import_raw_dir_streaming_boots(
             let usable = bytes.len() - (bytes.len() % 16);
             let mut cur_seg = Vec::new();
             let mut prev_tick: Option<u32> = None;
-            for frame_bytes in bytes[..usable].chunks_exact(16) {
+            let (frame_chunks, _) = bytes[..usable].as_chunks::<16>();
+            for frame_bytes in frame_chunks {
                 let tick = u32::from_le_bytes(frame_bytes[0..4].try_into().unwrap());
                 if let Some(prev) = prev_tick
                     && (tick < prev
