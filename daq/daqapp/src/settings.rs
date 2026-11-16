@@ -15,15 +15,15 @@ pub fn database_dir() -> Option<path::PathBuf> {
 }
 
 const DEFAULT_UDP_PORT: u16 = 5005;
-const DEFAULT_CAN_SPEED: daqcore::connection::CanBusSpeed =
-    daqcore::connection::CanBusSpeed::Kbps500;
+const DEFAULT_CAN_SPEED: daqnative::connection::CanBusSpeed =
+    daqnative::connection::CanBusSpeed::Kbps500;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub superdbc_path: Option<path::PathBuf>,
-    pub bus_selection: Option<daqcore::can_thread::BusSelection>,
-    pub selected_source: Option<daqcore::connection::ConnectionSource>,
-    pub selected_speed: daqcore::connection::CanBusSpeed,
+    pub bus_selection: Option<daqnative::can_thread::BusSelection>,
+    pub selected_source: Option<daqnative::connection::ConnectionSource>,
+    pub selected_speed: daqnative::connection::CanBusSpeed,
     pub udp_port: u16,
     pub theme: ui::theme::ThemeSelection,
     pub pixels_per_point: Option<f32>,

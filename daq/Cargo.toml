@@ -4,6 +4,7 @@ members = [
     "daqapp",
     "daqcore",
     "daqnative",
+    "daqviewer",
     "daqcli",
     "daqcloud",
 ]
@@ -14,6 +15,7 @@ edition = "2024"
 [workspace.dependencies]
 daqcore = { path = "daqcore" }
 daqnative = { path = "daqnative" }
+daqviewer = { path = "daqviewer" }
 
 arrow = { version = "54", default-features = false, features = ["ipc"] }
 parquet = { version = "54", default-features = false, features = ["arrow", "zstd"] }

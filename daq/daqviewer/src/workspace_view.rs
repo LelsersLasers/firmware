@@ -14,11 +14,11 @@ pub struct WorkspaceDataView<'a> {
     requested_setpoint_utc_ms: Cell<Option<i64>>,
     requested_zoom: Cell<Option<(i64, f64)>>,
     requested_pan_delta_ms: Cell<Option<i64>>,
+    requested_open_export_modal: Cell<bool>,
     hover_touched: Cell<bool>,
 }
 
 impl<'a> WorkspaceDataView<'a> {
-    #[cfg(test)]
     pub fn new(router: &'a daqcore::router::VirtualTimelineRouter) -> Self {
         Self::with_hover(router, None, None)
     }
@@ -44,6 +44,7 @@ impl<'a> WorkspaceDataView<'a> {
             requested_setpoint_utc_ms: Cell::new(None),
             requested_zoom: Cell::new(None),
             requested_pan_delta_ms: Cell::new(None),
+            requested_open_export_modal: Cell::new(false),
             hover_touched: Cell::new(false),
         }
     }
@@ -119,6 +120,15 @@ impl<'a> WorkspaceDataView<'a> {
     /// Pending timeline pan delta (`ms`) requested during this render pass.
     pub fn requested_pan_delta_ms(&self) -> Option<i64> {
         self.requested_pan_delta_ms.get()
+    }
+
+    /// Request opening the dataset export modal.
+    pub fn request_open_export_modal(&self) {
+        self.requested_open_export_modal.set(true);
+    }
+
+    pub fn requested_open_export_modal(&self) -> bool {
+        self.requested_open_export_modal.get()
     }
 
     /// Returns the active inspection cursor (`hover_utc_ms` if hovering, else `setpoint_utc_ms`).

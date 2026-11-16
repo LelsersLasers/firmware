@@ -1,7 +1,7 @@
 use crate::{action, app, settings, workspace_view};
 use std::{path, sync::mpsc, thread};
 
-type ImportChannelMsg = Result<(path::PathBuf, daqcore::log_parse::ImportProgress), String>;
+type ImportChannelMsg = Result<(path::PathBuf, daqnative::log_parse::ImportProgress), String>;
 
 pub struct LogParser {
     pub title: String,
@@ -11,7 +11,7 @@ pub struct LogParser {
     parse_to_ui_rx: Option<mpsc::Receiver<ImportChannelMsg>>,
     progress_fraction: f32,
     parse_text: String,
-    last_summary: Option<daqcore::storage::ImportSummary>,
+    last_summary: Option<daqnative::storage::ImportSummary>,
 }
 
 impl LogParser {
@@ -64,7 +64,7 @@ impl LogParser {
         self.last_summary = None;
 
         thread::spawn(move || {
-            let db = match daqcore::superdbc::database::Database::load(&path) {
+            let db = match daqnative::superdbc::database::Database::load(&path) {
                 Ok(db) => db,
                 Err(error) => {
                     let _ = tx.send(Err(error.to_string()));
@@ -74,7 +74,7 @@ impl LogParser {
 
             let store_clone = output_dir.clone();
             let tx_progress = tx.clone();
-            let result = daqcore::log_parse::import_logs_to_store_with_progress(
+            let result = daqnative::log_parse::import_logs_to_store_with_progress(
                 &logs_dir,
                 &output_dir,
                 &db,
@@ -100,7 +100,7 @@ impl LogParser {
                         updated = true;
                         self.progress_fraction = progress.fraction();
                         self.parse_text = progress.status_text();
-                        if let daqcore::log_parse::ImportProgress::Complete(summary) = progress {
+                        if let daqnative::log_parse::ImportProgress::Complete(summary) = progress {
                             let annotations: usize =
                                 summary.manifests.iter().map(|m| m.annotations.len()).sum();
                             self.parse_text = format!(
@@ -159,7 +159,7 @@ impl LogParser {
     }
 
     #[cfg(test)]
-    pub fn last_summary(&self) -> Option<&daqcore::storage::ImportSummary> {
+    pub fn last_summary(&self) -> Option<&daqnative::storage::ImportSummary> {
         self.last_summary.as_ref()
     }
 
@@ -313,7 +313,7 @@ impl LogParser {
                         .strong(),
                     );
                     for manifest in &summary.manifests {
-                        let provenance = daqcore::router::ClockProvenance::CanonicalPartition(
+                        let provenance = daqnative::router::ClockProvenance::CanonicalPartition(
                             manifest.clock_mapping.clone(),
                         );
                         let duration_s =
@@ -406,8 +406,8 @@ mod tests {
         assert!(summary.log_files_parsed >= 1);
         assert!(summary.partitions_written >= 1);
 
-        let mut router = daqcore::router::VirtualTimelineRouter::live(
-            daqcore::time::Time::from_unix_millis(1_794_500_000_000),
+        let mut router = daqnative::storage::live_router(
+            daqnative::time::Time::from_unix_millis(1_794_500_000_000),
             30.0,
         )
         .expect("live router");

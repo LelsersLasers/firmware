@@ -1,5 +1,4 @@
-use crate::{action, app, assets, settings, ui, util, widget_constructor};
-use std::path;
+use crate::{action, app, assets, ui, widget_constructor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarTab {
@@ -37,19 +36,12 @@ impl SidebarTab {
     }
 }
 
-pub fn select_database(app: &mut app::DAQApp) {
-    let mut dialog = rfd::FileDialog::new().add_filter("SuperDBC JSON", &["json"]);
-    if let Some(dir) = settings::database_dir() {
-        dialog = dialog.set_directory(dir);
-    }
-    if let Some(path) = dialog.pick_file() {
-        let preferred = app.database.as_ref().map(|selection| selection.selection);
-        app.request_database(&path, preferred);
-    }
-}
-
-pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
-    show_top_header_bar(app, ctx);
+pub fn show(
+    app: &mut app::ViewerState,
+    platform: &mut dyn app::ViewerPlatform,
+    ctx: &eframe::egui::Context,
+) {
+    show_top_header_bar(app, platform, ctx);
     show_share_popover(app, ctx);
 
     let theme = ui::theme::get_theme(ctx);
@@ -174,7 +166,12 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_max_width(ui.available_width().max(1.0));
-                            show_widgets_tab(ui, app, muted_color);
+                            show_widgets_tab(
+                                ui,
+                                app,
+                                platform.supports_hardware_widgets(),
+                                muted_color,
+                            );
                         });
                 }
                 SidebarTab::Settings => {
@@ -183,14 +180,18 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_max_width(ui.available_width().max(1.0));
-                            show_settings_tab(ui, app, muted_color);
+                            show_settings_tab(ui, app, platform, muted_color);
                         });
                 }
             }
         });
 }
 
-fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
+fn show_top_header_bar(
+    app: &mut app::ViewerState,
+    platform: &mut dyn app::ViewerPlatform,
+    ctx: &eframe::egui::Context,
+) {
     let theme = ui::theme::get_theme(ctx);
     let border_color = theme.border_color();
     let accent_color = theme.accent_color();
@@ -301,7 +302,7 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         )
                         .frame(false),
                     )
-                    .on_hover_text("Click to open Hardware & Connection settings")
+                    .on_hover_text("Click to open Connection & Cloud settings")
                     .clicked()
                 {
                     app.sidebar_tab = SidebarTab::Settings;
@@ -408,7 +409,7 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         if ui
                             .add(share_btn)
                             .on_hover_text(
-                                "Share workspace view (.daqview.json or daqview1:... link)",
+                                "Share workspace view (.daqview.json, Share URL, or daqview1:... link)",
                             )
                             .clicked()
                         {
@@ -445,7 +446,7 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                             });
                         if next_theme != app.theme_selection {
                             app.set_theme(ctx, next_theme);
-                            app.save_settings();
+                            platform.save_settings(app);
                         }
                     },
                 );
@@ -484,7 +485,7 @@ fn show_top_header_bar(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         });
 }
 
-fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
+fn show_share_popover(app: &mut app::ViewerState, ctx: &eframe::egui::Context) {
     if !app.show_share_popover {
         return;
     }
@@ -495,7 +496,7 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
         .anchor(eframe::egui::Align2::RIGHT_TOP, [-10.0, 32.0])
         .collapsible(false)
         .resizable(false)
-        .default_width(290.0)
+        .default_width(310.0)
         .open(&mut keep_open)
         .show(ctx, |ui| {
             ui.label(
@@ -513,10 +514,18 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
             );
 
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui
-                    .button("📋 Copy Link (daqview1:...)")
-                    .on_hover_text("Encode current workspace layout and copy share code")
+                    .button("🔗 Copy Share URL")
+                    .on_hover_text("Copy direct web link (/daqview/daqview1:...) that opens this exact workspace")
+                    .clicked()
+                {
+                    app.action_queue
+                        .push(action::AppAction::CopyWorkspaceShareUrl);
+                }
+                if ui
+                    .button("📋 Copy Code")
+                    .on_hover_text("Encode current workspace layout and copy daqview1:... share code")
                     .clicked()
                 {
                     app.action_queue
@@ -533,11 +542,17 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                 }
             });
 
-            if !app.workspace_view_modal.generated_share_string.is_empty() {
+            let code_to_display = if !app.workspace_view_modal.generated_share_url.is_empty() {
+                &mut app.workspace_view_modal.generated_share_url
+            } else {
+                &mut app.workspace_view_modal.generated_share_string
+            };
+
+            if !code_to_display.is_empty() {
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label(
-                        eframe::egui::RichText::new("Share Code (Ctrl+C):")
+                        eframe::egui::RichText::new("Share Link / Code (Ctrl+C):")
                             .small()
                             .weak(),
                     );
@@ -545,13 +560,11 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                         app.workspace_view_modal.select_all_share_code = true;
                     }
                 });
-                let text_output = eframe::egui::TextEdit::multiline(
-                    &mut app.workspace_view_modal.generated_share_string,
-                )
-                .font(eframe::egui::TextStyle::Monospace)
-                .desired_rows(2)
-                .desired_width(f32::INFINITY)
-                .show(ui);
+                let text_output = eframe::egui::TextEdit::multiline(code_to_display)
+                    .font(eframe::egui::TextStyle::Monospace)
+                    .desired_rows(2)
+                    .desired_width(f32::INFINITY)
+                    .show(ui);
 
                 if app.workspace_view_modal.select_all_share_code
                     && !app.workspace_view_modal.is_open
@@ -559,11 +572,7 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     app.workspace_view_modal.select_all_share_code = false;
                     text_output.response.request_focus();
                     let mut state = text_output.state;
-                    let char_len = app
-                        .workspace_view_modal
-                        .generated_share_string
-                        .chars()
-                        .count();
+                    let char_len = code_to_display.chars().count();
                     state
                         .cursor
                         .set_char_range(Some(eframe::egui::text::CCursorRange::two(
@@ -582,7 +591,7 @@ fn show_share_popover(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
 
 fn show_sessions_tab(
     ui: &mut eframe::egui::Ui,
-    app: &mut app::DAQApp,
+    app: &mut app::ViewerState,
     muted_color: eframe::egui::Color32,
 ) {
     ui.set_max_width(ui.available_width().max(1.0));
@@ -605,7 +614,8 @@ fn show_sessions_tab(
 
 fn show_widgets_tab(
     ui: &mut eframe::egui::Ui,
-    app: &mut app::DAQApp,
+    app: &mut app::ViewerState,
+    supports_hardware_widgets: bool,
     muted_color: eframe::egui::Color32,
 ) {
     ui.label(
@@ -665,29 +675,33 @@ fn show_widgets_tab(
 
     ui.add_space(8.0);
     ui.label(
-        eframe::egui::RichText::new("OPERATIONAL & HARDWARE TOOLS")
-            .small()
-            .strong()
-            .color(muted_color),
+        eframe::egui::RichText::new(if supports_hardware_widgets {
+            "OPERATIONAL & HARDWARE TOOLS"
+        } else {
+            "INSPECTION TOOLS"
+        })
+        .small()
+        .strong()
+        .color(muted_color),
     );
     ui.add_space(2.0);
-    egui_grid_buttons(
-        ui,
-        &mut app.action_queue,
-        &[
-            (
-                "CAN Viewer Table",
-                widget_constructor::WidgetConstructor::ViewerTable,
-            ),
-            (
-                "CAN Viewer List",
-                widget_constructor::WidgetConstructor::ViewerList,
-            ),
-            ("Bus Load", widget_constructor::WidgetConstructor::BusLoad),
-            (
-                "Jitter Histogram",
-                widget_constructor::WidgetConstructor::Jitter,
-            ),
+    let mut tools = vec![
+        (
+            "CAN Viewer Table",
+            widget_constructor::WidgetConstructor::ViewerTable,
+        ),
+        (
+            "CAN Viewer List",
+            widget_constructor::WidgetConstructor::ViewerList,
+        ),
+        ("Bus Load", widget_constructor::WidgetConstructor::BusLoad),
+        (
+            "Jitter Histogram",
+            widget_constructor::WidgetConstructor::Jitter,
+        ),
+    ];
+    if supports_hardware_widgets {
+        tools.extend([
             (
                 "Message Sender",
                 widget_constructor::WidgetConstructor::SendUi,
@@ -701,8 +715,9 @@ fn show_widgets_tab(
                 "SD Log Importer",
                 widget_constructor::WidgetConstructor::LogParser,
             ),
-        ],
-    );
+        ]);
+    }
+    egui_grid_buttons(ui, &mut app.action_queue, &tools);
 
     ui.add_space(8.0);
     ui.label(
@@ -767,216 +782,16 @@ fn egui_grid_buttons(
 
 fn show_settings_tab(
     ui: &mut eframe::egui::Ui,
-    app: &mut app::DAQApp,
+    app: &mut app::ViewerState,
+    platform: &mut dyn app::ViewerPlatform,
     muted_color: eframe::egui::Color32,
 ) {
-    ui.label(
-        eframe::egui::RichText::new("CONNECTION & HARDWARE")
-            .small()
-            .strong()
-            .color(muted_color),
-    );
-    ui.add_space(4.0);
+    platform.show_hardware_settings_ui(ui, app, muted_color);
 
-    ui.horizontal_wrapped(|ui| {
-        ui.label("CAN Speed:");
-        let speed_options = daqcore::connection::CanBusSpeed::options();
-        let selected_speed = app.can_bus_speed;
-        eframe::egui::ComboBox::from_id_salt("can_speed_combo")
-            .selected_text(selected_speed.display_name())
-            .show_ui(ui, |ui| {
-                for speed in speed_options {
-                    if ui
-                        .selectable_value(&mut app.can_bus_speed, speed, speed.display_name())
-                        .changed()
-                    {
-                        app.serial_ports = util::get_available_serial_ports();
-                        app.save_settings();
-                    }
-                }
-            });
-    });
-
-    ui.horizontal_wrapped(|ui| {
-        ui.label("UDP Port:");
-        if ui
-            .add(eframe::egui::DragValue::new(&mut app.udp_port).range(1..=65535))
-            .changed()
-        {
-            app.save_settings();
-        }
-    });
-
-    ui.horizontal_wrapped(|ui| {
-        let selected_text = match &app.selected_source {
-            Some(daqcore::connection::ConnectionSource::Serial(path, speed)) => {
-                format!("Serial: {} ({})", path, speed.display_name())
-            }
-            Some(connection_source) => connection_source.display_name(),
-            None => "Select Source".to_string(),
-        };
-
-        eframe::egui::ComboBox::from_label("Source")
-            .selected_text(selected_text)
-            .show_ui(ui, |ui| {
-                ui.label("Serial Ports");
-                let ports: Vec<_> = app
-                    .serial_ports
-                    .iter()
-                    .map(|p| p.port_name.clone())
-                    .collect();
-                for port_name in ports {
-                    let source = daqcore::connection::ConnectionSource::Serial(
-                        port_name.clone(),
-                        app.can_bus_speed,
-                    );
-                    if ui
-                        .selectable_value(
-                            &mut app.selected_source,
-                            Some(source),
-                            format!("{} ({})", port_name, app.can_bus_speed.display_name()),
-                        )
-                        .changed()
-                    {
-                        app.connect_can();
-                        app.save_settings();
-                    }
-                }
-                ui.separator();
-                ui.label("CANnector");
-                if app.cannector_available
-                    && ui
-                        .selectable_value(
-                            &mut app.selected_source,
-                            Some(daqcore::connection::ConnectionSource::Cannector),
-                            "CANnector (USB)",
-                        )
-                        .changed()
-                {
-                    app.connect_can();
-                    app.save_settings();
-                }
-                ui.separator();
-                ui.label("Network");
-                let udp_source = daqcore::connection::ConnectionSource::Udp(app.udp_port);
-                if ui
-                    .selectable_value(
-                        &mut app.selected_source,
-                        Some(udp_source),
-                        format!("UDP ({})", app.udp_port),
-                    )
-                    .changed()
-                {
-                    app.connect_can();
-                    app.save_settings();
-                }
-                ui.separator();
-                ui.label("Simulated");
-                let sim_sources = [
-                    (true, "Simulated (connected)"),
-                    (false, "Simulated (disconnected)"),
-                ];
-
-                for (connected, label) in sim_sources {
-                    let sim_source = daqcore::connection::ConnectionSource::Simulated(connected);
-
-                    if ui
-                        .selectable_value(&mut app.selected_source, Some(sim_source), label)
-                        .changed()
-                    {
-                        app.connect_can();
-                        app.save_settings();
-                    }
-                }
-                ui.separator();
-                ui.label("Development");
-                let loopback_source = daqcore::connection::ConnectionSource::Loopback;
-                if ui
-                    .selectable_value(&mut app.selected_source, Some(loopback_source), "Loopback")
-                    .changed()
-                {
-                    app.connect_can();
-                    app.save_settings();
-                }
-            });
-
-        if ui
-            .button("🔄")
-            .on_hover_text("Refresh serial & USB ports")
-            .clicked()
-        {
-            app.serial_ports = util::get_available_serial_ports();
-            app.cannector_available = util::is_cannector_available();
-        }
-    });
-
-    ui.horizontal_wrapped(|ui| {
-        let (status_icon, status_color) = match &app.connection_status {
-            app::ConnectionStatus::Disconnected => {
-                ("■ Disconnected".to_string(), eframe::egui::Color32::GRAY)
-            }
-            app::ConnectionStatus::Connected => {
-                ("✔ Connected".to_string(), eframe::egui::Color32::GREEN)
-            }
-            app::ConnectionStatus::Error(e) => {
-                (format!("🔴 Error: {}", e), eframe::egui::Color32::RED)
-            }
-        };
-        ui.label(eframe::egui::RichText::new(status_icon).color(status_color));
-    });
-
-    ui.separator();
-    ui.label(
-        eframe::egui::RichText::new("DATABASE & STORAGE")
-            .small()
-            .strong()
-            .color(muted_color),
-    );
-    ui.add_space(2.0);
-
-    ui.add_enabled_ui(!app.selection_pending(), |ui| {
-        show_database_controls(ui, app);
-    });
-    if app.selection_pending() {
-        ui.label("Applying database selection…");
-    }
     if let Some(error) = &app.diagnostic {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
 
-    ui.horizontal_wrapped(|ui| {
-        if ui.button("📁 Select Log Folder").clicked()
-            && let Some(path) = rfd::FileDialog::new().pick_folder()
-        {
-            let command = daqcore::can_thread::CanThreadCommand::UpdateLogFolder(path.clone());
-
-            if let Err(error) = app.ui_to_can_tx.send(command) {
-                log::error!("Failed to send log folder update: {error}");
-                app.diagnostic = Some(error.to_string());
-                return;
-            }
-
-            app.log_folder = Some(path.clone());
-            app.action_queue.push(action::AppAction::AttachStore(path));
-            app.save_settings();
-        }
-
-        let log_display = app
-            .log_folder
-            .clone()
-            .unwrap_or_else(|| path::PathBuf::from(settings::DEFAULT_LOG_FOLDER));
-
-        ui.add(
-            eframe::egui::Label::new(
-                eframe::egui::RichText::new(log_display.display().to_string())
-                    .small()
-                    .weak(),
-            )
-            .wrap(),
-        );
-    });
-
-    ui.separator();
     ui.label(
         eframe::egui::RichText::new("DAQCLOUD SERVER SYNC")
             .small()
@@ -993,7 +808,7 @@ fn show_settings_tab(
                 .desired_width(ui.available_width().max(80.0)),
         );
         if resp.lost_focus() {
-            app.save_settings();
+            platform.save_settings(app);
         }
     });
 
@@ -1001,7 +816,7 @@ fn show_settings_tab(
         .checkbox(&mut app.cloud_auto_connect, "Auto-connect on startup")
         .changed()
     {
-        app.save_settings();
+        platform.save_settings(app);
     }
 
     let cloud_status = app.router.cloud_status();
@@ -1072,73 +887,6 @@ fn show_settings_tab(
 
     ui.separator();
     if ui.small_button("Reload formatter").clicked() {
-        app.value_formatter = app::load_formatter();
-    }
-}
-
-fn show_database_controls(ui: &mut eframe::egui::Ui, app: &mut app::DAQApp) {
-    if ui
-        .button("📁 Select Live SuperDBC (Decode / TX)")
-        .on_hover_text(
-            "Select SuperDBC used for live CAN frame decoding and message transmission (past logs use embedded partition metadata)",
-        )
-        .clicked()
-    {
-        select_database(app);
-    }
-    let Some(selection) = &app.database else {
-        ui.label("Live SuperDBC: None selected");
-        return;
-    };
-    if let Some(source) = selection.source() {
-        ui.label(
-            eframe::egui::RichText::new(
-                source
-                    .path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            )
-            .small()
-            .weak(),
-        );
-    }
-    let mut current_selection = selection.selection;
-    let multi_bus_allowed = app.supports_multi_bus();
-    eframe::egui::ComboBox::from_label("CAN Bus")
-        .selected_text(current_selection.display_name(&selection.database))
-        .show_ui(ui, |ui| {
-            show_bus_options(
-                ui,
-                &selection.database,
-                multi_bus_allowed,
-                &mut current_selection,
-            );
-        });
-    if current_selection != selection.selection {
-        app.request_bus_selection(current_selection);
-    }
-}
-
-fn show_bus_options(
-    ui: &mut eframe::egui::Ui,
-    database: &daqcore::superdbc::database::Database,
-    multi_bus_allowed: bool,
-    current_selection: &mut daqcore::can_thread::BusSelection,
-) {
-    let presets = [
-        daqcore::can_thread::BusSelection::Vehicle,
-        daqcore::can_thread::BusSelection::Charger,
-    ];
-    for preset in presets {
-        let supported = multi_bus_allowed && preset.resolve_buses(database).is_some();
-        ui.add_enabled_ui(supported, |ui| {
-            ui.selectable_value(current_selection, preset, preset.display_name(database));
-        });
-    }
-    ui.separator();
-    for bus in database.buses() {
-        let single = daqcore::can_thread::BusSelection::Single(bus.bus_id());
-        ui.selectable_value(current_selection, single, single.display_name(database));
+        app.value_formatter = platform.reload_formatter();
     }
 }

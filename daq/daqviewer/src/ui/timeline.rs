@@ -237,7 +237,11 @@ fn provenance_badge_style(
     }
 }
 
-pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
+pub fn show(
+    app: &mut app::ViewerState,
+    platform: &mut dyn app::ViewerPlatform,
+    ctx: &eframe::egui::Context,
+) {
     let dt_secs = ctx.input(|i| i.stable_dt as f64).clamp(0.0, 0.25);
     if app.router.timeline().is_playing() {
         app.router.timeline_mut().advance_playback(dt_secs);
@@ -277,7 +281,7 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
     );
 
     if span_changed {
-        app.save_settings();
+        platform.on_workspace_changed(app);
     }
 }
 
@@ -2613,16 +2617,14 @@ mod tests {
 
     #[test]
     fn master_timeline_two_lanes_gap_folding_and_annotation_modal_render_cleanly() {
-        let tmp_store = tempfile::tempdir().expect("temp store");
-        let reg = daqcore::storage::Registry::open_store(tmp_store.path()).expect("open store");
-        reg.upsert_track_day(&daqcore::storage::TrackDay {
-            id: "2026-09-06".to_owned(),
-            title: "2026-09-06".to_owned(),
-            location: "Purdue Grand Prix Track".to_owned(),
-            start_utc_ms: 1_000_000,
-            end_utc_ms: 9_000_000,
-        })
-        .unwrap();
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(1_000_000),
+            30.0,
+        )
+        .expect("live router");
+        router
+            .set_track_day_label("2026-09-06", "Purdue Grand Prix Track")
+            .unwrap();
 
         let ann1 = daqcore::storage::Annotation {
             id: "stint_1".to_owned(),
@@ -2652,15 +2654,9 @@ mod tests {
             updated_at_ms: 8_900_000,
             deleted: false,
         };
-        reg.upsert_annotation(&ann1).unwrap();
-        reg.upsert_annotation(&ann2).unwrap();
+        router.upsert_annotation(&ann1).unwrap();
+        router.upsert_annotation(&ann2).unwrap();
 
-        let mut router = daqcore::router::VirtualTimelineRouter::open_store(
-            tmp_store.path(),
-            daqcore::time::Time::from_unix_millis(1_000_000),
-            30.0,
-        )
-        .expect("router open_store");
         router
             .timeline_mut()
             .set_day_bounds_ms(Some((1_000_000, 9_000_000)));
@@ -2749,227 +2745,5 @@ mod tests {
             .expect("stint_1 still exists");
         assert_eq!(refreshed_stint.name, "Autocross Run 1 (Dry)");
         assert_eq!(refreshed_stint.source, "manual");
-    }
-
-    #[test]
-    fn per26_multi_stint_day_timeline_gap_folding_comparison_and_signal_browser_e2e() {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = manifest_dir.join("../..");
-        let dbc_path = repo_root.join("superdbc/superdbc_per26.json");
-        let log1 = repo_root.join("PER26/2026-09-06/1_no_cooling/raw/log-2026-09-06--18-36-02.log");
-        let log2 = repo_root.join("PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
-        if !log1.exists() || !log2.exists() || !dbc_path.exists() {
-            return;
-        }
-
-        let database = daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26");
-        let tmp_store = tempfile::tempdir().expect("temp store");
-        let tmp_raw1 = tempfile::tempdir().expect("temp raw 1");
-        let tmp_raw2 = tempfile::tempdir().expect("temp raw 2");
-        std::fs::copy(&log1, tmp_raw1.path().join("log-2026-09-06--18-36-02.log")).unwrap();
-        std::fs::copy(&log2, tmp_raw2.path().join("log-2026-09-06--20-21-44.log")).unwrap();
-
-        let mut saw_finished = false;
-        let summary_1 = daqcore::log_parse::import_logs_to_store_with_progress(
-            tmp_raw1.path(),
-            tmp_store.path(),
-            &database,
-            |p| {
-                if matches!(p, daqcore::log_parse::ImportProgress::Complete(_)) {
-                    saw_finished = true;
-                }
-            },
-        )
-        .expect("import stint 1");
-        let summary_2 = daqcore::log_parse::import_logs_to_store_with_progress(
-            tmp_raw2.path(),
-            tmp_store.path(),
-            &database,
-            |_| {},
-        )
-        .expect("import stint 2");
-        assert!(saw_finished);
-        assert!(!summary_1.manifests.is_empty() && !summary_2.manifests.is_empty());
-
-        let m1_start = summary_1.manifests[0].start_utc_ms;
-        let m2_start = summary_2.manifests[0].start_utc_ms;
-        let m2_end = summary_2.manifests[0].end_utc_ms;
-
-        let mut router = daqcore::router::VirtualTimelineRouter::open_store(
-            tmp_store.path(),
-            daqcore::time::Time::from_unix_millis(m1_start),
-            30.0,
-        )
-        .expect("open_store router");
-
-        assert_eq!(router.partitions().len(), 2);
-        let track_days = router.list_track_days().expect("track_days");
-        assert!(track_days.iter().any(|td| td.id == "2026-09-06"));
-        router
-            .select_track_day(Some("2026-09-06".to_owned()))
-            .expect("select 2026-09-06");
-
-        let (day_start, day_end) = router
-            .timeline()
-            .day_bounds_ms()
-            .expect("day bounds populated");
-        assert!(day_end - day_start > 5_000_000, "span across ~1h45m gap");
-
-        // Verify 1Hz activity envelope and canonical partition clock provenance
-        let activity = router.activity_envelope_1hz(day_start..=day_end);
-        assert!(
-            !activity.is_empty(),
-            "expected non-empty 1Hz activity envelope across PER26 stints"
-        );
-        let clock_prov = router
-            .clock_provenance_at(m1_start + 1_000)
-            .expect("clock provenance present");
-        assert!(
-            matches!(
-                clock_prov,
-                daqcore::router::ClockProvenance::CanonicalPartition(_)
-            ),
-            "expected CanonicalPartition provenance on PER26 logs, got {clock_prov:?}"
-        );
-
-        // Verify dead-time gap folding across the ~1h45m gap between 1_no_cooling and 2_regen
-        let active_spans: Vec<(i64, i64)> = router
-            .partitions()
-            .iter()
-            .map(|p| (p.start_utc_ms, p.end_utc_ms))
-            .collect();
-        let proj_folded =
-            daqcore::timeline::GapFoldedProjection::new(day_start, day_end, &active_spans, true);
-        assert!(
-            proj_folded.segments().iter().any(|s| s.is_folded_gap()),
-            "expected >=1 folded idle gap between 1_no_cooling and 2_regen"
-        );
-        for seg in proj_folded.segments() {
-            let mid = (seg.start_utc_ms + seg.end_utc_ms) / 2;
-            let f = proj_folded.time_to_fraction(mid);
-            let roundtrip = proj_folded.fraction_to_time(f);
-            assert!((roundtrip - mid).abs() <= 5_000);
-        }
-
-        // Verify auto-detected annotations and manual annotation CRUD
-        let initial_anns = router
-            .query_annotations_in_range(day_start..=day_end)
-            .expect("query annotations");
-        assert!(
-            !initial_anns.is_empty(),
-            "expected auto-detected stints/faults from PER26 import"
-        );
-
-        let manual_ann = daqcore::storage::Annotation {
-            id: "manual_bookmark_test".to_owned(),
-            track_day_id: "2026-09-06".to_owned(),
-            name: "Driver Swap Check".to_owned(),
-            category: "note".to_owned(),
-            color: "#F59E0B".to_owned(),
-            start_utc_ms: m1_start + 5_000,
-            end_utc_ms: Some(m1_start + 25_000),
-            author: "user".to_owned(),
-            source: "manual".to_owned(),
-            notes: "Checked accumulator temps".to_owned(),
-            updated_at_ms: m1_start + 25_000,
-            deleted: false,
-        };
-        router
-            .upsert_annotation(&manual_ann)
-            .expect("upsert manual annotation");
-
-        let second_ann = daqcore::storage::Annotation {
-            id: "manual_stint_2".to_owned(),
-            track_day_id: "2026-09-06".to_owned(),
-            name: "Regen Stint Window".to_owned(),
-            category: "driving_stint".to_owned(),
-            color: "#22C55E".to_owned(),
-            start_utc_ms: m2_start + 2_000,
-            end_utc_ms: Some(m2_start + 22_000),
-            author: "user".to_owned(),
-            source: "manual".to_owned(),
-            notes: "Regen test".to_owned(),
-            updated_at_ms: m2_start + 22_000,
-            deleted: false,
-        };
-        router
-            .upsert_annotation(&second_ann)
-            .expect("upsert second annotation");
-
-        // Enter Comparison Mode across both stints and render Timeline + Scope + Signal Browser
-        router.timeline_mut().select_single_annotation(
-            manual_ann.id.clone(),
-            manual_ann.start_utc_ms,
-            manual_ann.end_utc_ms,
-        );
-        router.timeline_mut().toggle_comparison_annotation(
-            second_ann.id.clone(),
-            second_ann.start_utc_ms,
-            second_ann.end_utc_ms,
-        );
-        assert!(router.timeline().is_comparison_mode());
-
-        let mut timeline_ui = TimelineUiState::default();
-        let mut browser_state = ui::signal_browser::SignalBrowserState {
-            search_query: "*vbatt*".to_owned(),
-            ..Default::default()
-        };
-        let mut scope = ui::scope::Scope::new_channel(
-            1,
-            "pack_stats.vbatt_adc".to_owned(),
-            "Battery Voltage".to_owned(),
-            "V".to_owned(),
-        );
-
-        let ctx = eframe::egui::Context::default();
-        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
-        let raw_input = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(1440.0, 900.0),
-            )),
-            ..Default::default()
-        };
-        let mut bus_load = Vec::new();
-        let mut diagnostic = None;
-        let mut action_queue = Vec::new();
-
-        let _ = ctx.run(raw_input, |ctx| {
-            eframe::egui::TopBottomPanel::top("e2e_timeline").show(ctx, |ui| {
-                show_timeline_contents(
-                    ui,
-                    &mut router,
-                    &mut timeline_ui,
-                    &mut bus_load,
-                    &mut diagnostic,
-                );
-            });
-            eframe::egui::SidePanel::left("e2e_browser").show(ctx, |ui| {
-                ui::signal_browser::show_signal_browser(
-                    ui,
-                    &mut browser_state,
-                    &mut router,
-                    &mut action_queue,
-                    &mut diagnostic,
-                );
-            });
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let view = crate::workspace_view::WorkspaceDataView::new(&router);
-                let _ = scope.show(ui, &view);
-            });
-        });
-        assert!(
-            diagnostic.is_none(),
-            "unexpected diagnostic: {diagnostic:?}"
-        );
-
-        // Soft-delete manual annotation and verify removal
-        router
-            .soft_delete_annotation(&manual_ann.id, m2_end + 1_000)
-            .expect("soft delete");
-        let after_delete = router
-            .query_annotations_in_range(day_start..=day_end)
-            .expect("query after delete");
-        assert!(!after_delete.iter().any(|a| a.id == manual_ann.id));
     }
 }

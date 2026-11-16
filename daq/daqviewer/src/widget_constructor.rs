@@ -1,5 +1,4 @@
-use crate::{ui, widget_ids, widgets};
-use std::sync::mpsc;
+use crate::{app::ViewerPlatform, ui, widget_ids, widgets};
 
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 pub enum WidgetKind {
@@ -84,14 +83,13 @@ impl WidgetConstructor {
         }
     }
 
-    #[cfg(test)]
     pub fn create(
         self,
         widget_ids: &mut widget_ids::WidgetIds,
-        ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        platform: &mut dyn ViewerPlatform,
         existing_count: usize,
     ) -> Option<widgets::Widget> {
-        self.create_all(widget_ids, ui_to_can_tx, existing_count)
+        self.create_all(widget_ids, platform, existing_count)
             .into_iter()
             .next()
     }
@@ -99,7 +97,7 @@ impl WidgetConstructor {
     pub fn create_all(
         self,
         widget_ids: &mut widget_ids::WidgetIds,
-        ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        platform: &mut dyn ViewerPlatform,
         existing_count: usize,
     ) -> Vec<widgets::Widget> {
         let kind = self.kind();
@@ -117,11 +115,6 @@ impl WidgetConstructor {
             WidgetConstructor::ViewerList => {
                 vec![widgets::Widget::ViewerList(
                     ui::viewer_list::ViewerList::new(id),
-                )]
-            }
-            WidgetConstructor::Bootloader => {
-                vec![widgets::Widget::Bootloader(
-                    ui::bootloader::Bootloader::new(id),
                 )]
             }
             WidgetConstructor::Scope {
@@ -238,17 +231,6 @@ impl WidgetConstructor {
                 ));
                 vec![scope, scatter, lanes]
             }
-            WidgetConstructor::LogParser => {
-                vec![widgets::Widget::LogParser(ui::log_parser::LogParser::new(
-                    id,
-                ))]
-            }
-            WidgetConstructor::SendUi => {
-                vec![widgets::Widget::SendUi(ui::send::SendUi::new(
-                    id,
-                    ui_to_can_tx,
-                ))]
-            }
             WidgetConstructor::BusLoad => {
                 vec![widgets::Widget::BusLoad(ui::bus_load::BusLoad::new(id))]
             }
@@ -258,9 +240,14 @@ impl WidgetConstructor {
             WidgetConstructor::Jitter => {
                 vec![widgets::Widget::Jitter(ui::jitter::Jitter::new(id))]
             }
-            WidgetConstructor::Hil => {
-                vec![widgets::Widget::Hil(ui::hil::Hil::new(ui_to_can_tx))]
-            }
+            ctor @ (WidgetConstructor::Bootloader
+            | WidgetConstructor::LogParser
+            | WidgetConstructor::SendUi
+            | WidgetConstructor::Hil) => platform
+                .create_platform_widget(&ctor, id)
+                .into_iter()
+                .map(widgets::Widget::Platform)
+                .collect(),
         }
     }
 }

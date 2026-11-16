@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 daqcore.workspace = true
+daqnative.workspace = true
 log.workspace = true
 env_logger.workspace = true
 clap = { version = "4", features = ["derive"] }

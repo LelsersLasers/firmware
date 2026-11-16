@@ -1,5 +1,4 @@
 use crate::{ui, workspace_view};
-use std::fs;
 
 pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
     eframe::egui::Color32::from_rgb(80, 190, 255), // Sky Blue
@@ -155,7 +154,6 @@ struct CachedScopeData {
     channel_minmax_mean: Vec<Option<(f64, f64, f64)>>,
     channel_cursor_lookups: Vec<ChannelCursorLookup>,
     mapped_traces: Vec<PreparedTrace>,
-    first_raw_mean_points: Option<Vec<[f64; 2]>>,
 }
 
 pub struct Scope {
@@ -779,8 +777,6 @@ impl Scope {
                 }
             }
 
-            let first_raw_mean_points = raw_traces.first().map(|t| t.mean_points.clone());
-
             // Normalize unit bounds and build multi-unit Y transforms.
             let normalized_bounds: Vec<(f64, f64)> = unit_bounds
                 .iter()
@@ -854,7 +850,6 @@ impl Scope {
                 channel_minmax_mean,
                 channel_cursor_lookups,
                 mapped_traces,
-                first_raw_mean_points,
             });
         }
 
@@ -1056,23 +1051,8 @@ impl Scope {
             });
         });
 
-        if export_csv
-            && let Some(first_points) = self
-                .cached_data
-                .as_ref()
-                .and_then(|c| c.first_raw_mean_points.as_ref())
-            && let Some(path) = rfd::FileDialog::new()
-                .set_file_name(format!("{}_data.csv", self.title.replace([' ', ':'], "_")))
-                .add_filter("CSV", &["csv"])
-                .save_file()
-        {
-            let mut text = String::from("X,Value\n");
-            for p in first_points {
-                text.push_str(&format!("{},{}\n", p[0], p[1]));
-            }
-            if let Err(e) = fs::write(path, text) {
-                log::error!("Export failed: {e}");
-            }
+        if export_csv {
+            view.request_open_export_modal();
         }
 
         if let Some(idx) = remove_idx {

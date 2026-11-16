@@ -1,16 +1,15 @@
-use crate::{app, ui, widget_constructor, widget_ids, widgets};
+use crate::{app::ViewerPlatform, ui, widget_constructor, widget_ids, widgets};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use daqcore::{analysis::DerivedSignalDef, can_thread::CanThreadCommand, time::Time};
+use daqcore::{analysis::DerivedSignalDef, time::Time};
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use indexmap::IndexMap;
 use std::{
     fmt, fs,
     io::{Read, Write},
     path::Path,
-    sync::mpsc,
 };
 
-/// Built-in default workspace presets checked into `daq/daqapp/default_presets/*.daqview.json`.
+/// Built-in default workspace presets checked into `daq/daqviewer/default_presets/*.daqview.json`.
 pub const DEFAULT_WORKSPACE_PRESET_FILES: &[(&str, &str)] = &[
     (
         "vd_handling_suspension",
@@ -331,7 +330,7 @@ impl WorkspacePresetRegistry {
             .map(|&(preset_id, raw_json)| {
                 let mut view = WorkspaceView::from_str_flexible(raw_json).unwrap_or_else(|e| {
                     panic!(
-                        "embedded daq/daqapp/default_presets/{preset_id}.daqview.json must be valid .daqview.json: {e}"
+                        "embedded daq/daqviewer/default_presets/{preset_id}.daqview.json must be valid .daqview.json: {e}"
                     )
                 });
                 if view.id.as_deref().is_none_or(|s| s.trim().is_empty()) {
@@ -441,11 +440,36 @@ impl WorkspaceView {
         Ok(format!("{SHARE_STRING_PREFIX}{encoded}"))
     }
 
-    /// Parse a [`WorkspaceView`] from a `daqview1:...` share string, raw JSON, or base64-encoded JSON.
+    /// Encode this view into a direct shareable web URL (`{base_url}/daqview/daqview1:<zlib+base64url>`).
+    pub fn to_share_url(&self, base_url: &str) -> Result<String, WorkspaceIoError> {
+        let share = self.to_share_string()?;
+        let prefix = base_url.trim().trim_end_matches('/');
+        if prefix.is_empty() {
+            Ok(format!("/daqview/{share}"))
+        } else {
+            Ok(format!("{prefix}/daqview/{share}"))
+        }
+    }
+
+    /// Parse a [`WorkspaceView`] from a `/daqview/<payload>` URL, `daqview1:...` share string,
+    /// raw JSON, or base64-encoded JSON.
     pub fn from_str_flexible(input: &str) -> Result<Self, WorkspaceIoError> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
             return Err(WorkspaceIoError::EmptyLayout);
+        }
+
+        // Accept full or relative `/daqview/<payload>` URLs directly!
+        if let Some((_, after_route)) = trimmed.split_once("/daqview/") {
+            let clean = after_route
+                .split(['?', '#'])
+                .next()
+                .unwrap_or(after_route)
+                .trim()
+                .trim_end_matches('/');
+            if !clean.is_empty() {
+                return Self::from_str_flexible(clean);
+            }
         }
 
         if let Some(payload) = trimmed.strip_prefix(SHARE_STRING_PREFIX) {
@@ -490,16 +514,16 @@ impl WorkspaceView {
         Ok(view)
     }
 
-    /// Capture the current `DAQApp` workspace layout, custom formulas, and timeline state into a [`WorkspaceView`].
-    pub fn capture_from_app(
-        app: &app::DAQApp,
+    /// Capture the current [`crate::app::ViewerState`] workspace layout, custom formulas, and timeline state into a [`WorkspaceView`].
+    pub fn capture_from_state(
+        state: &crate::app::ViewerState,
         name: impl Into<String>,
         description: impl Into<String>,
         include_time_context: bool,
     ) -> Result<Self, WorkspaceIoError> {
         Self::capture_from_workspace(
-            &app.tile_tree,
-            &app.router,
+            &state.tile_tree,
+            &state.router,
             name,
             description,
             include_time_context,
@@ -557,18 +581,19 @@ impl WorkspaceView {
         })
     }
 
-    /// Apply this [`WorkspaceView`] to `app`, rebuilding `app.tile_tree`, merging `custom_formulas`,
+    /// Apply this [`WorkspaceView`] to `state`, rebuilding `state.tile_tree`, merging `custom_formulas`,
     /// and optionally jumping the timeline to `self.context` when `apply_time_context` is true.
-    pub fn apply_to_app(
+    pub fn apply_to_state(
         &self,
-        app: &mut app::DAQApp,
+        state: &mut crate::app::ViewerState,
+        platform: &mut dyn ViewerPlatform,
         apply_time_context: bool,
     ) -> Result<(), WorkspaceIoError> {
         self.apply_to_workspace(
-            &mut app.tile_tree,
-            &mut app.widget_ids,
-            &mut app.router,
-            app.ui_to_can_tx.clone(),
+            &mut state.tile_tree,
+            &mut state.widget_ids,
+            &mut state.router,
+            platform,
             apply_time_context,
         )
     }
@@ -579,7 +604,7 @@ impl WorkspaceView {
         tile_tree: &mut egui_tiles::Tree<widgets::Widget>,
         widget_ids: &mut widget_ids::WidgetIds,
         router: &mut daqcore::router::VirtualTimelineRouter,
-        ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
+        platform: &mut dyn ViewerPlatform,
         apply_time_context: bool,
     ) -> Result<(), WorkspaceIoError> {
         let root_node = self.resolved_layout()?;
@@ -593,7 +618,7 @@ impl WorkspaceView {
 
         let mut new_widget_ids = widget_ids::WidgetIds::new();
         let mut tiles = egui_tiles::Tiles::default();
-        let root_id = build_tile_node(&root_node, &mut tiles, &mut new_widget_ids, ui_to_can_tx)
+        let root_id = build_tile_node(&root_node, &mut tiles, &mut new_widget_ids, platform)
             .ok_or(WorkspaceIoError::EmptyLayout)?;
 
         *tile_tree = egui_tiles::Tree::new("workspace_tree", root_id, tiles);
@@ -782,18 +807,7 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
         widgets::Widget::Jitter(w) => PaneSpec::Jitter {
             title: w.title.clone(),
         },
-        widgets::Widget::LogParser(w) => PaneSpec::LogParser {
-            title: w.title.clone(),
-        },
-        widgets::Widget::SendUi(w) => PaneSpec::SendUi {
-            title: w.title.clone(),
-        },
-        widgets::Widget::Bootloader(w) => PaneSpec::Bootloader {
-            title: w.title.clone(),
-        },
-        widgets::Widget::Hil(w) => PaneSpec::Hil {
-            title: w.title.clone(),
-        },
+        widgets::Widget::Platform(w) => w.capture_spec(),
     }
 }
 
@@ -801,11 +815,11 @@ pub fn build_tile_node(
     node: &WorkspaceLayoutNode,
     tiles: &mut egui_tiles::Tiles<widgets::Widget>,
     widget_ids: &mut widget_ids::WidgetIds,
-    ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
+    platform: &mut dyn ViewerPlatform,
 ) -> Option<egui_tiles::TileId> {
     match node {
         WorkspaceLayoutNode::Pane { spec } => {
-            let widget = instantiate_pane_spec(spec, widget_ids, ui_to_can_tx);
+            let widget = instantiate_pane_spec(spec, widget_ids, platform)?;
             Some(tiles.insert_pane(widget))
         }
         WorkspaceLayoutNode::Linear {
@@ -816,7 +830,7 @@ pub fn build_tile_node(
             let mut child_ids = Vec::with_capacity(children.len());
             let mut child_shares = Vec::with_capacity(children.len());
             for (idx, child) in children.iter().enumerate() {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, ui_to_can_tx.clone()) {
+                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
                     child_ids.push(cid);
                     let share = shares
                         .get(idx)
@@ -842,7 +856,7 @@ pub fn build_tile_node(
         WorkspaceLayoutNode::Tabs { children, active } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, ui_to_can_tx.clone()) {
+                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
                     child_ids.push(cid);
                 }
             }
@@ -862,7 +876,7 @@ pub fn build_tile_node(
         WorkspaceLayoutNode::Grid { children } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, ui_to_can_tx.clone()) {
+                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
                     child_ids.push(cid);
                 }
             }
@@ -877,8 +891,8 @@ pub fn build_tile_node(
 fn instantiate_pane_spec(
     spec: &PaneSpec,
     widget_ids: &mut widget_ids::WidgetIds,
-    ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
-) -> widgets::Widget {
+    platform: &mut dyn ViewerPlatform,
+) -> Option<widgets::Widget> {
     match spec {
         PaneSpec::Scope {
             title,
@@ -948,7 +962,7 @@ fn instantiate_pane_spec(
             } else {
                 daqcore::analysis::canonicalize_signal_ref(speed_signal_id)
             };
-            widgets::Widget::Scope(ui::scope::Scope::new_configured(
+            Some(widgets::Widget::Scope(ui::scope::Scope::new_configured(
                 id,
                 effective_title,
                 *custom_title && !title.is_empty(),
@@ -956,7 +970,7 @@ fn instantiate_pane_spec(
                 *x_mode,
                 speed_sig,
                 y_bounds_override,
-            ))
+            )))
         }
         PaneSpec::StateLane {
             title,
@@ -991,7 +1005,7 @@ fn instantiate_pane_spec(
             if !*custom_title && title.is_empty() {
                 let _ = &mut w;
             }
-            widgets::Widget::StateLane(w)
+            Some(widgets::Widget::StateLane(w))
         }
         PaneSpec::XYScatter {
             title,
@@ -1023,7 +1037,7 @@ fn instantiate_pane_spec(
                 *show_g_rings,
             );
             w.set_custom_title(*custom_title && !title.is_empty());
-            widgets::Widget::XYScatter(w)
+            Some(widgets::Widget::XYScatter(w))
         }
         PaneSpec::GpsPlot {
             title,
@@ -1046,7 +1060,7 @@ fn instantiate_pane_spec(
                 _ => gps.clear_overlay_signal(),
             }
             gps.set_max_distance_meters(*max_distance_meters);
-            widgets::Widget::GpsPlot(gps)
+            Some(widgets::Widget::GpsPlot(gps))
         }
         PaneSpec::ViewerTable { title } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::ViewerTable);
@@ -1054,7 +1068,7 @@ fn instantiate_pane_spec(
             if !title.is_empty() {
                 w.title = title.clone();
             }
-            widgets::Widget::ViewerTable(w)
+            Some(widgets::Widget::ViewerTable(w))
         }
         PaneSpec::ViewerList { title } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::ViewerList);
@@ -1062,7 +1076,7 @@ fn instantiate_pane_spec(
             if !title.is_empty() {
                 w.title = title.clone();
             }
-            widgets::Widget::ViewerList(w)
+            Some(widgets::Widget::ViewerList(w))
         }
         PaneSpec::BusLoad { title } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::BusLoad);
@@ -1070,7 +1084,7 @@ fn instantiate_pane_spec(
             if !title.is_empty() {
                 w.title = title.clone();
             }
-            widgets::Widget::BusLoad(w)
+            Some(widgets::Widget::BusLoad(w))
         }
         PaneSpec::Jitter { title } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::Jitter);
@@ -1078,40 +1092,14 @@ fn instantiate_pane_spec(
             if !title.is_empty() {
                 w.title = title.clone();
             }
-            widgets::Widget::Jitter(w)
+            Some(widgets::Widget::Jitter(w))
         }
-        PaneSpec::LogParser { title } => {
-            let id = widget_ids.next(widget_constructor::WidgetKind::LogParser);
-            let mut w = ui::log_parser::LogParser::new(id);
-            if !title.is_empty() {
-                w.title = title.clone();
-            }
-            widgets::Widget::LogParser(w)
-        }
-        PaneSpec::SendUi { title } => {
-            let id = widget_ids.next(widget_constructor::WidgetKind::SendUi);
-            let mut w = ui::send::SendUi::new(id, ui_to_can_tx);
-            if !title.is_empty() {
-                w.title = title.clone();
-            }
-            widgets::Widget::SendUi(w)
-        }
-        PaneSpec::Bootloader { title } => {
-            let id = widget_ids.next(widget_constructor::WidgetKind::Bootloader);
-            let mut w = ui::bootloader::Bootloader::new(id);
-            if !title.is_empty() {
-                w.title = title.clone();
-            }
-            widgets::Widget::Bootloader(w)
-        }
-        PaneSpec::Hil { title } => {
-            let _ = widget_ids.next(widget_constructor::WidgetKind::Hil);
-            let mut w = ui::hil::Hil::new(ui_to_can_tx);
-            if !title.is_empty() {
-                w.title = title.clone();
-            }
-            widgets::Widget::Hil(w)
-        }
+        spec @ (PaneSpec::LogParser { .. }
+        | PaneSpec::SendUi { .. }
+        | PaneSpec::Bootloader { .. }
+        | PaneSpec::Hil { .. }) => platform
+            .instantiate_platform_pane(spec, widget_ids)
+            .map(widgets::Widget::Platform),
     }
 }
 
@@ -1124,6 +1112,7 @@ pub struct WorkspaceViewModalState {
     pub save_file_path: String,
     pub import_payload: String,
     pub generated_share_string: String,
+    pub generated_share_url: String,
     pub generated_raw_json: String,
     pub show_raw_json_code: bool,
     pub show_sidebar_share_code: bool,
@@ -1136,12 +1125,13 @@ impl Default for WorkspaceViewModalState {
         Self {
             is_open: false,
             view_name: "Custom Analysis View".to_owned(),
-            view_description: "Saved from PER DAQApp workspace".to_owned(),
+            view_description: "Saved from PER DAQ workspace".to_owned(),
             include_time_context: true,
             jump_to_saved_time_range: true,
-            save_file_path: "/tmp/custom_view.daqview.json".to_owned(),
+            save_file_path: "custom_view.daqview.json".to_owned(),
             import_payload: String::new(),
             generated_share_string: String::new(),
+            generated_share_url: String::new(),
             generated_raw_json: String::new(),
             show_raw_json_code: false,
             show_sidebar_share_code: false,
@@ -1196,13 +1186,40 @@ impl WorkspaceViewModalState {
         Ok(())
     }
 
+    pub fn generate_and_copy_url(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        tile_tree: &egui_tiles::Tree<widgets::Widget>,
+        router: &daqcore::router::VirtualTimelineRouter,
+        base_url: &str,
+    ) -> Result<(), WorkspaceIoError> {
+        let view = WorkspaceView::capture_from_workspace(
+            tile_tree,
+            router,
+            self.view_name.trim(),
+            self.view_description.trim(),
+            self.include_time_context,
+        )?;
+        self.generated_share_string = view.to_share_string()?;
+        self.generated_share_url = view.to_share_url(base_url)?;
+        self.generated_raw_json = view.to_json_pretty()?;
+        ctx.copy_text(self.generated_share_url.clone());
+        self.show_sidebar_share_code = true;
+        self.select_all_share_code = true;
+        self.status_banner = Some(Ok(
+            "Copied shareable web URL (/daqview/daqview1:...) to clipboard.".to_owned(),
+        ));
+        Ok(())
+    }
+
     pub fn show(
         &mut self,
         ctx: &eframe::egui::Context,
         tile_tree: &mut egui_tiles::Tree<widgets::Widget>,
         widget_ids: &mut widget_ids::WidgetIds,
         router: &mut daqcore::router::VirtualTimelineRouter,
-        ui_to_can_tx: mpsc::Sender<CanThreadCommand>,
+        platform: &mut dyn ViewerPlatform,
+        base_url: &str,
     ) -> bool {
         if !self.is_open {
             return false;
@@ -1215,10 +1232,11 @@ impl WorkspaceViewModalState {
         let mut keep_open = self.is_open;
         let mut do_save_file = false;
         let mut do_copy_share = false;
+        let mut do_copy_url = false;
         let mut do_import_with_context: Option<bool> = None;
         let mut workspace_changed = false;
 
-        eframe::egui::Window::new("📁 Workspace Views (.daqview.json & Share Strings)")
+        eframe::egui::Window::new("📁 Workspace Views (.daqview.json & Share URLs)")
             .open(&mut keep_open)
             .collapsible(false)
             .resizable(true)
@@ -1260,18 +1278,16 @@ impl WorkspaceViewModalState {
                 }
 
                 ui.horizontal(|ui| {
-                    ui.label("File Path:");
+                    ui.label("File Name / Path:");
                     ui.add(
                         eframe::egui::TextEdit::singleline(&mut self.save_file_path)
-                            .desired_width(270.0),
+                            .desired_width(250.0),
                     );
-                    if ui.button("Browse...").clicked()
-                        && let Some(picked) = rfd::FileDialog::new()
-                            .add_filter("DAQ Workspace View (.daqview.json)", &["json"])
-                            .set_file_name("view.daqview.json")
-                            .save_file()
+                    if platform.supports_native_file_dialogs()
+                        && ui.button("Browse...").clicked()
+                        && let Some(picked) = platform.pick_save_daqview_path(&self.save_file_path)
                     {
-                        self.save_file_path = picked.to_string_lossy().into_owned();
+                        self.save_file_path = picked;
                     }
                     if ui.button("💾 Save .daqview.json").clicked() {
                         do_save_file = true;
@@ -1298,8 +1314,15 @@ impl WorkspaceViewModalState {
                         self.show_raw_json_code = true;
                         self.select_all_share_code = true;
                     }
-                    if ui.button("📋 Copy / Refresh Code").clicked() {
+                    if ui.button("📋 Copy Code").clicked() {
                         do_copy_share = true;
+                    }
+                    if ui
+                        .button("🔗 Copy Share URL")
+                        .on_hover_text("Copy direct web link (/daqview/daqview1:...) that opens this exact workspace")
+                        .clicked()
+                    {
+                        do_copy_url = true;
                     }
                     if ui
                         .button("Select All (for Ctrl+C)")
@@ -1318,7 +1341,7 @@ impl WorkspaceViewModalState {
                 let rows = if self.show_raw_json_code { 6 } else { 3 };
                 let text_output = eframe::egui::TextEdit::multiline(active_code_buf)
                     .font(eframe::egui::TextStyle::Monospace)
-                    .hint_text("Click 'Copy / Refresh Code' to generate the raw workspace code...")
+                    .hint_text("Click 'Copy Code' to generate the raw workspace code...")
                     .desired_rows(rows)
                     .desired_width(f32::INFINITY)
                     .show(ui);
@@ -1337,28 +1360,21 @@ impl WorkspaceViewModalState {
                 }
 
                 ui.separator();
-                ui.heading("Import Workspace View (.daqview.json or daqview1:... String)");
+                ui.heading("Import Workspace View (.daqview.json, Share URL, or daqview1:... String)");
                 ui.horizontal(|ui| {
-                    if ui.button("📂 Load .daqview.json File...").clicked()
-                        && let Some(picked) = rfd::FileDialog::new()
-                            .add_filter("DAQ Workspace View", &["json"])
-                            .pick_file()
+                    if platform.supports_native_file_dialogs()
+                        && ui.button("📂 Load .daqview.json File...").clicked()
+                        && let Some(res) = platform.pick_load_daqview_file()
                     {
-                        match WorkspaceView::load_from_file(&picked)
-                            .and_then(|v| v.to_json_pretty().map(|s| (v.name, s)))
-                        {
+                        match res {
                             Ok((name, contents)) => {
                                 self.import_payload = contents;
                                 self.status_banner = Some(Ok(format!(
-                                    "Loaded '{name}' from {} — choose import mode below.",
-                                    picked.display()
+                                    "Loaded '{name}' — choose import mode below."
                                 )));
                             }
                             Err(err) => {
-                                self.status_banner = Some(Err(format!(
-                                    "Failed to load {}: {err}",
-                                    picked.display()
-                                )));
+                                self.status_banner = Some(Err(err));
                             }
                         }
                     }
@@ -1370,7 +1386,7 @@ impl WorkspaceViewModalState {
                 ui.add(
                     eframe::egui::TextEdit::multiline(&mut self.import_payload)
                         .hint_text(
-                            "Paste a `daqview1:...` share string or `.daqview.json` contents here...",
+                            "Paste a `/daqview/daqview1:...` URL, `daqview1:...` share string, or `.daqview.json` contents here...",
                         )
                         .desired_rows(4)
                         .desired_width(f32::INFINITY),
@@ -1434,21 +1450,26 @@ impl WorkspaceViewModalState {
                 self.view_description.trim(),
                 self.include_time_context,
             )
-            .and_then(|view| view.save_to_file(self.save_file_path.trim()))
+            .and_then(|view| view.to_json_pretty())
+            .map_err(|e| e.to_string())
+            .and_then(|json| platform.save_daqview_content(self.save_file_path.trim(), &json))
             {
-                Ok(()) => {
-                    self.status_banner = Some(Ok(format!(
-                        "Saved workspace view to {}",
-                        self.save_file_path.trim()
-                    )));
+                Ok(dest) => {
+                    self.status_banner = Some(Ok(format!("Saved workspace view to {dest}")));
                 }
                 Err(err) => {
-                    self.status_banner = Some(Err(err.to_string()));
+                    self.status_banner = Some(Err(err));
                 }
             }
         }
 
         if do_copy_share && let Err(err) = self.generate_and_copy(ctx, tile_tree, router) {
+            self.status_banner = Some(Err(err.to_string()));
+        }
+
+        if do_copy_url
+            && let Err(err) = self.generate_and_copy_url(ctx, tile_tree, router, base_url)
+        {
             self.status_banner = Some(Err(err.to_string()));
         }
 
@@ -1459,7 +1480,7 @@ impl WorkspaceViewModalState {
                     tile_tree,
                     widget_ids,
                     router,
-                    ui_to_can_tx,
+                    platform,
                     apply_time_context,
                 )
                 .map(|()| name)
@@ -1488,11 +1509,13 @@ impl WorkspaceViewModalState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::NoopViewerPlatform;
 
     #[test]
     fn builtin_workspace_presets_load_and_build_tile_trees() {
         let registry = WorkspacePresetRegistry::with_builtin();
         assert!(registry.presets().len() >= 6);
+        let mut platform = NoopViewerPlatform;
 
         for preset_id in [
             "vd_handling_suspension",
@@ -1506,8 +1529,7 @@ mod tests {
             let root = preset.resolved_layout().expect("resolve preset layout");
             let mut tiles = egui_tiles::Tiles::default();
             let mut ids = widget_ids::WidgetIds::new();
-            let (tx, _rx) = mpsc::channel();
-            let root_id = build_tile_node(&root, &mut tiles, &mut ids, tx)
+            let root_id = build_tile_node(&root, &mut tiles, &mut ids, &mut platform)
                 .expect("build tile node for preset");
             let tree = egui_tiles::Tree::new("preset_test", root_id, tiles);
             let pane_count = tree
@@ -1523,7 +1545,7 @@ mod tests {
     }
 
     #[test]
-    fn daqview_json_and_share_string_round_trip_preserves_layout_formulas_and_time_context() {
+    fn daqview_json_share_string_and_share_url_round_trip_preserves_layout_formulas_and_time_context() {
         let registry = WorkspacePresetRegistry::with_builtin();
         let mut view = registry
             .get("vd_handling_suspension")
@@ -1556,10 +1578,16 @@ mod tests {
         assert_eq!(from_share.name, view.name);
         assert_eq!(from_share.context, view.context);
         assert_eq!(from_share.custom_formulas, view.custom_formulas);
-        assert_eq!(
-            from_share.resolved_layout().expect("share layout"),
-            view.resolved_layout().expect("orig layout")
-        );
+
+        // Also test full and relative `/daqview/<payload>` shareable URLs!
+        let share_url = view
+            .to_share_url("https://daq.per.racing")
+            .expect("encode share url");
+        assert!(share_url.starts_with("https://daq.per.racing/daqview/daqview1:"));
+        let from_url = WorkspaceView::from_str_flexible(&share_url).expect("decode share url");
+        assert_eq!(from_url.name, view.name);
+        assert_eq!(from_url.context, view.context);
+        assert_eq!(from_url.custom_formulas, view.custom_formulas);
 
         let mut router = daqcore::router::VirtualTimelineRouter::live(
             Time::from_unix_millis(1_788_719_800_000),
@@ -1567,11 +1595,11 @@ mod tests {
         )
         .expect("live router");
         let mut ids = widget_ids::WidgetIds::new();
-        let (tx, _rx) = mpsc::channel();
+        let mut platform = NoopViewerPlatform;
         let mut tree = egui_tiles::Tree::empty("test_tree");
 
-        from_share
-            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx, true)
+        from_url
+            .apply_to_workspace(&mut tree, &mut ids, &mut router, &mut platform, true)
             .expect("apply workspace view");
         assert_eq!(router.timeline().start_utc_ms(), 1_788_719_762_000);
         assert_eq!(router.timeline().end_utc_ms(), 1_788_719_777_000);
@@ -1582,24 +1610,6 @@ mod tests {
                 .get("vd.custom_slip_ratio")
                 .is_some()
         );
-
-        let captured = WorkspaceView::capture_from_workspace(
-            &tree,
-            &router,
-            "Captured VD",
-            "Round-tripped from live tile tree",
-            true,
-        )
-        .expect("capture workspace view");
-        let tmp_dir = tempfile::tempdir().expect("tempdir");
-        let file_path = tmp_dir.path().join("test.daqview.json");
-        captured
-            .save_to_file(&file_path)
-            .expect("save .daqview.json file");
-        let loaded = WorkspaceView::load_from_file(&file_path).expect("load .daqview.json file");
-        assert_eq!(loaded.name, "Captured VD");
-        assert_eq!(loaded.context, captured.context);
-        assert_eq!(loaded.custom_formulas, view.custom_formulas);
     }
 
     #[test]
@@ -1659,9 +1669,9 @@ mod tests {
         let root = view.resolved_layout().expect("resolve shorthand layout");
         let mut tiles = egui_tiles::Tiles::default();
         let mut ids = widget_ids::WidgetIds::new();
-        let (tx, _rx) = mpsc::channel();
-        let root_id =
-            build_tile_node(&root, &mut tiles, &mut ids, tx).expect("build shorthand tree");
+        let mut platform = NoopViewerPlatform;
+        let root_id = build_tile_node(&root, &mut tiles, &mut ids, &mut platform)
+            .expect("build shorthand tree");
         let tree = egui_tiles::Tree::new("mp_tree", root_id, tiles);
         assert_eq!(
             tree.tiles
@@ -1669,289 +1679,6 @@ mod tests {
                 .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
                 .count(),
             3
-        );
-    }
-
-    #[test]
-    fn per26_m7_workspace_presets_daqview_share_strings_and_export_modal_e2e() {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let log_1 = manifest_dir
-            .join("../../PER26/2026-09-06/1_no_cooling/raw/log-2026-09-06--18-36-02.log");
-        let log_2 =
-            manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-16-37.log");
-        if !dbc_path.is_file() || !log_1.is_file() || !log_2.is_file() {
-            return;
-        }
-
-        let database =
-            daqcore::superdbc::database::Database::load(&dbc_path).expect("load PER26 database");
-        let selection = daqcore::can_thread::BusSelection::default_single(&database)
-            .expect("default bus selection");
-        let db_sel = app::DatabaseSelection {
-            database,
-            selection,
-        };
-
-        let tmp_raw = tempfile::tempdir().expect("temp raw dir");
-        std::fs::copy(&log_1, tmp_raw.path().join("log-2026-09-06--18-36-02.log"))
-            .expect("copy log 1");
-        std::fs::copy(&log_2, tmp_raw.path().join("log-2026-09-06--20-16-37.log"))
-            .expect("copy log 2");
-
-        let tmp_store = tempfile::tempdir().expect("temp store dir");
-        let summary = daqcore::log_parse::import_logs_to_store(
-            tmp_raw.path(),
-            tmp_store.path(),
-            &db_sel.database,
-        )
-        .expect("import PER26 logs");
-        assert!(summary.partitions_written >= 2);
-        let m1 = &summary.manifests[0];
-        let m2 = &summary.manifests[1];
-
-        let mut router = daqcore::router::VirtualTimelineRouter::live(
-            Time::from_unix_millis(m2.end_utc_ms),
-            30.0,
-        )
-        .expect("live router");
-        router
-            .attach_store(tmp_store.path())
-            .expect("attach PER26 store");
-        router
-            .timeline_mut()
-            .snap_to_range_ms(m1.start_utc_ms, m1.start_utc_ms + 15_000);
-        router
-            .timeline_mut()
-            .set_setpoint(Time::from_unix_millis(m1.start_utc_ms + 7_500));
-
-        // 1. Apply and render all 6 subteam workspace presets against real PER26 data
-        let registry = WorkspacePresetRegistry::with_builtin();
-        let mut ids = widget_ids::WidgetIds::new();
-        let (tx, _rx) = mpsc::channel();
-        let mut tree = egui_tiles::Tree::empty("per26_m7_tree");
-        let ctx = eframe::egui::Context::default();
-        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
-
-        for preset in registry.presets() {
-            preset
-                .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
-                .expect("apply subteam preset");
-            let pane_count = tree
-                .tiles
-                .tiles()
-                .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
-                .count();
-            assert!(pane_count >= 4);
-        }
-
-        // 2. Load VD preset, add custom formula, capture .daqview.json & share string,
-        //    and test both "Load Layout Only" and "Load Layout + Jump to Saved Time Range"
-        let vd_preset = registry
-            .get("vd_handling_suspension")
-            .expect("vd preset")
-            .clone();
-        vd_preset
-            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
-            .expect("apply vd preset");
-        router
-            .formula_engine_mut()
-            .merge_defs(&[DerivedSignalDef {
-                id: "vd.custom_shock_avg_mm".to_owned(),
-                label: "Custom Shock Avg".to_owned(),
-                expression: "0.25 * (front_shockpots.left + front_shockpots.right + rear_shockpots.left + rear_shockpots.right)".to_owned(),
-                unit: "mm".to_owned(),
-            }])
-            .expect("register custom formula");
-
-        let saved_start = m1.start_utc_ms + 1_000;
-        let saved_end = m1.start_utc_ms + 11_000;
-        let saved_sp = m1.start_utc_ms + 5_500;
-        router
-            .timeline_mut()
-            .snap_to_range_ms(saved_start, saved_end);
-        router
-            .timeline_mut()
-            .set_setpoint(Time::from_unix_millis(saved_sp));
-
-        let captured = WorkspaceView::capture_from_workspace(
-            &tree,
-            &router,
-            "PER26 Stint 1 VD Analysis",
-            "Saved during M7 E2E verification",
-            true,
-        )
-        .expect("capture workspace");
-        let share_str = captured.to_share_string().expect("encode share string");
-
-        // Move timeline elsewhere and clear tree
-        router
-            .timeline_mut()
-            .snap_to_range_ms(m2.start_utc_ms, m2.start_utc_ms + 20_000);
-        tree = egui_tiles::Tree::empty("cleared");
-
-        // Re-import with apply_time_context = false ("Load Layout Only")
-        let decoded = WorkspaceView::from_str_flexible(&share_str).expect("decode share string");
-        decoded
-            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
-            .expect("apply layout only");
-        assert_eq!(router.timeline().start_utc_ms(), m2.start_utc_ms);
-        assert!(
-            tree.tiles
-                .tiles()
-                .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
-                .count()
-                >= 5
-        );
-
-        // Re-import with apply_time_context = true ("Load Layout + Jump to Saved Time Range")
-        decoded
-            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), true)
-            .expect("apply layout and time context");
-        assert_eq!(router.timeline().start_utc_ms(), saved_start);
-        assert_eq!(router.timeline().end_utc_ms(), saved_end);
-        assert_eq!(router.timeline().setpoint_utc_ms(), saved_sp);
-
-        // 3. Verify 3-click ExportModalState UI & export across Parquet, CSV, and MATLAB .mat
-        let mut export_modal = ui::export_modal::ExportModalState::default();
-        export_modal.open(&router);
-        export_modal.apply_preset("vd", &router);
-        export_modal.range_mode = ui::export_modal::UiExportRangeMode::CurrentViewport;
-
-        let mut view_modal = WorkspaceViewModalState::default();
-        view_modal.open();
-
-        // Render one frame with both modals open to verify zero UI panics
-        let screen_rect = eframe::egui::Rect::from_min_size(
-            eframe::egui::Pos2::ZERO,
-            eframe::egui::vec2(1400.0, 900.0),
-        );
-        let raw_input = eframe::egui::RawInput {
-            screen_rect: Some(screen_rect),
-            ..Default::default()
-        };
-        let _ = ctx.run(raw_input, |ctx| {
-            export_modal.show(ctx, &mut router);
-            view_modal.show(ctx, &mut tree, &mut ids, &mut router, tx.clone());
-        });
-
-        let export_dir = tempfile::tempdir().expect("export tempdir");
-        for (fmt, ext) in [
-            (daqcore::export::ExportFormat::Parquet, "parquet"),
-            (daqcore::export::ExportFormat::Csv, "csv"),
-            (daqcore::export::ExportFormat::MatlabMat, "mat"),
-        ] {
-            export_modal.set_format(fmt);
-            let out_path = export_dir.path().join(format!("per26_vd.{ext}"));
-            export_modal.output_path = out_path.to_string_lossy().into_owned();
-            let summary = export_modal
-                .execute_export(&mut router)
-                .expect("execute modal export");
-            assert!(summary.row_count > 500);
-            assert!(out_path.is_file());
-        }
-    }
-
-    #[test]
-    fn settings_persists_and_reopens_workspace_across_sessions() {
-        let registry = WorkspacePresetRegistry::with_builtin();
-        let preset = registry
-            .get("powertrain_accumulator")
-            .expect("powertrain preset");
-
-        let mut router = daqcore::router::VirtualTimelineRouter::live(
-            Time::from_unix_millis(1_788_719_800_000),
-            30.0,
-        )
-        .expect("live router");
-        router
-            .timeline_mut()
-            .snap_to_range_ms(1_788_719_762_000, 1_788_719_782_000);
-        router
-            .timeline_mut()
-            .set_setpoint(Time::from_unix_millis(1_788_719_770_000));
-        router
-            .formula_engine_mut()
-            .merge_defs(&[DerivedSignalDef {
-                id: "battery.custom_resistance_mohm".to_owned(),
-                label: "Pack Internal Resistance".to_owned(),
-                expression: "abs(pack_stats.pack_current) * 10.0".to_owned(),
-                unit: "mOhm".to_owned(),
-            }])
-            .expect("merge custom formula");
-
-        let mut ids = widget_ids::WidgetIds::new();
-        let (tx, _rx) = mpsc::channel();
-        let mut tree = egui_tiles::Tree::empty("session_1");
-        preset
-            .apply_to_workspace(&mut tree, &mut ids, &mut router, tx.clone(), false)
-            .expect("apply preset in session 1");
-        let expected_panes = tree
-            .tiles
-            .tiles()
-            .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
-            .count();
-        assert!(expected_panes >= 4);
-
-        // Save Settings to a temporary settings.json as DAQApp::save_settings() does on close
-        let tmp_dir = tempfile::tempdir().expect("tempdir");
-        let settings_path = tmp_dir.path().join("settings.json");
-        let settings = crate::settings::Settings {
-            window_secs: router.timeline().window_secs(),
-            workspace_view: WorkspaceView::capture_from_workspace(
-                &tree,
-                &router,
-                "Last Session Workspace",
-                "Auto-saved workspace",
-                true,
-            )
-            .ok(),
-            ..Default::default()
-        };
-        assert!(settings.workspace_view.is_some());
-        settings.save_to(&settings_path);
-
-        // Reopen in a fresh session from settings.json
-        let reopened_settings =
-            crate::settings::Settings::load_from(&settings_path).expect("load saved settings.json");
-        let saved_view = reopened_settings
-            .workspace_view
-            .expect("workspace_view present in settings.json");
-
-        let mut reopened_router = daqcore::router::VirtualTimelineRouter::live(
-            Time::from_unix_millis(1_788_720_000_000),
-            reopened_settings.window_secs,
-        )
-        .expect("reopened router");
-        let mut reopened_ids = widget_ids::WidgetIds::new();
-        let mut reopened_tree = egui_tiles::Tree::empty("session_2");
-        saved_view
-            .apply_to_workspace(
-                &mut reopened_tree,
-                &mut reopened_ids,
-                &mut reopened_router,
-                tx,
-                true,
-            )
-            .expect("restore workspace view from settings");
-
-        let restored_panes = reopened_tree
-            .tiles
-            .tiles()
-            .filter(|t| matches!(t, egui_tiles::Tile::Pane(_)))
-            .count();
-        assert_eq!(restored_panes, expected_panes);
-        assert_eq!(reopened_router.timeline().start_utc_ms(), 1_788_719_762_000);
-        assert_eq!(reopened_router.timeline().end_utc_ms(), 1_788_719_782_000);
-        assert_eq!(
-            reopened_router.timeline().setpoint_utc_ms(),
-            1_788_719_770_000
-        );
-        assert!(
-            reopened_router
-                .formula_engine()
-                .get("battery.custom_resistance_mohm")
-                .is_some()
         );
     }
 }

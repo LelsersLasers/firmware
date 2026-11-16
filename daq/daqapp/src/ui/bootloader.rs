@@ -46,7 +46,7 @@ enum CapabilityState {
 pub struct Bootloader {
     pub title: String,
     manifest_path: Option<path::PathBuf>,
-    package: Option<daqcore::firmware::protocol::FirmwarePackage>,
+    package: Option<daqnative::firmware::protocol::FirmwarePackage>,
     status: String,
     running: bool,
     observations: HashMap<String, TargetObservations>,
@@ -79,7 +79,7 @@ impl Bootloader {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        ui_to_can_tx: &mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: &mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
     ) -> egui_tiles::UiResponse {
         ui.ctx().request_repaint_after(time::Duration::from_secs(1));
 
@@ -140,7 +140,7 @@ impl Bootloader {
                     ui.horizontal_wrapped(|ui| {
                         if ui.button("Cancel update").clicked() {
                             if ui_to_can_tx
-                                .send(daqcore::can_thread::CanThreadCommand::CancelFirmwareUpdate)
+                                .send(daqnative::can_thread::CanThreadCommand::CancelFirmwareUpdate)
                                 .is_ok()
                             {
                                 self.status = "Cancelling update…".to_string();
@@ -258,7 +258,7 @@ impl Bootloader {
 
     fn load_package(&mut self, path: path::PathBuf) {
         self.protocol_observations.clear();
-        match daqcore::firmware::protocol::FirmwarePackage::load(path.clone()) {
+        match daqnative::firmware::protocol::FirmwarePackage::load(path.clone()) {
             Ok(package) => {
                 self.manifest_path = Some(path);
                 self.package = Some(package);
@@ -425,7 +425,7 @@ impl Bootloader {
     fn show_update_confirmation(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        ui_to_can_tx: &mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: &mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
         package_names: &[String],
         selected_names: &[String],
         protocol_matches: &[ProtocolMatch],
@@ -570,11 +570,11 @@ impl Bootloader {
                         .filter(|image| action_names.contains(&image.name))
                         .cloned()
                         .collect();
-                    let package = daqcore::firmware::protocol::FirmwarePackage { images: action_images };
+                    let package = daqnative::firmware::protocol::FirmwarePackage { images: action_images };
                     let message = if armed {
-                        daqcore::can_thread::CanThreadCommand::ArmFirmwareUpdate(package)
+                        daqnative::can_thread::CanThreadCommand::ArmFirmwareUpdate(package)
                     } else {
-                        daqcore::can_thread::CanThreadCommand::StartFirmwareUpdate(package)
+                        daqnative::can_thread::CanThreadCommand::StartFirmwareUpdate(package)
                     };
 
                     if ui_to_can_tx.send(message).is_ok() {
@@ -698,15 +698,15 @@ impl Bootloader {
         self.observations.clear();
     }
 
-    pub fn handle_can_message(&mut self, msg: &daqcore::can_thread::CanThreadEvent) {
+    pub fn handle_can_message(&mut self, msg: &daqnative::can_thread::CanThreadEvent) {
         match msg {
-            daqcore::can_thread::CanThreadEvent::Disconnection
-            | daqcore::can_thread::CanThreadEvent::ConnectionSuccessful
-            | daqcore::can_thread::CanThreadEvent::ConnectionFailed(_) => {
+            daqnative::can_thread::CanThreadEvent::Disconnection
+            | daqnative::can_thread::CanThreadEvent::ConnectionSuccessful
+            | daqnative::can_thread::CanThreadEvent::ConnectionFailed(_) => {
                 self.protocol_observations.clear();
                 return;
             }
-            daqcore::can_thread::CanThreadEvent::Frame(frame) => {
+            daqnative::can_thread::CanThreadEvent::Frame(frame) => {
                 self.observe_protocol_frame(
                     frame.identity,
                     frame.decoded.as_ref().map(|d| d.name()),
@@ -715,7 +715,7 @@ impl Bootloader {
             _ => {}
         }
 
-        if let daqcore::can_thread::CanThreadEvent::Frame(frame) = msg {
+        if let daqnative::can_thread::CanThreadEvent::Frame(frame) = msg {
             let Some(parsed) = frame.decoded_view() else {
                 return;
             };
@@ -791,7 +791,7 @@ impl Bootloader {
             return;
         }
 
-        let daqcore::can_thread::CanThreadEvent::FirmwareProgress(progress) = msg else {
+        let daqnative::can_thread::CanThreadEvent::FirmwareProgress(progress) = msg else {
             return;
         };
         apply_progress(&mut self.board_statuses, &self.run_board_names, progress);
@@ -817,7 +817,7 @@ struct ProtocolMatch {
     boards: Vec<String>,
 }
 
-fn image_protocol_ids(image: &daqcore::firmware::protocol::FirmwareImage) -> [u32; 4] {
+fn image_protocol_ids(image: &daqnative::firmware::protocol::FirmwareImage) -> [u32; 4] {
     [image.start_id, image.crc_id, image.jump_id, image.data_id]
 }
 
@@ -910,7 +910,7 @@ fn capability_state(
 fn apply_progress(
     statuses: &mut HashMap<String, BoardUpdateStatus>,
     board_names: &[String],
-    progress: &daqcore::firmware::FirmwareProgress,
+    progress: &daqnative::firmware::FirmwareProgress,
 ) {
     if progress.phase == "complete" {
         for status in statuses.values_mut() {

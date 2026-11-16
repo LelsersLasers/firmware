@@ -1237,6 +1237,8 @@ dependencies = [
  "bytemuck",
  "chrono",
  "daqcore",
+ "daqnative",
+ "daqviewer",
  "eframe",
  "egui_extras",
  "egui_plot",
@@ -1264,6 +1266,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "daqcore",
+ "daqnative",
  "env_logger",
  "log",
  "tempfile",
@@ -1341,6 +1344,31 @@ dependencies = [
  "tokio-tungstenite",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "daqviewer"
+version = "26.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytemuck",
+ "chrono",
+ "daqcore",
+ "eframe",
+ "egui_extras",
+ "egui_plot",
+ "egui_tiles",
+ "flate2",
+ "globset",
+ "hashbrown 0.16.1",
+ "indexmap",
+ "log",
+ "serde",
+ "serde_json",
+ "toml",
+ "uuid",
+ "walkers",
+ "web-time",
 ]
 
 [[package]]

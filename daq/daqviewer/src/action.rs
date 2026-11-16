@@ -15,6 +15,7 @@ pub enum AppAction {
     },
     OpenWorkspaceViewModal,
     CopyWorkspaceShareString,
+    CopyWorkspaceShareUrl,
     OpenExportDataModal,
     ToggleSidebar,
     FocusSidebarSearch,
@@ -53,7 +54,11 @@ pub enum AppAction {
 
 impl AppAction {
     pub fn cmd_palette_actions() -> Vec<(&'static str, Self)> {
-        vec![
+        Self::cmd_palette_actions_for(true)
+    }
+
+    pub fn cmd_palette_actions_for(supports_hardware_widgets: bool) -> Vec<(&'static str, Self)> {
+        let mut actions = vec![
             (
                 "Workspace: VD — Handling, Suspension & G-G",
                 Self::LoadWorkspacePreset {
@@ -105,6 +110,10 @@ impl AppAction {
                 Self::OpenWorkspaceViewModal,
             ),
             (
+                "Copy Workspace Share URL (/daqview/daqview1:...)",
+                Self::CopyWorkspaceShareUrl,
+            ),
+            (
                 "Copy Workspace Share String (daqview1:...)",
                 Self::CopyWorkspaceShareString,
             ),
@@ -146,18 +155,6 @@ impl AppAction {
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::ViewerList),
             ),
             (
-                "Spawn Bootloader",
-                Self::SpawnWidget(widget_constructor::WidgetConstructor::Bootloader),
-            ),
-            (
-                "Spawn Log Parser",
-                Self::SpawnWidget(widget_constructor::WidgetConstructor::LogParser),
-            ),
-            (
-                "Spawn Send UI",
-                Self::SpawnWidget(widget_constructor::WidgetConstructor::SendUi),
-            ),
-            (
                 "Spawn Bus Load",
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::BusLoad),
             ),
@@ -165,10 +162,29 @@ impl AppAction {
                 "Spawn Jitter",
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::Jitter),
             ),
-            (
-                "Spawn HIL",
-                Self::SpawnWidget(widget_constructor::WidgetConstructor::Hil),
-            ),
-        ]
+        ];
+
+        if supports_hardware_widgets {
+            actions.extend([
+                (
+                    "Spawn Bootloader",
+                    Self::SpawnWidget(widget_constructor::WidgetConstructor::Bootloader),
+                ),
+                (
+                    "Spawn Log Parser",
+                    Self::SpawnWidget(widget_constructor::WidgetConstructor::LogParser),
+                ),
+                (
+                    "Spawn Send UI",
+                    Self::SpawnWidget(widget_constructor::WidgetConstructor::SendUi),
+                ),
+                (
+                    "Spawn HIL",
+                    Self::SpawnWidget(widget_constructor::WidgetConstructor::Hil),
+                ),
+            ]);
+        }
+
+        actions
     }
 }

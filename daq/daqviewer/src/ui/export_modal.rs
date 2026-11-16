@@ -1,8 +1,8 @@
+use crate::app::ViewerPlatform;
 use daqcore::{
     export::{
         ExportError, ExportFormat, ExportPresetRegistry, ExportSummary, SamplingMode,
-        discover_available_signals, expand_signal_patterns, export_dataset,
-        resolve_annotation_time_range,
+        discover_available_signals, expand_signal_patterns, resolve_annotation_time_range,
     },
     router::VirtualTimelineRouter,
 };
@@ -129,6 +129,7 @@ impl ExportModalState {
     pub fn execute_export(
         &mut self,
         router: &mut VirtualTimelineRouter,
+        platform: &mut dyn ViewerPlatform,
     ) -> Result<ExportSummary, ExportError> {
         let range = self.active_range(router)?;
         let sampling_mode = if self.sparse_mode {
@@ -138,7 +139,7 @@ impl ExportModalState {
         };
         let signal_patterns: Vec<String> = self.selected_signals.iter().cloned().collect();
 
-        match export_dataset(
+        match platform.execute_dataset_export(
             router,
             range,
             &signal_patterns,
@@ -163,7 +164,12 @@ impl ExportModalState {
         }
     }
 
-    pub fn show(&mut self, ctx: &eframe::egui::Context, router: &mut VirtualTimelineRouter) {
+    pub fn show(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        router: &mut VirtualTimelineRouter,
+        platform: &mut dyn ViewerPlatform,
+    ) {
         if !self.is_open {
             return;
         }
@@ -427,14 +433,12 @@ impl ExportModalState {
                         eframe::egui::TextEdit::singleline(&mut self.output_path)
                             .desired_width(310.0),
                     );
-                    if ui.button("Browse...").clicked() {
-                        let ext = self.format.extension();
-                        if let Some(picked) = rfd::FileDialog::new()
-                            .add_filter(self.format.label(), &[ext])
-                            .save_file()
-                        {
-                            self.output_path = picked.to_string_lossy().into_owned();
-                        }
+                    if platform.supports_native_file_dialogs()
+                        && ui.button("Browse...").clicked()
+                        && let Some(picked) =
+                            platform.pick_export_path(self.format, &self.output_path)
+                    {
+                        self.output_path = picked;
                     }
                 });
 
@@ -484,7 +488,7 @@ impl ExportModalState {
             self.apply_preset(&preset_id, router);
         }
         if trigger_export {
-            let _ = self.execute_export(router);
+            let _ = self.execute_export(router, platform);
         }
     }
 }

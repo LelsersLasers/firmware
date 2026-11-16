@@ -1,6 +1,3 @@
-use crate::paths;
-use std::path;
-
 const NOMINAL_DARK_THEME_PATH: &str = "themes/nominal_dark.toml";
 const NOMINAL_LIGHT_THEME_PATH: &str = "themes/nominal_light.toml";
 const NORD_THEME_PATH: &str = "themes/nord.toml";
@@ -79,20 +76,6 @@ impl ThemeSelection {
 }
 
 fn load_builtin_theme(path: &str, embedded_source: &str) -> ThemeColors {
-    // Prefer the checked-in file so theme edits are picked up during development.
-    // The embedded copy keeps packaged binaries working when the source tree is
-    // not present beside the executable.
-    if let Some(theme) = ThemeColors::load_from_file(path) {
-        return theme;
-    }
-
-    if let Some(theme_path) = paths::find_file(path) {
-        log::warn!(
-            "Failed to parse theme at {}; using embedded theme",
-            theme_path.display()
-        );
-    }
-
     ThemeColors::from_toml(embedded_source).unwrap_or_else(|| {
         log::error!("Embedded theme {path} is invalid; using default colors");
         ThemeColors::default()
@@ -334,10 +317,6 @@ impl ThemeColors {
         style.visuals.widgets.open.corner_radius = cr;
 
         style
-    }
-
-    pub fn load_from_file(path: impl AsRef<path::Path>) -> Option<Self> {
-        paths::read_file(path).and_then(|data| Self::from_toml(&data))
     }
 
     fn from_toml(data: &str) -> Option<Self> {

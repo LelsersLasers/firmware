@@ -24,13 +24,21 @@ impl CommandPalette {
     }
 
     pub fn ui(&mut self, ctx: &eframe::egui::Context) -> Vec<action::AppAction> {
+        self.ui_for(ctx, true)
+    }
+
+    pub fn ui_for(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        supports_hardware_widgets: bool,
+    ) -> Vec<action::AppAction> {
         if !self.show_command_palette {
             return Vec::new();
         }
 
         let mut action_queue = Vec::new();
 
-        let cmd_list = action::AppAction::cmd_palette_actions();
+        let cmd_list = action::AppAction::cmd_palette_actions_for(supports_hardware_widgets);
 
         // filtering Logic
         let filtered_options: Vec<_> = cmd_list
@@ -50,7 +58,6 @@ impl CommandPalette {
             self.palette_index = self.palette_index.min(filtered_options.len() - 1);
         }
 
-        // handle keyboard navigation (maybe needs to be smarter?)
         ctx.input_mut(|i| {
             if i.key_pressed(eframe::egui::Key::ArrowDown) && !filtered_options.is_empty() {
                 self.palette_index = (self.palette_index + 1) % filtered_options.len();
@@ -71,7 +78,6 @@ impl CommandPalette {
             }
         });
 
-        // render UI
         eframe::egui::Window::new("Command Palette")
             .anchor(eframe::egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .collapsible(false)
@@ -79,7 +85,6 @@ impl CommandPalette {
             .title_bar(false)
             .fixed_size([400.0, 420.0])
             .show(ctx, |ui| {
-                // Search Input
                 ui.horizontal(|ui| {
                     ui.label("🔍");
                     let response = ui.add(
@@ -87,15 +92,14 @@ impl CommandPalette {
                             .desired_width(ui.available_width().max(60.0)),
                     );
 
-                    response.request_focus(); // focus the search box when palette is open
+                    response.request_focus();
 
                     if response.changed() {
-                        self.palette_index = 0; // reset selection to top when search changes
+                        self.palette_index = 0;
                     }
                 });
                 ui.separator();
 
-                // Results List
                 eframe::egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {

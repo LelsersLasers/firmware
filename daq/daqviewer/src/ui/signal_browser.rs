@@ -1372,156 +1372,121 @@ mod tests {
 
     #[test]
     fn historical_viewport_filtering_works_without_superdbc() {
-        let store_dir = tempfile::tempdir().expect("temp store dir");
-
-        // Use a temporary SuperDBC ONLY during initial log import (simulating LogParser),
-        // then drop it before opening the store in VirtualTimelineRouter / UI widgets.
-        {
-            let import_db = daqcore::superdbc::database::Database::from_json(
-                r#"{
-                  "content_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                  "versions": { "schema_version": "1.1", "hash": "test_v1" },
-                  "buses": {
-                    "Main": {
-                      "bus_id": 0,
-                      "baud_rate": 500000,
-                      "nodes": [{ "name": "VCU", "is_external": false }],
-                      "messages": [
-                        {
-                          "id": 257,
-                          "is_extended_id": false,
-                          "message_name": "msg_alpha",
-                          "transmitter": "VCU",
-                          "receivers": [],
-                          "length_bytes": 4,
-                          "nominal_period_ms": 10,
-                          "priority": 1,
-                          "description": "Alpha message",
-                          "signals": [
-                            {
-                              "signal_name": "sig_a",
-                              "description": "Alpha voltage",
-                              "data_type": "uint16_t",
-                              "raw_type": "unsigned",
-                              "start_bit": 0,
-                              "bit_length": 16,
-                              "byte_order": "little_endian",
-                              "scale": 0.1,
-                              "offset": 0.0,
-                              "limits": null,
-                              "unit": "V",
-                              "choices": null,
-                              "display_format": null
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    "Accum": {
-                      "bus_id": 1,
-                      "baud_rate": 500000,
-                      "nodes": [{ "name": "BMS", "is_external": false }],
-                      "messages": [
-                        {
-                          "id": 514,
-                          "is_extended_id": false,
-                          "message_name": "msg_beta",
-                          "transmitter": "BMS",
-                          "receivers": [],
-                          "length_bytes": 4,
-                          "nominal_period_ms": 50,
-                          "priority": 1,
-                          "description": "Beta message",
-                          "signals": [
-                            {
-                              "signal_name": "sig_b",
-                              "description": "Beta temperature",
-                              "data_type": "uint16_t",
-                              "raw_type": "unsigned",
-                              "start_bit": 0,
-                              "bit_length": 16,
-                              "byte_order": "little_endian",
-                              "scale": 1.0,
-                              "offset": 0.0,
-                              "limits": null,
-                              "unit": "C",
-                              "choices": null,
-                              "display_format": null
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }"#,
-            )
-            .expect("parse import_db");
-
-            let payload_a = import_db.encode(0, 257, &[("sig_a", 42.5)]).unwrap();
-            let decoded_a = import_db.decode(0, 257, &payload_a).unwrap();
-            let payload_b = import_db.encode(1, 514, &[("sig_b", 88.0)]).unwrap();
-            let decoded_b = import_db.decode(1, 514, &payload_b).unwrap();
-
-            let log_files = vec![
-                daqcore::log_parse::parse::SourceLogFile {
-                    file_name: "log-2026-09-06--10-00-00.log".to_owned(),
-                    sha256_hex: "11111111".repeat(8),
-                    rtc_timestamp_ms: Some(1_000),
-                    mtime_unix_ms: 1_000,
-                },
-                daqcore::log_parse::parse::SourceLogFile {
-                    file_name: "log-2026-09-06--10-00-20.log".to_owned(),
-                    sha256_hex: "22222222".repeat(8),
-                    rtc_timestamp_ms: Some(20_000),
-                    mtime_unix_ms: 20_000,
-                },
-            ];
-
-            let epochs = vec![
-                daqcore::log_parse::correlate::CorrelationChunkResult {
-                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
-                        timestamp: 500,
-                        bus_name: "Main".to_owned(),
-                        source_file_idx: 0,
-                        decoded: decoded_a,
-                    }],
-                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
-                        slope: 1.0,
-                        intercept_ms: 1_000.0,
-                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
-                    },
-                },
-                daqcore::log_parse::correlate::CorrelationChunkResult {
-                    parsed_msgs: vec![daqcore::log_parse::parse::ParsedMessage {
-                        timestamp: 1_000,
-                        bus_name: "Accum".to_owned(),
-                        source_file_idx: 1,
-                        decoded: decoded_b,
-                    }],
-                    clock_mapping: daqcore::log_parse::correlate::ClockMapping {
-                        slope: 1.0,
-                        intercept_ms: 20_000.0,
-                        confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
-                    },
-                },
-            ];
-
-            daqcore::storage::write_correlated_epochs_to_store(
-                store_dir.path(),
-                &log_files,
-                epochs,
-                &import_db,
-            )
-            .expect("write two partitions to store");
-        }
-
-        // Now attach store and browse/render WITHOUT any SuperDBC loaded
         let t0 = daqcore::time::Time::from_unix_millis(30_000);
         let mut router =
             daqcore::router::VirtualTimelineRouter::live(t0, 5.0).expect("live router");
+
+        let manifest_a = daqcore::storage::PartitionManifest {
+            partition_id: "part_a".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            start_utc_ms: 1_500,
+            end_utc_ms: 1_500,
+            clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                slope: 1.0,
+                intercept_ms: 1_000.0,
+                confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+            },
+            raw_log_hashes: Vec::new(),
+            superdbc_hash: "0123".repeat(16),
+            signals: vec![daqcore::storage::SignalManifestEntry {
+                signal_id: "msg_alpha.sig_a".to_owned(),
+                unit: "V".to_owned(),
+                is_discrete: false,
+                bus_name: "Main".to_owned(),
+                bus_id: 0,
+                can_id: 257,
+                transmitter: "VCU".to_owned(),
+                nominal_period_ms: Some(10),
+                description: "Alpha voltage".to_owned(),
+                sample_count: 1,
+                min_utc_ms: 1_500,
+                max_utc_ms: 1_500,
+                min_val: 42.5,
+                max_val: 42.5,
+            }],
+            annotations: Vec::new(),
+        };
+        let manifest_b = daqcore::storage::PartitionManifest {
+            partition_id: "part_b".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            start_utc_ms: 21_000,
+            end_utc_ms: 21_000,
+            clock_mapping: daqcore::log_parse::correlate::ClockMapping {
+                slope: 1.0,
+                intercept_ms: 20_000.0,
+                confidence: daqcore::log_parse::correlate::ClockConfidence::RtcEstimated,
+            },
+            raw_log_hashes: Vec::new(),
+            superdbc_hash: "0123".repeat(16),
+            signals: vec![daqcore::storage::SignalManifestEntry {
+                signal_id: "msg_beta.sig_b".to_owned(),
+                unit: "C".to_owned(),
+                is_discrete: false,
+                bus_name: "Accum".to_owned(),
+                bus_id: 1,
+                can_id: 514,
+                transmitter: "BMS".to_owned(),
+                nominal_period_ms: Some(50),
+                description: "Beta temperature".to_owned(),
+                sample_count: 1,
+                min_utc_ms: 21_000,
+                max_utc_ms: 21_000,
+                min_val: 88.0,
+                max_val: 88.0,
+            }],
+            annotations: Vec::new(),
+        };
+
         router
-            .attach_store(store_dir.path())
-            .expect("attach store without SuperDBC");
+            .register_and_preload_manifest(&manifest_a, std::path::Path::new(""))
+            .expect("register part_a");
+        router
+            .register_and_preload_manifest(&manifest_b, std::path::Path::new(""))
+            .expect("register part_b");
+
+        let mut ov_a = std::collections::HashMap::new();
+        ov_a.insert(
+            "msg_alpha.sig_a".to_owned(),
+            std::sync::Arc::new(daqcore::router::SignalSeries::Envelope(vec![
+                daqcore::router::EnvelopePoint {
+                    utc_ms: 1_000,
+                    min: 42.5,
+                    max: 42.5,
+                    mean: 42.5,
+                },
+            ])),
+        );
+        router
+            .tile_cache_mut()
+            .insert_preload_payload(daqcore::router::PartitionPreloadPayload {
+                partition_id: "part_a".to_owned(),
+                overview_1hz: ov_a,
+                activity_1hz: vec![(1_000, 1)],
+                states: std::collections::HashMap::new(),
+                signals: manifest_a.signals.clone(),
+            });
+
+        let mut ov_b = std::collections::HashMap::new();
+        ov_b.insert(
+            "msg_beta.sig_b".to_owned(),
+            std::sync::Arc::new(daqcore::router::SignalSeries::Envelope(vec![
+                daqcore::router::EnvelopePoint {
+                    utc_ms: 21_000,
+                    min: 88.0,
+                    max: 88.0,
+                    mean: 88.0,
+                },
+            ])),
+        );
+        router
+            .tile_cache_mut()
+            .insert_preload_payload(daqcore::router::PartitionPreloadPayload {
+                partition_id: "part_b".to_owned(),
+                overview_1hz: ov_b,
+                activity_1hz: vec![(21_000, 1)],
+                states: std::collections::HashMap::new(),
+                signals: manifest_b.signals.clone(),
+            });
 
         // 1. Viewport on Partition A ([1_000..=3_000]): only msg_alpha.sig_a is active
         router.timeline_mut().snap_to_range_ms(1_000, 3_000);

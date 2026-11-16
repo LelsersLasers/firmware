@@ -1,10 +1,11 @@
 use clap::Parser as _;
-use daqcore::{
+use daqnative::{
     export::{
         ExportError, ExportFormat, ExportPresetRegistry, ExportSummary, SamplingMode,
         export_dataset, resolve_annotation_time_range,
     },
     router::VirtualTimelineRouter,
+    storage::NativeRouterExt as _,
     superdbc::database::Database,
     time::Time,
 };
@@ -163,7 +164,7 @@ fn main() -> process::ExitCode {
             store_dir,
             cloud_url,
             download_full,
-        } => match daqcore::storage::sync_store_with_cloud_blocking(
+        } => match daqnative::storage::sync_store_with_cloud_blocking(
             &store_dir,
             &cloud_url,
             download_full,
@@ -190,7 +191,7 @@ fn main() -> process::ExitCode {
             store_dir,
             superdbc_dir,
         } => {
-            match daqcore::log_parse::per26::import_all_per26(&per26_dir, &store_dir, &superdbc_dir)
+            match daqnative::log_parse::per26::import_all_per26(&per26_dir, &store_dir, &superdbc_dir)
             {
                 Ok(report) => {
                     log::info!(
@@ -225,7 +226,7 @@ fn run_import(
         }
     };
 
-    match daqcore::log_parse::import_logs_to_store(logs_dir, store_dir, &database) {
+    match daqnative::log_parse::import_logs_to_store(logs_dir, store_dir, &database) {
         Ok(summary) => {
             let annotation_count: usize =
                 summary.manifests.iter().map(|m| m.annotations.len()).sum();
@@ -351,7 +352,7 @@ fn resolve_export_format(args: &ExportCommandArgs) -> Result<ExportFormat, Expor
 #[cfg(test)]
 mod tests {
     use super::*;
-    use daqcore::export::{read_exported_parquet_info, read_matlab_mat_vars};
+    use daqnative::export::{read_exported_parquet_info, read_matlab_mat_vars};
     use std::fs;
 
     #[test]
@@ -374,7 +375,7 @@ mod tests {
 
         let tmp_store = tempfile::tempdir().expect("temp store dir");
         let summary =
-            daqcore::log_parse::import_logs_to_store(tmp_raw.path(), tmp_store.path(), &db)
+            daqnative::log_parse::import_logs_to_store(tmp_raw.path(), tmp_store.path(), &db)
                 .expect("import PER26 log");
         let m0 = &summary.manifests[0];
         let win_start = m0.start_utc_ms;
