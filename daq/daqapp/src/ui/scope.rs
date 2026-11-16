@@ -753,8 +753,9 @@ impl Scope {
                 for (ch_idx, ch) in self.channels.iter().enumerate() {
                     let unit_idx = channel_unit_group[ch_idx];
                     let ch_max_gap_ms = channel_max_gap_ms(view.router, &ch.signal_id, max_gap_ms);
-                    let padded_range = start_ms.saturating_sub(ch_max_gap_ms)
-                        ..=end_ms.saturating_add(ch_max_gap_ms);
+                    let query_pad_ms = ch_max_gap_ms.max(3_000);
+                    let padded_range =
+                        start_ms.saturating_sub(query_pad_ms)..=end_ms.saturating_add(query_pad_ms);
                     let series = view.query_signal_range(&ch.signal_id, padded_range, resolution);
                     let in_window = series.slice_range(start_ms..=end_ms);
                     if let Some((s_min, s_max, s_mean)) =
@@ -1452,6 +1453,53 @@ fn channel_max_gap_ms(
     base_max_gap_ms.max(max_period_ms.saturating_mul(3))
 }
 
+/// Infer a minimum gap-break threshold from the actual sample/bucket cadence of `series`
+/// (up to 64 consecutive pairs with `0 < dt <= 5_000 ms`).
+///
+/// This ensures that:
+/// 1. When `window <= 900 s` requests `Overview10Hz` or `FullRes` (`max_gap_ms = 500 ms`),
+///    any partition that returns an `Overview1Hz` (`1,000 ms` bucket) fallback (e.g. while
+///    offline or while `overview_10hz.parquet` / `full_res.parquet` is downloading) uses
+///    `effective_max_gap_ms >= 3,000 ms` instead of breaking every 1-second bucket with `NaN`.
+/// 2. Signals from older DBCs where `nominal_period_ms` is `None` (or logged at 1–5 Hz)
+///    also adapt automatically to their observed cadence.
+fn infer_series_gap_threshold_ms(
+    series: &daqcore::router::SignalSeries,
+    base_max_gap_ms: i64,
+) -> i64 {
+    let mut dts: Vec<i64> = Vec::with_capacity(64);
+    match series {
+        daqcore::router::SignalSeries::Exact { timestamps_ms, .. } => {
+            for pair in timestamps_ms.windows(2) {
+                let dt = pair[1] - pair[0];
+                if dt > 0 && dt <= 5_000 {
+                    dts.push(dt);
+                    if dts.len() >= 64 {
+                        break;
+                    }
+                }
+            }
+        }
+        daqcore::router::SignalSeries::Envelope(buckets) => {
+            for pair in buckets.windows(2) {
+                let dt = pair[1].utc_ms - pair[0].utc_ms;
+                if dt > 0 && dt <= 5_000 {
+                    dts.push(dt);
+                    if dts.len() >= 64 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if dts.is_empty() {
+        return base_max_gap_ms;
+    }
+    dts.sort_unstable();
+    let median_dt = dts[dts.len() / 2];
+    base_max_gap_ms.max(median_dt.saturating_mul(3))
+}
+
 /// Convert a [`daqcore::router::SignalSeries`] into decimated mean line points AND convex
 /// trapezoid `[min, max]` polygon quads for shaded envelope rendering.
 pub fn series_to_points_and_bands(
@@ -1460,6 +1508,7 @@ pub fn series_to_points_and_bands(
     max_gap_ms: i64,
     pixels: usize,
 ) -> (Vec<[f64; 2]>, Vec<[[f64; 2]; 4]>) {
+    let effective_gap_ms = infer_series_gap_threshold_ms(series, max_gap_ms);
     match series {
         daqcore::router::SignalSeries::Exact {
             timestamps_ms,
@@ -1468,7 +1517,7 @@ pub fn series_to_points_and_bands(
             let pts = workspace_view::points_with_gap_breaks(
                 timestamps_ms.iter().copied().zip(values.iter().copied()),
                 start_ms,
-                max_gap_ms,
+                effective_gap_ms,
             );
             (workspace_view::decimate(&pts, pixels), Vec::new())
         }
@@ -1476,10 +1525,10 @@ pub fn series_to_points_and_bands(
             let mean_pts = workspace_view::points_with_gap_breaks(
                 buckets.iter().map(|b| (b.utc_ms, b.mean)),
                 start_ms,
-                max_gap_ms,
+                effective_gap_ms,
             );
             let decimated_mean = workspace_view::decimate(&mean_pts, pixels);
-            let quads = build_envelope_quads(buckets, start_ms, max_gap_ms, pixels);
+            let quads = build_envelope_quads(buckets, start_ms, effective_gap_ms, pixels);
             (decimated_mean, quads)
         }
     }
@@ -1777,5 +1826,25 @@ mod tests {
             pts.iter().all(|p| p[0].is_finite() && p[1].is_finite()),
             "2 Hz signal must not have NaN breaks at FullRes: {pts:?}"
         );
+
+        // Verify that an Overview1Hz (1,000 ms bucket) fallback series passed with a
+        // `< 900s` window `max_gap_ms = 500 ms` ALSO adapts and does not break into NaNs
+        let fallback_1hz = daqcore::router::SignalSeries::Envelope(
+            (0..10)
+                .map(|i| daqcore::router::EnvelopePoint {
+                    utc_ms: base_ms + i * 1_000,
+                    min: 500.0,
+                    max: 540.0,
+                    mean: 520.0 + i as f64,
+                })
+                .collect(),
+        );
+        let (fb_pts, fb_quads) = series_to_points_and_bands(&fallback_1hz, base_ms, 500, 800);
+        assert_eq!(fb_pts.len(), 10);
+        assert!(
+            fb_pts.iter().all(|p| p[0].is_finite() && p[1].is_finite()),
+            "1 Hz fallback envelope must not have NaN breaks when window < 900s: {fb_pts:?}"
+        );
+        assert_eq!(fb_quads.len(), 9);
     }
 }
