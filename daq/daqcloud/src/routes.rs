@@ -222,31 +222,51 @@ async fn web_asset_handler(
     (StatusCode::OK, headers, bytes).into_response()
 }
 
-async fn get_catalog_handler(
-    State(state): State<AppState>,
-) -> Result<Json<CatalogResponse>, (StatusCode, String)> {
-    let track_days = state
-        .registry
-        .list_track_days()
-        .map_err(internal_registry_err)?;
-    let registered_partitions = state
-        .registry
-        .list_all_partitions()
-        .map_err(internal_registry_err)?;
-    let partitions = registered_partitions
-        .into_iter()
-        .map(|p| p.manifest)
-        .collect();
-    let annotations = state
-        .registry
-        .list_annotations_updated_since(0)
-        .map_err(internal_registry_err)?;
+async fn get_catalog_handler(State(state): State<AppState>) -> Response {
+    let payload = if let Some(cached) = state.get_cached_catalog() {
+        cached
+    } else {
+        let track_days = match state.registry.list_track_days() {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let registered_partitions = match state.registry.list_all_partitions() {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let partitions = registered_partitions
+            .into_iter()
+            .map(|p| p.manifest)
+            .collect();
+        let annotations = match state.registry.list_annotations_updated_since(0) {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let catalog = CatalogResponse {
+            track_days,
+            partitions,
+            annotations,
+        };
+        let bytes = match serde_json::to_vec(&catalog) {
+            Ok(b) => Bytes::from(b),
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to serialize catalog: {e}"),
+                )
+                    .into_response();
+            }
+        };
+        state.insert_cached_catalog(bytes.clone());
+        bytes
+    };
 
-    Ok(Json(CatalogResponse {
-        track_days,
-        partitions,
-        annotations,
-    }))
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    (StatusCode::OK, headers, payload).into_response()
 }
 
 async fn post_track_day_handler(
@@ -261,6 +281,7 @@ async fn post_track_day_handler(
         .registry
         .set_track_day_label(&day.id, &day.location)
         .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
     Ok(Json(updated))
 }
 
@@ -1147,6 +1168,7 @@ async fn post_annotations_handler(
         }
         stored_list.push(stored);
     }
+    state.invalidate_catalog_cache();
 
     Ok(Json(stored_list))
 }
@@ -1201,6 +1223,7 @@ fn apply_annotation_patch(
         .unwrap_or(updated);
 
     if changed {
+        state.invalidate_catalog_cache();
         if stored.deleted {
             let _ = state.ws_tx.send(CloudWsMessage::AnnotationDeleted {
                 annotation_id: stored.id.clone(),
@@ -1269,6 +1292,7 @@ fn soft_delete_and_broadcast(
         .registry
         .soft_delete_annotation(id, effective_updated_at_ms)
         .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
 
     let stored = state
         .registry

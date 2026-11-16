@@ -209,6 +209,17 @@ impl LruTileMap {
             }
         }
     }
+
+    pub fn evict_to_target_bytes(&mut self, target_bytes: usize) {
+        while self.current_bytes > target_bytes && !self.entries.is_empty() {
+            let Some((_, oldest_key)) = self.order.pop_first() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest_key) {
+                self.current_bytes = self.current_bytes.saturating_sub(evicted.bytes);
+            }
+        }
+    }
 }
 
 struct TileCacheDynamic {

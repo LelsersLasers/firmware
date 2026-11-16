@@ -94,6 +94,17 @@ fn resolve_default_web_dist_dir() -> path::PathBuf {
     candidates[2].clone()
 }
 
+unsafe extern "C" {
+    fn malloc_trim(pad: usize) -> i32;
+}
+
+pub fn trim_process_heap() {
+    // SAFETY: `malloc_trim(0)` is a thread-safe glibc function that releases free heap pages back to the OS.
+    unsafe {
+        let _ = malloc_trim(0);
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Registry,
@@ -104,6 +115,7 @@ pub struct AppState {
     sha256_cache: Arc<Mutex<HashMap<(path::PathBuf, u64), String>>>,
     tile_cache: Arc<Mutex<LruTileMap>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
+    catalog_cache: Arc<Mutex<Option<Bytes>>>,
 }
 
 impl AppState {
@@ -133,6 +145,7 @@ impl AppState {
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
             tile_cache: Arc::new(Mutex::new(LruTileMap::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
+            catalog_cache: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -186,6 +199,7 @@ impl AppState {
         if let Ok(mut g) = self.preload_cache.lock() {
             g.insert(partition_id, payload);
         }
+        self.enforce_memory_budget();
     }
 
     pub fn get_cached_tile(&self, key: &TileKey) -> Option<Arc<SignalSeries>> {
@@ -199,11 +213,49 @@ impl AppState {
         if let Ok(mut g) = self.tile_cache.lock() {
             g.insert(key, series);
         }
+        self.enforce_memory_budget();
     }
 
     pub fn invalidate_partition_cache(&self, partition_id: &str) {
         if let Ok(mut g) = self.preload_cache.lock() {
             g.remove(partition_id);
+        }
+        self.invalidate_catalog_cache();
+    }
+
+    pub fn get_cached_catalog(&self) -> Option<Bytes> {
+        self.catalog_cache.lock().ok().and_then(|g| g.clone())
+    }
+
+    pub fn insert_cached_catalog(&self, payload: Bytes) {
+        if let Ok(mut g) = self.catalog_cache.lock() {
+            *g = Some(payload);
+        }
+        trim_process_heap();
+    }
+
+    pub fn invalidate_catalog_cache(&self) {
+        if let Ok(mut g) = self.catalog_cache.lock() {
+            *g = None;
+        }
+    }
+
+    pub fn enforce_memory_budget(&self) {
+        trim_process_heap();
+        if self.max_cache_bytes == 0 {
+            return;
+        }
+        if let Some(rss) = Self::process_rss_bytes()
+            && (rss as usize) > self.max_cache_bytes
+        {
+            let excess = (rss as usize).saturating_sub(self.max_cache_bytes);
+            if let Ok(mut g) = self.tile_cache.lock() {
+                let target = g
+                    .current_bytes()
+                    .saturating_sub(excess.max(16 * 1024 * 1024));
+                g.evict_to_target_bytes(target);
+            }
+            trim_process_heap();
         }
     }
 
