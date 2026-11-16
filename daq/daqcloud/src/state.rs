@@ -100,6 +100,7 @@ pub struct AppState {
     pub store_dir: path::PathBuf,
     pub web_dist_dir: path::PathBuf,
     pub ws_tx: broadcast::Sender<CloudWsMessage>,
+    max_cache_bytes: usize,
     sha256_cache: Arc<Mutex<HashMap<(path::PathBuf, u64), String>>>,
     tile_cache: Arc<Mutex<LruTileMap>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
@@ -128,6 +129,7 @@ impl AppState {
             store_dir,
             web_dist_dir: resolve_default_web_dist_dir(),
             ws_tx,
+            max_cache_bytes,
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
             tile_cache: Arc::new(Mutex::new(LruTileMap::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
@@ -191,6 +193,9 @@ impl AppState {
     }
 
     pub fn insert_cached_tile(&self, key: TileKey, series: Arc<SignalSeries>) {
+        if self.max_cache_bytes == 0 {
+            return;
+        }
         if let Ok(mut g) = self.tile_cache.lock() {
             g.insert(key, series);
         }
@@ -200,5 +205,21 @@ impl AppState {
         if let Ok(mut g) = self.preload_cache.lock() {
             g.remove(partition_id);
         }
+    }
+
+    pub fn cache_usage_bytes(&self) -> (usize, usize) {
+        let tile_used = self
+            .tile_cache
+            .lock()
+            .map(|g| g.current_bytes())
+            .unwrap_or(0);
+        let preload_used = self.preload_cache.lock().map(|g| g.used_bytes).unwrap_or(0);
+        (tile_used.saturating_add(preload_used), self.max_cache_bytes)
+    }
+
+    pub fn process_rss_bytes() -> Option<u64> {
+        let statm = fs::read_to_string("/proc/self/statm").ok()?;
+        let resident_pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        Some(resident_pages.saturating_mul(4096))
     }
 }

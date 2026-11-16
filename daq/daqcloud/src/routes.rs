@@ -111,11 +111,15 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::patch(patch_annotation_id_handler).delete(delete_annotation_id_handler),
         )
         .route("/api/v1/ws", get(ws_upgrade_handler))
-        .layer(axum::middleware::from_fn(log_request_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            log_request_middleware,
+        ))
         .with_state(state)
 }
 
 async fn log_request_middleware(
+    State(state): State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -125,7 +129,21 @@ async fn log_request_middleware(
     let resp = next.run(req).await;
     let status = resp.status();
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    log::info!("{method} {uri} -> {} ({elapsed_ms:.2} ms)", status.as_u16());
+    let (cache_used, cache_max) = state.cache_usage_bytes();
+    let cache_used_mb = cache_used as f64 / (1024.0 * 1024.0);
+    let cache_max_mb = cache_max as f64 / (1024.0 * 1024.0);
+    if let Some(rss_bytes) = AppState::process_rss_bytes() {
+        let rss_mb = rss_bytes as f64 / (1024.0 * 1024.0);
+        log::info!(
+            "{method} {uri} -> {} ({elapsed_ms:.2} ms) [rss: {rss_mb:.1} MiB, cache: {cache_used_mb:.1}/{cache_max_mb:.0} MiB]",
+            status.as_u16()
+        );
+    } else {
+        log::info!(
+            "{method} {uri} -> {} ({elapsed_ms:.2} ms) [cache: {cache_used_mb:.1}/{cache_max_mb:.0} MiB]",
+            status.as_u16()
+        );
+    }
     resp
 }
 
