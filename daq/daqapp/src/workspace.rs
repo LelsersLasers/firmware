@@ -239,6 +239,9 @@ pub fn show(app: &mut app::DAQApp, ctx: &eframe::egui::Context) {
                     database: app.database.as_ref(),
                     ui_to_can_tx: app.ui_to_can_tx.clone(),
                     formatter: &app.value_formatter,
+                    canvas_color: theme.canvas_color(),
+                    accent_color: theme.accent_color(),
+                    muted_color: theme.muted_text_color(),
                 };
                 ui.add_enabled_ui(!selection_pending, |ui| {
                     app.tile_tree.ui(&mut behavior, ui);
@@ -312,6 +315,9 @@ struct WorkspaceTileBehavior<'a> {
     database: Option<&'a app::DatabaseSelection>,
     ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
     formatter: &'a Option<daqcore::formatter::Formatter>,
+    canvas_color: eframe::egui::Color32,
+    accent_color: eframe::egui::Color32,
+    muted_color: eframe::egui::Color32,
 }
 
 impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
@@ -356,7 +362,55 @@ impl egui_tiles::Behavior<widgets::Widget> for WorkspaceTileBehavior<'_> {
     }
 
     fn tab_bar_color(&self, visuals: &eframe::egui::Visuals) -> eframe::egui::Color32 {
-        visuals.panel_fill
+        visuals.faint_bg_color
+    }
+
+    fn tab_bg_color(
+        &self,
+        visuals: &eframe::egui::Visuals,
+        _tiles: &egui_tiles::Tiles<widgets::Widget>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> eframe::egui::Color32 {
+        if state.active {
+            self.canvas_color
+        } else if state.is_being_dragged {
+            visuals.widgets.active.bg_fill
+        } else {
+            eframe::egui::Color32::TRANSPARENT
+        }
+    }
+
+    fn tab_outline_stroke(
+        &self,
+        _visuals: &eframe::egui::Visuals,
+        _tiles: &egui_tiles::Tiles<widgets::Widget>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> eframe::egui::Stroke {
+        if state.active {
+            eframe::egui::Stroke::new(1.5, self.accent_color)
+        } else {
+            eframe::egui::Stroke::NONE
+        }
+    }
+
+    fn tab_text_color(
+        &self,
+        visuals: &eframe::egui::Visuals,
+        _tiles: &egui_tiles::Tiles<widgets::Widget>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> eframe::egui::Color32 {
+        if state.active {
+            visuals.strong_text_color()
+        } else {
+            self.muted_color
+        }
+    }
+
+    fn tab_hover_cursor_icon(&self) -> eframe::egui::CursorIcon {
+        eframe::egui::CursorIcon::PointingHand
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
@@ -587,6 +641,9 @@ mod tests {
                                     database: db.as_ref(),
                                     ui_to_can_tx: tx.clone(),
                                     formatter: &formatter,
+                                    canvas_color: eframe::egui::Color32::BLACK,
+                                    accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                                    muted_color: eframe::egui::Color32::GRAY,
                                 };
                                 tree.ui(&mut behavior, ui);
                             });
@@ -649,6 +706,9 @@ mod tests {
                             database: db.as_ref(),
                             ui_to_can_tx: tx.clone(),
                             formatter: &formatter,
+                            canvas_color: eframe::egui::Color32::BLACK,
+                            accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                            muted_color: eframe::egui::Color32::GRAY,
                         };
                         tree.ui(&mut behavior, ui);
                     });
@@ -885,6 +945,9 @@ mod tests {
                         database: Some(&db),
                         ui_to_can_tx: tx.clone(),
                         formatter: &formatter,
+                        canvas_color: eframe::egui::Color32::BLACK,
+                        accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                        muted_color: eframe::egui::Color32::GRAY,
                     };
                     tree.ui(&mut behavior, ui);
                 });
@@ -928,6 +991,9 @@ mod tests {
                         database: Some(&db),
                         ui_to_can_tx: tx.clone(),
                         formatter: &formatter,
+                        canvas_color: eframe::egui::Color32::BLACK,
+                        accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                        muted_color: eframe::egui::Color32::GRAY,
                     };
                     tree.ui(&mut behavior, ui);
                 });
@@ -969,6 +1035,9 @@ mod tests {
                         database: Some(&db),
                         ui_to_can_tx: tx.clone(),
                         formatter: &formatter,
+                        canvas_color: eframe::egui::Color32::BLACK,
+                        accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                        muted_color: eframe::egui::Color32::GRAY,
                     };
                     tree.ui(&mut behavior, ui);
                 });
@@ -993,6 +1062,9 @@ mod tests {
                         database: Some(&db),
                         ui_to_can_tx: tx.clone(),
                         formatter: &formatter,
+                        canvas_color: eframe::egui::Color32::BLACK,
+                        accent_color: eframe::egui::Color32::LIGHT_BLUE,
+                        muted_color: eframe::egui::Color32::GRAY,
                     };
                     tree.ui(&mut behavior, ui);
                 });
