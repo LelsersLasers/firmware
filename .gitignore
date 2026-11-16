@@ -38,9 +38,12 @@ tests/fil/stimuli/
 # cargo build artifacts
 target/
 
-# daqapp runtime files
+# daqapp & daqcloud runtime stores
 /daq/daqapp/settings.json
 /daq/daqapp/logs/
+/daq/logs/
+/daq/cloud_store/
+/cloud_store/
 /settings.json
 /logs/
 

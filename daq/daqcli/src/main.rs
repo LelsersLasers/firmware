@@ -79,6 +79,18 @@ enum Command {
         #[arg(long, default_value_t = false)]
         download_full: bool,
     },
+    /// Process and import all PER26 / PER25 datasets (raw logs and parsed CSVs) into a store directory
+    ImportPer26 {
+        /// Path to the PER26 dataset root directory
+        #[arg(long, default_value = "PER26")]
+        per26_dir: path::PathBuf,
+        /// Path to the output Parquet partition store directory
+        #[arg(long)]
+        store_dir: path::PathBuf,
+        /// Path to the directory containing era-specific superdbc_*.json files
+        #[arg(long, default_value = "superdbc")]
+        superdbc_dir: path::PathBuf,
+    },
 }
 
 /// Configuration for executing a headless CLI dataset export.
@@ -179,6 +191,30 @@ fn main() -> process::ExitCode {
                 process::ExitCode::FAILURE
             }
         },
+        Command::ImportPer26 {
+            per26_dir,
+            store_dir,
+            superdbc_dir,
+        } => {
+            match daqcore::log_parse::per26::import_all_per26(&per26_dir, &store_dir, &superdbc_dir)
+            {
+                Ok(report) => {
+                    log::info!(
+                        "PER26 import complete: {} track days, {} partitions written ({} skipped existing), {} annotations -> {}",
+                        report.track_days_imported,
+                        report.partitions_written,
+                        report.partitions_skipped_existing,
+                        report.annotations_created,
+                        store_dir.display()
+                    );
+                    process::ExitCode::SUCCESS
+                }
+                Err(err) => {
+                    log::error!("PER26 import failed: {err}");
+                    process::ExitCode::FAILURE
+                }
+            }
+        }
     }
 }
 

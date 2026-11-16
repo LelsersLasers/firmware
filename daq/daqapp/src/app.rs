@@ -143,6 +143,11 @@ impl DAQApp {
         let candidate_store_dirs = [
             settings.log_folder.clone(),
             Some(path::PathBuf::from(settings::DEFAULT_LOG_FOLDER)),
+            Some(
+                path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join(settings::DEFAULT_LOG_FOLDER),
+            ),
             Some(path::PathBuf::from("/tmp/per26_store")),
         ];
         if let Some(store_dir) = candidate_store_dirs.into_iter().flatten().find(|dir| {

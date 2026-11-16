@@ -4,6 +4,7 @@ pub mod auto_annotate;
 pub mod consts;
 pub mod correlate;
 pub mod parse;
+pub mod per26;
 use crate::{storage, superdbc};
 
 /// Live progress update emitted during an SD card `.log` import and Parquet partition build.

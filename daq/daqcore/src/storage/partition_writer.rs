@@ -113,26 +113,27 @@ impl From<storage::RegistryError> for ImportError {
     }
 }
 
-#[derive(Clone)]
-struct RawSample {
-    utc_ms: i64,
-    ticks_ms: u32,
-    physical: f64,
-    raw_int: i64,
-    enum_label: Option<String>,
+#[derive(Debug, Clone)]
+pub struct RawSample {
+    pub utc_ms: i64,
+    pub ticks_ms: u32,
+    pub physical: f64,
+    pub raw_int: i64,
+    pub enum_label: Option<String>,
 }
 
-struct SignalColumnAccumulator {
-    unit: String,
-    is_discrete: bool,
-    is_fault_flag: bool,
-    bus_name: String,
-    bus_id: u8,
-    can_id: u32,
-    transmitter: String,
-    nominal_period_ms: Option<u32>,
-    description: String,
-    samples: Vec<RawSample>,
+#[derive(Debug, Clone)]
+pub struct SignalColumnAccumulator {
+    pub unit: String,
+    pub is_discrete: bool,
+    pub is_fault_flag: bool,
+    pub bus_name: String,
+    pub bus_id: u8,
+    pub can_id: u32,
+    pub transmitter: String,
+    pub nominal_period_ms: Option<u32>,
+    pub description: String,
+    pub samples: Vec<RawSample>,
 }
 
 struct OverviewBucketRow {
@@ -226,6 +227,30 @@ pub fn write_correlated_epochs_to_store_with_progress<F>(
     log_files: &[parse::SourceLogFile],
     correlated_epochs: Vec<correlate::CorrelationChunkResult>,
     database: &superdbc::database::Database,
+    on_partition: F,
+) -> Result<ImportSummary, ImportError>
+where
+    F: FnMut(usize, usize, &str),
+{
+    write_correlated_epochs_to_store_for_day(
+        store_dir,
+        log_files,
+        correlated_epochs,
+        database,
+        None,
+        on_partition,
+    )
+}
+
+/// Same as [`write_correlated_epochs_to_store_with_progress`], with an optional explicit
+/// `track_day_id_override` so sessions that cross `00:00 UTC` (e.g. evening EDT runs)
+/// remain grouped under their track day.
+pub fn write_correlated_epochs_to_store_for_day<F>(
+    store_dir: &path::Path,
+    log_files: &[parse::SourceLogFile],
+    correlated_epochs: Vec<correlate::CorrelationChunkResult>,
+    database: &superdbc::database::Database,
+    track_day_id_override: Option<&str>,
     mut on_partition: F,
 ) -> Result<ImportSummary, ImportError>
 where
@@ -321,6 +346,7 @@ where
             &clock_mapping,
             log_files,
             database,
+            track_day_id_override,
         )?;
         registry.register_manifest(&manifest, true)?;
         if was_written {
@@ -341,6 +367,7 @@ fn write_single_partition(
     clock_mapping: &correlate::ClockMapping,
     all_log_files: &[parse::SourceLogFile],
     database: &superdbc::database::Database,
+    track_day_id_override: Option<&str>,
 ) -> Result<(PartitionManifest, bool), ImportError> {
     let start_utc_ms = slice.first().map(|(t, _)| *t).unwrap_or(0);
     let end_utc_ms = slice.last().map(|(t, _)| *t).unwrap_or(start_utc_ms);
@@ -471,7 +498,9 @@ fn write_single_partition(
     write_states_parquet(&partition_dir.join("states.parquet"), &columns)?;
 
     // Build signal manifest entries and run auto-annotation detectors
-    let track_day_id = format_track_day_id(start_utc_ms);
+    let track_day_id = track_day_id_override
+        .map(str::to_owned)
+        .unwrap_or_else(|| format_track_day_id(start_utc_ms));
     let updated_at_ms = time::Time::now().unix_millis();
 
     let borrowed_slice: Vec<(i64, &parse::ParsedMessage)> =
@@ -567,6 +596,299 @@ fn write_single_partition(
     );
 
     Ok((manifest, true))
+}
+
+/// Write a pre-accumulated epoch of signal columns (e.g. from decoded CSVs or multi-bus sessions)
+/// into `<= 15`-minute Parquet partition pyramids under `store_dir`.
+pub fn write_column_accumulators_to_store(
+    store_dir: &path::Path,
+    track_day_id: &str,
+    clock_mapping: &correlate::ClockMapping,
+    raw_log_hashes: &[parse::SourceLogFile],
+    superdbc_hash: &str,
+    mut columns: BTreeMap<storage::SignalId, SignalColumnAccumulator>,
+    extra_annotations: &[auto_annotate::Annotation],
+) -> Result<ImportSummary, ImportError> {
+    let partitions_root = store_dir.join("partitions");
+    fs::create_dir_all(&partitions_root)?;
+    let registry = storage::Registry::open_store(store_dir)?;
+
+    for acc in columns.values_mut() {
+        acc.samples.sort_by_key(|s| (s.utc_ms, s.ticks_ms));
+    }
+    columns.retain(|_, acc| !acc.samples.is_empty());
+
+    let mut summary = ImportSummary {
+        log_files_parsed: raw_log_hashes.len(),
+        boot_epochs_detected: usize::from(!columns.is_empty()),
+        partitions_written: 0,
+        partitions_skipped_existing: 0,
+        manifests: Vec::new(),
+    };
+
+    let Some(global_min_ms) = columns
+        .values()
+        .filter_map(|acc| acc.samples.first().map(|s| s.utc_ms))
+        .min()
+    else {
+        return Ok(summary);
+    };
+    let global_max_ms = columns
+        .values()
+        .filter_map(|acc| acc.samples.last().map(|s| s.utc_ms))
+        .max()
+        .unwrap_or(global_min_ms);
+
+    let mut sub_ranges = Vec::new();
+    let mut win_start = global_min_ms;
+    while win_start <= global_max_ms {
+        let win_end = (win_start + consts::MAX_PARTITION_SPAN_MS - 1).min(global_max_ms);
+        sub_ranges.push((win_start, win_end));
+        if win_end >= global_max_ms {
+            break;
+        }
+        win_start = win_end + 1;
+    }
+
+    for (sub_idx, (range_lo, range_hi)) in sub_ranges.into_iter().enumerate() {
+        let mut slice_columns: BTreeMap<storage::SignalId, SignalColumnAccumulator> =
+            BTreeMap::new();
+        let mut actual_min_ms: Option<i64> = None;
+        let mut actual_max_ms: Option<i64> = None;
+        let mut total_samples: u64 = 0;
+
+        for (sig_id, acc) in &columns {
+            let lo = acc.samples.partition_point(|s| s.utc_ms < range_lo);
+            let hi = acc.samples.partition_point(|s| s.utc_ms <= range_hi);
+            if lo < hi {
+                let sub_samples = acc.samples[lo..hi].to_vec();
+                let first_t = sub_samples.first().map(|s| s.utc_ms).unwrap_or(range_lo);
+                let last_t = sub_samples.last().map(|s| s.utc_ms).unwrap_or(range_hi);
+                actual_min_ms = Some(actual_min_ms.map_or(first_t, |m| m.min(first_t)));
+                actual_max_ms = Some(actual_max_ms.map_or(last_t, |m| m.max(last_t)));
+                total_samples += sub_samples.len() as u64;
+                slice_columns.insert(
+                    sig_id.clone(),
+                    SignalColumnAccumulator {
+                        unit: acc.unit.clone(),
+                        is_discrete: acc.is_discrete,
+                        is_fault_flag: acc.is_fault_flag,
+                        bus_name: acc.bus_name.clone(),
+                        bus_id: acc.bus_id,
+                        can_id: acc.can_id,
+                        transmitter: acc.transmitter.clone(),
+                        nominal_period_ms: acc.nominal_period_ms,
+                        description: acc.description.clone(),
+                        samples: sub_samples,
+                    },
+                );
+            }
+        }
+
+        let (Some(start_utc_ms), Some(end_utc_ms)) = (actual_min_ms, actual_max_ms) else {
+            continue;
+        };
+
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(start_utc_ms.to_le_bytes());
+        hasher.update(end_utc_ms.to_le_bytes());
+        hasher.update((sub_idx as u64).to_le_bytes());
+        hasher.update(total_samples.to_le_bytes());
+        hasher.update(superdbc_hash.as_bytes());
+        hasher.update(track_day_id.as_bytes());
+        for file in raw_log_hashes {
+            hasher.update(file.sha256_hex.as_bytes());
+        }
+        let digest = hasher.finalize();
+        let mut prefix = String::with_capacity(12);
+        for byte in &digest[..6] {
+            use std::fmt::Write as _;
+            let _ = write!(&mut prefix, "{byte:02x}");
+        }
+        let partition_id = format!("epoch_{start_utc_ms}_{prefix}");
+        let partition_dir = partitions_root.join(&partition_id);
+        let manifest_path = partition_dir.join("manifest.json");
+
+        if manifest_path.exists()
+            && partition_dir.join("full_res.parquet").exists()
+            && partition_dir.join("overview_10hz.parquet").exists()
+            && partition_dir.join("overview_1hz.parquet").exists()
+            && partition_dir.join("states.parquet").exists()
+            && let Ok(existing_bytes) = fs::read(&manifest_path)
+            && let Ok(existing_manifest) =
+                serde_json::from_slice::<PartitionManifest>(&existing_bytes)
+            && existing_manifest.partition_id == partition_id
+        {
+            registry.register_manifest(&existing_manifest, true)?;
+            summary.partitions_skipped_existing += 1;
+            summary.manifests.push(existing_manifest);
+            continue;
+        }
+
+        fs::create_dir_all(&partition_dir)?;
+        write_full_res_parquet(&partition_dir.join("full_res.parquet"), &slice_columns)?;
+        write_overview_parquet(
+            &partition_dir.join("overview_10hz.parquet"),
+            &slice_columns,
+            consts::BUCKET_10HZ_MS,
+        )?;
+        write_overview_parquet(
+            &partition_dir.join("overview_1hz.parquet"),
+            &slice_columns,
+            consts::BUCKET_1HZ_MS,
+        )?;
+        write_states_parquet(&partition_dir.join("states.parquet"), &slice_columns)?;
+
+        let updated_at_ms = time::Time::now().unix_millis();
+        let speed_samples = extract_speed_samples_from_columns(&slice_columns);
+        let mut annotations = auto_annotate::detect_motion_stints(
+            &speed_samples,
+            &partition_id,
+            track_day_id,
+            updated_at_ms,
+        );
+        for extra in extra_annotations {
+            let ex_end = extra.end_utc_ms.unwrap_or(extra.start_utc_ms);
+            if extra.start_utc_ms <= end_utc_ms && ex_end >= start_utc_ms {
+                annotations.push(extra.clone());
+            }
+        }
+
+        let mut signal_entries = Vec::with_capacity(slice_columns.len());
+        for (signal_id, acc) in &slice_columns {
+            if acc.samples.is_empty() {
+                continue;
+            }
+            let min_utc_ms = acc.samples.first().map(|s| s.utc_ms).unwrap_or(0);
+            let max_utc_ms = acc.samples.last().map(|s| s.utc_ms).unwrap_or(0);
+            let mut min_val = f64::INFINITY;
+            let mut max_val = f64::NEG_INFINITY;
+            for sample in &acc.samples {
+                if sample.physical.is_finite() {
+                    min_val = min_val.min(sample.physical);
+                    max_val = max_val.max(sample.physical);
+                }
+            }
+            if !min_val.is_finite() {
+                min_val = 0.0;
+                max_val = 0.0;
+            }
+
+            if acc.is_fault_flag {
+                let raw_pairs: Vec<(i64, i64)> =
+                    acc.samples.iter().map(|s| (s.utc_ms, s.raw_int)).collect();
+                annotations.extend(auto_annotate::detect_signal_fault_transitions(
+                    signal_id,
+                    &raw_pairs,
+                    track_day_id,
+                    updated_at_ms,
+                ));
+            }
+
+            signal_entries.push(SignalManifestEntry {
+                signal_id: signal_id.clone(),
+                unit: acc.unit.clone(),
+                is_discrete: acc.is_discrete,
+                bus_name: acc.bus_name.clone(),
+                bus_id: acc.bus_id,
+                can_id: acc.can_id,
+                transmitter: acc.transmitter.clone(),
+                nominal_period_ms: acc.nominal_period_ms,
+                description: acc.description.clone(),
+                sample_count: acc.samples.len() as u64,
+                min_utc_ms,
+                max_utc_ms,
+                min_val,
+                max_val,
+            });
+        }
+
+        annotations.sort_by_key(|a| (a.start_utc_ms, a.id.clone()));
+        annotations.dedup_by(|a, b| a.id == b.id);
+
+        let manifest = PartitionManifest {
+            partition_id: partition_id.clone(),
+            track_day_id: track_day_id.to_owned(),
+            start_utc_ms,
+            end_utc_ms,
+            clock_mapping: clock_mapping.clone(),
+            superdbc_hash: superdbc_hash.to_owned(),
+            raw_log_hashes: raw_log_hashes.to_vec(),
+            signals: signal_entries,
+            annotations,
+        };
+
+        let tmp_manifest_path = partition_dir.join("manifest.json.tmp");
+        let manifest_json = serde_json::to_vec_pretty(&manifest)?;
+        fs::write(&tmp_manifest_path, manifest_json)?;
+        fs::rename(&tmp_manifest_path, &manifest_path)?;
+
+        registry.register_manifest(&manifest, true)?;
+        summary.partitions_written += 1;
+        summary.manifests.push(manifest);
+    }
+
+    Ok(summary)
+}
+
+fn extract_speed_samples_from_columns(
+    columns: &BTreeMap<storage::SignalId, SignalColumnAccumulator>,
+) -> Vec<(i64, f64)> {
+    let mut direct_mps = Vec::new();
+    for candidate in [
+        "gps_speed_heading.gps_speed",
+        "gps_velocity.gps_vel_n",
+        "gps_speed.speed",
+    ] {
+        if let Some(acc) = columns.get(candidate) {
+            for s in &acc.samples {
+                if s.physical.is_finite() {
+                    direct_mps.push((s.utc_ms, s.physical.abs()));
+                }
+            }
+            if direct_mps
+                .iter()
+                .any(|&(_, v)| v > auto_annotate::SPEED_THRESHOLD_MPS)
+            {
+                direct_mps.sort_by_key(|&(t, _)| t);
+                return direct_mps;
+            }
+        }
+    }
+
+    let mut fallback = Vec::new();
+    for candidate in [
+        "INVA_CRIT.AMK_ActualSpeed",
+        "INVB_CRIT.AMK_ActualSpeed",
+        "wheel_speeds.front_left",
+        "wheel_speeds.rear_left",
+        "f_wheel_speeds.fl",
+        "LR_B.LR_Velocity",
+        "LF_B.LF_Velocity",
+    ] {
+        if let Some(acc) = columns.get(candidate) {
+            let scale = if candidate.contains("LR_") || candidate.contains("LF_") {
+                1.0 / 30.0
+            } else {
+                1.0 / 550.0
+            };
+            for s in &acc.samples {
+                if s.physical.is_finite() {
+                    fallback.push((s.utc_ms, s.physical.abs() * scale));
+                }
+            }
+            if fallback
+                .iter()
+                .any(|&(_, v)| v > auto_annotate::SPEED_THRESHOLD_MPS)
+            {
+                fallback.sort_by_key(|&(t, _)| t);
+                return fallback;
+            }
+        }
+    }
+
+    direct_mps.sort_by_key(|&(t, _)| t);
+    direct_mps
 }
 
 fn default_writer_properties(sorting_columns: Vec<SortingColumn>) -> WriterProperties {

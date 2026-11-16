@@ -106,8 +106,11 @@ pub fn is_fault_flag_signal(msg_name: &str, sig_name: &str) -> bool {
     let msg_lower = msg_name.to_ascii_lowercase();
     let sig_lower = sig_name.to_ascii_lowercase();
 
-    // `*_fault_event` is handled separately via its (idx, state) fields
-    if msg_lower.ends_with("_fault_event") {
+    // `*_fault_event` and legacy multiplexed `fault_sync_*` are handled separately
+    if msg_lower.ends_with("_fault_event")
+        || msg_lower.starts_with("fault_sync_")
+        || matches!(sig_lower.as_str(), "idx" | "latched" | "val" | "state")
+    {
         return false;
     }
 
@@ -217,13 +220,7 @@ pub fn extract_speed_samples(
             if let Some(sig) = msg.decoded.signal("gps_speed") {
                 direct_mps.push((utc_ms, sig.physical()));
             }
-        } else if msg_name.contains("speed") && msg_name != "motor_speeds" {
-            for (sig_name, sig) in msg.decoded.iter() {
-                if sig_name.contains("speed") || sig_name.contains("mps") {
-                    direct_mps.push((utc_ms, sig.physical()));
-                }
-            }
-        } else if msg_name == "motor_speeds" {
+        } else if msg_name == "wheel_speeds" || msg_name == "motor_speeds" {
             let mut sum_rpm = 0.0;
             let mut count = 0usize;
             for (_, sig) in msg.decoded.iter() {
@@ -237,13 +234,31 @@ pub fn extract_speed_samples(
                 let avg_rpm = sum_rpm / (count as f64);
                 fallback_rpm.push((utc_ms, avg_rpm / MOTOR_RPM_PER_MPS));
             }
+        } else if msg_name.ends_with("_CRIT") {
+            if let Some(sig) = msg.decoded.signal("AMK_ActualSpeed") {
+                let v = sig.physical();
+                if v.is_finite() {
+                    fallback_rpm.push((utc_ms, v.abs() / MOTOR_RPM_PER_MPS));
+                }
+            }
+        } else if msg_name.contains("speed") {
+            for (sig_name, sig) in msg.decoded.iter() {
+                if sig_name.contains("speed") || sig_name.contains("mps") {
+                    direct_mps.push((utc_ms, sig.physical()));
+                }
+            }
         }
     }
 
-    if !direct_mps.is_empty() {
+    if direct_mps
+        .iter()
+        .any(|&(_, v)| v.is_finite() && v.abs() > SPEED_THRESHOLD_MPS)
+    {
         direct_mps
-    } else {
+    } else if !fallback_rpm.is_empty() {
         fallback_rpm
+    } else {
+        direct_mps
     }
 }
 

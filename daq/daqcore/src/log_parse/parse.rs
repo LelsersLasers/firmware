@@ -288,6 +288,71 @@ fn parse_log_file(
     Ok((file_meta, parsed))
 }
 
+/// Decode a raw 16-byte frame buffer (`content`) on an explicit target bus (`explicit_bus_name`),
+/// filtering out corrupted tick values (`ticks_ms > 86_400_000`).
+pub fn parse_log_bytes_on_bus(
+    content: &[u8],
+    file_name: &str,
+    mtime_unix_ms: i64,
+    source_file_idx: usize,
+    explicit_bus_name: &str,
+    database: &superdbc::database::Database,
+) -> (SourceLogFile, Vec<ParsedMessage>) {
+    let sha256_hex = sha256_hex_bytes(content);
+    let rtc_timestamp_ms = parse_rtc_filename_ms(file_name);
+    let file_meta = SourceLogFile {
+        file_name: file_name.to_owned(),
+        sha256_hex,
+        rtc_timestamp_ms,
+        mtime_unix_ms,
+    };
+
+    let frame_size = mem::size_of::<RawFrame>();
+    let usable_len = content.len() - (content.len() % frame_size);
+    let frames: Vec<RawFrame> = content[..usable_len]
+        .chunks_exact(frame_size)
+        .map(bytemuck::pod_read_unaligned)
+        .collect();
+
+    let target_bus = database.bus(explicit_bus_name);
+    let mut parsed = Vec::with_capacity(frames.len());
+
+    for frame in &frames {
+        if frame.ticks_ms > 86_400_000 {
+            continue;
+        }
+        let identity = frame.can_identity();
+        let std_id = frame.identity & 0x7FF;
+
+        let decoded_on_bus = target_bus
+            .and_then(|bus| {
+                bus.decode(identity, &frame.data)
+                    .ok()
+                    .or_else(|| bus.decode(std_id, &frame.data).ok())
+                    .map(|d| (bus.name().to_owned(), d))
+            })
+            .or_else(|| {
+                database.buses().iter().find_map(|bus| {
+                    bus.decode(identity, &frame.data)
+                        .ok()
+                        .or_else(|| bus.decode(std_id, &frame.data).ok())
+                        .map(|d| (bus.name().to_owned(), d))
+                })
+            });
+
+        if let Some((bus_name, decoded)) = decoded_on_bus {
+            parsed.push(ParsedMessage {
+                timestamp: frame.ticks_ms,
+                decoded,
+                bus_name,
+                source_file_idx,
+            });
+        }
+    }
+
+    (file_meta, parsed)
+}
+
 fn split_monotonic_segments(messages: Vec<ParsedMessage>) -> Vec<Vec<ParsedMessage>> {
     let mut chunks = Vec::new();
     let mut current_chunk = Vec::new();

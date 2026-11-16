@@ -1426,7 +1426,11 @@ fn channel_max_gap_ms(
     signal_id: &str,
     base_max_gap_ms: i64,
 ) -> i64 {
-    let clean_id = signal_id.trim().strip_prefix('-').unwrap_or(signal_id).trim();
+    let clean_id = signal_id
+        .trim()
+        .strip_prefix('-')
+        .unwrap_or(signal_id)
+        .trim();
     let mut max_period_ms = router
         .signal_meta(clean_id)
         .and_then(|m| m.nominal_period_ms)

@@ -259,9 +259,9 @@ impl CloudSyncStatus {
     pub fn url(&self) -> Option<&str> {
         match self {
             Self::Disconnected => None,
-            Self::Connecting { url }
-            | Self::Connected { url, .. }
-            | Self::Error { url, .. } => Some(url.as_str()),
+            Self::Connecting { url } | Self::Connected { url, .. } | Self::Error { url, .. } => {
+                Some(url.as_str())
+            }
         }
     }
 }
@@ -274,28 +274,20 @@ pub enum CloudSyncCommand {
     SyncCatalog,
     /// Download `overview_10hz.parquet` and `full_res.parquet` for a specific partition on demand
     /// (with HTTP `Range` resumability and SHA-256 verification) and flip `is_local = true`.
-    DownloadPartition {
-        partition_id: String,
-    },
+    DownloadPartition { partition_id: String },
     /// Download `overview_1hz.parquet` and `states.parquet` for a newly announced remote partition.
-    PrefetchOverview {
-        manifest: PartitionManifest,
-    },
+    PrefetchOverview { manifest: PartitionManifest },
     /// Scan local partitions (`is_local == true`) and upload any missing files to `daqcloud`.
     UploadLocalPartitions,
     /// Immediately push an upserted local annotation to `daqcloud`.
-    PushAnnotation {
-        annotation: Annotation,
-    },
+    PushAnnotation { annotation: Annotation },
     /// Immediately push an annotation soft-delete tombstone to `daqcloud`.
     DeleteAnnotation {
         annotation_id: String,
         updated_at_ms: i64,
     },
     /// Update the active Track Day ID so its 1Hz overviews are prioritized.
-    SetActiveTrackDay {
-        track_day_id: Option<String>,
-    },
+    SetActiveTrackDay { track_day_id: Option<String> },
     /// Cleanly terminate the background worker and WebSocket listener.
     Shutdown,
 }
@@ -694,8 +686,8 @@ async fn run_cloud_sync_runtime(
                                 }
                             }
                             CloudWsMessage::PartitionAvailable { manifest } => {
-                                let _ = ws_cmd_tx
-                                    .send(CloudSyncCommand::PrefetchOverview { manifest });
+                                let _ =
+                                    ws_cmd_tx.send(CloudSyncCommand::PrefetchOverview { manifest });
                             }
                             CloudWsMessage::Ping { .. } => {}
                         }
@@ -784,13 +776,8 @@ async fn run_cloud_sync_runtime(
                 });
                 notify_repaint(&repaint_cb);
 
-                let res = download_full_partition(
-                    &client,
-                    &base_url,
-                    &store_dir,
-                    &partition_id,
-                )
-                .await;
+                let res =
+                    download_full_partition(&client, &base_url, &store_dir, &partition_id).await;
 
                 match res {
                     Ok(()) => {
@@ -945,12 +932,8 @@ async fn sync_catalog_and_overviews(
                 loc.insert(manifest.partition_id.clone());
             }
         }
-        reg.register_manifest(manifest, is_complete).map_err(|e| {
-            format!(
-                "Failed to register manifest {}: {e}",
-                manifest.partition_id
-            )
-        })?;
+        reg.register_manifest(manifest, is_complete)
+            .map_err(|e| format!("Failed to register manifest {}: {e}", manifest.partition_id))?;
     }
 
     update_status_snapshot(metrics, status, base_url, |m| {
@@ -981,14 +964,7 @@ async fn sync_catalog_and_overviews(
 
     for manifest in &ordered_partitions {
         prefetch_single_manifest_overview(
-            client,
-            base_url,
-            store_dir,
-            manifest,
-            event_tx,
-            repaint_cb,
-            metrics,
-            status,
+            client, base_url, store_dir, manifest, event_tx, repaint_cb, metrics, status,
         )
         .await?;
     }
@@ -1173,7 +1149,10 @@ pub async fn download_file_resumable(
 
             let (_, full_sha) = compute_file_sha256_hex(&part_path)
                 .map_err(|e| format!("Failed hashing {}: {e}", part_path.display()))?;
-            if expected_full_sha.as_ref().is_none_or(|exp| exp == &full_sha) {
+            if expected_full_sha
+                .as_ref()
+                .is_none_or(|exp| exp == &full_sha)
+            {
                 fs::rename(&part_path, &final_path).map_err(|e| {
                     format!(
                         "Failed renaming {} -> {}: {e}",

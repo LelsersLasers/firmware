@@ -18,10 +18,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        registry: Registry,
-        store_dir: impl Into<path::PathBuf>,
-    ) -> Result<Self, db::Error> {
+    pub fn new(registry: Registry, store_dir: impl Into<path::PathBuf>) -> Result<Self, db::Error> {
         let store_dir = store_dir.into();
         fs::create_dir_all(store_dir.join("partitions"))?;
         fs::create_dir_all(store_dir.join("raw"))?;

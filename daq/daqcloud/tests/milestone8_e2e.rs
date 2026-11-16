@@ -105,7 +105,10 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     let days_b = router_b.list_track_days().expect("list track days on B");
     assert_eq!(days_b.len(), 1);
     assert_eq!(days_b[0].id, "2026-09-06");
-    assert_eq!(router_b.timeline().active_track_day_id(), Some("2026-09-06"));
+    assert_eq!(
+        router_b.timeline().active_track_day_id(),
+        Some("2026-09-06")
+    );
     assert_eq!(
         router_b.timeline().day_bounds_ms(),
         Some((manifest_a.start_utc_ms, manifest_a.end_utc_ms))
@@ -175,7 +178,8 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         thread::sleep(Duration::from_millis(10));
     }
 
-    let exact_b = exact_b.expect("Instance B should download full_res.parquet and serve Exact samples");
+    let exact_b =
+        exact_b.expect("Instance B should download full_res.parquet and serve Exact samples");
     assert!(
         router_b.partitions()[0].is_local,
         "is_local should be flipped to true in local_registry.sqlite after download"
@@ -237,14 +241,18 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         let anns = router_b
             .query_annotations_in_range(zoom_range.clone())
             .expect("query annotations on B");
-        if anns.iter().any(|a| a.id == live_ann.id && a.name == live_ann.name) {
+        if anns
+            .iter()
+            .any(|a| a.id == live_ann.id && a.name == live_ann.name)
+        {
             received_latency = Some(t_send.elapsed());
             break;
         }
         thread::sleep(Duration::from_millis(2));
     }
 
-    let latency = received_latency.expect("Instance B should receive live annotation via WebSocket");
+    let latency =
+        received_latency.expect("Instance B should receive live annotation via WebSocket");
     assert!(
         latency < Duration::from_millis(100),
         "Expected live annotation propagation in < 100 ms, took {latency:?}"
@@ -305,8 +313,8 @@ async fn resumable_partial_download_and_cli_sync_roundtrip() {
     let part_id = &import_summary.manifests[0].partition_id;
 
     // 1. Upload store_a using synchronous CLI helper (`sync_store_with_cloud_blocking`)
-    let up_summary = sync_store_with_cloud_blocking(store_a.path(), &base_url, false)
-        .expect("CLI sync upload");
+    let up_summary =
+        sync_store_with_cloud_blocking(store_a.path(), &base_url, false).expect("CLI sync upload");
     assert_eq!(up_summary.partitions_uploaded, 1);
 
     // 2. Simulate an interrupted download in `store_b` by writing the first half of `full_res.parquet`
@@ -331,15 +339,10 @@ async fn resumable_partial_download_and_cli_sync_roundtrip() {
     .unwrap();
 
     let client = reqwest::Client::new();
-    let resumed = download_file_resumable(
-        &client,
-        &base_url,
-        part_id,
-        "full_res.parquet",
-        &part_dir_b,
-    )
-    .await
-    .expect("resume partial download");
+    let resumed =
+        download_file_resumable(&client, &base_url, part_id, "full_res.parquet", &part_dir_b)
+            .await
+            .expect("resume partial download");
     assert!(resumed);
     assert!(!part_dir_b.join("full_res.parquet.part").exists());
     let (_, resumed_sha) = compute_file_sha256_hex(&part_dir_b.join("full_res.parquet")).unwrap();

@@ -174,10 +174,7 @@ async fn get_partition_file_handler(
         "application/octet-stream"
     };
 
-    if let Some(range_val) = req_headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(range_val) = req_headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
         let Some((start, end)) = parse_byte_range(range_val, total_size) else {
             let mut headers = HeaderMap::new();
             if let Ok(cr) = HeaderValue::from_str(&format!("bytes */{total_size}")) {
@@ -205,10 +202,7 @@ async fn get_partition_file_handler(
 
         let range_sha256 = compute_sha256_hex(&buf);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static(content_type),
-        );
+        headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
         headers.insert(
             header::CONTENT_LENGTH,
             HeaderValue::from_str(&buf.len().to_string()).unwrap(),
@@ -242,10 +236,7 @@ async fn get_partition_file_handler(
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     headers.insert(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
@@ -352,9 +343,7 @@ async fn put_partition_file_handler(
             let _ = fs::remove_file(&part_file_path);
             return (
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "SHA-256 checksum mismatch: expected {expected}, got {computed_sha256}"
-                ),
+                format!("SHA-256 checksum mismatch: expected {expected}, got {computed_sha256}"),
             )
                 .into_response();
         }
@@ -373,9 +362,7 @@ async fn put_partition_file_handler(
         {
             return (
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "SHA-256 checksum mismatch: expected {expected}, got {computed_sha256}"
-                ),
+                format!("SHA-256 checksum mismatch: expected {expected}, got {computed_sha256}"),
             )
                 .into_response();
         }
@@ -404,7 +391,9 @@ async fn put_partition_file_handler(
         }
 
         let tmp_path = part_dir.join(format!(".{filename}.tmp"));
-        if let Err(err) = fs::write(&tmp_path, &body).and_then(|()| fs::rename(&tmp_path, &target_path)) {
+        if let Err(err) =
+            fs::write(&tmp_path, &body).and_then(|()| fs::rename(&tmp_path, &target_path))
+        {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to write asset file: {err}"),
@@ -922,7 +911,10 @@ mod tests {
             parse_content_range("bytes 0-511/1024"),
             Some((0, 511, 1024))
         );
-        assert_eq!(parse_content_range("bytes 512-1023/1024"), Some((512, 1023, 1024)));
+        assert_eq!(
+            parse_content_range("bytes 512-1023/1024"),
+            Some((512, 1023, 1024))
+        );
         assert_eq!(parse_content_range("bytes 512-1024/1024"), None);
     }
 

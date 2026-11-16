@@ -195,11 +195,11 @@ impl VirtualTimelineRouter {
             .tile_cache
             .preload_registered_partitions(&store_dir, &all_partitions)?;
 
-        for part in &all_partitions {
-            self.timeline
-                .observe_day_span_ms(part.start_utc_ms, part.end_utc_ms);
-        }
-        if self.timeline.active_track_day_id().is_none()
+        let active_missing = self
+            .timeline
+            .active_track_day_id()
+            .is_some_and(|active_id| !days.iter().any(|d| d.id == active_id));
+        if (self.timeline.active_track_day_id().is_none() || active_missing)
             && let Some(last_day) = days.last()
         {
             self.timeline
@@ -208,7 +208,23 @@ impl VirtualTimelineRouter {
                 sync.set_active_track_day(Some(last_day.id.clone()));
             }
         }
-        if !had_bounds
+
+        let active_day_id = self.timeline.active_track_day_id().map(str::to_owned);
+        let mut min_ms: Option<i64> = None;
+        let mut max_ms: Option<i64> = None;
+        for part in &all_partitions {
+            if active_day_id
+                .as_deref()
+                .is_none_or(|day_id| part.track_day_id == day_id)
+            {
+                min_ms = Some(min_ms.map_or(part.start_utc_ms, |m| m.min(part.start_utc_ms)));
+                max_ms = Some(max_ms.map_or(part.end_utc_ms, |m| m.max(part.end_utc_ms)));
+            }
+        }
+        if let (Some(lo), Some(hi)) = (min_ms, max_ms) {
+            self.timeline.set_day_bounds_ms(Some((lo, hi.max(lo))));
+        }
+        if (!had_bounds || active_missing)
             && self.live_buffer.is_empty()
             && let Some((lo, hi)) = self.timeline.day_bounds_ms()
         {
@@ -1377,9 +1393,7 @@ impl VirtualTimelineRouter {
             self.timeline
                 .set_active_track_day_id(Some(annotation.track_day_id.clone()));
         }
-        if changed
-            && let Some(sync) = &self.cloud_sync
-        {
+        if changed && let Some(sync) = &self.cloud_sync {
             sync.push_annotation(annotation.clone());
         }
         Ok(changed)
@@ -1399,9 +1413,7 @@ impl VirtualTimelineRouter {
             self.timeline
                 .toggle_comparison_annotation(annotation_id.to_owned(), 0, None);
         }
-        if deleted
-            && let Some(sync) = &self.cloud_sync
-        {
+        if deleted && let Some(sync) = &self.cloud_sync {
             sync.delete_annotation(annotation_id.to_owned(), updated_at_ms);
         }
         Ok(deleted)
