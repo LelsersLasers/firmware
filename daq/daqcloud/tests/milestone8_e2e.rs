@@ -36,8 +36,8 @@ async fn spawn_local_daqcloud() -> (String, tempfile::TempDir, tokio::task::Join
 
 fn synthetic_superdbc_json() -> &'static str {
     r#"{
-      "versions": { "schema_version": "1.1", "hash": "e2e_synth_v1" },
-      "content_hash": "e2e_synthetic_superdbc_hash_0001",
+      "versions": { "schema_version": "1.1", "hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+      "content_hash": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
       "buses": {
         "VCAN": {
           "bus_id": 0,
@@ -111,6 +111,9 @@ fn prepare_fixture_store(store_dir: &path::Path) -> (Database, ImportSummary) {
     let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
     let log_path =
         manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
+
+    // Verify synthetic fallback SuperDBC parses cleanly even when PER26/ fixtures exist locally.
+    let _ = Database::from_json(synthetic_superdbc_json()).expect("valid synthetic superdbc");
 
     if dbc_path.is_file() && log_path.is_file() {
         let db = Database::load(&dbc_path).expect("load superdbc_per26.json");
