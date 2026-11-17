@@ -94,16 +94,7 @@ fn resolve_default_web_dist_dir() -> path::PathBuf {
     candidates[2].clone()
 }
 
-unsafe extern "C" {
-    fn malloc_trim(pad: usize) -> i32;
-}
-
-pub fn trim_process_heap() {
-    // SAFETY: `malloc_trim(0)` is a thread-safe glibc function that releases free heap pages back to the OS.
-    unsafe {
-        let _ = malloc_trim(0);
-    }
-}
+type Sha256CacheKey = (path::PathBuf, u64, u64);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -112,7 +103,7 @@ pub struct AppState {
     pub web_dist_dir: path::PathBuf,
     pub ws_tx: broadcast::Sender<CloudWsMessage>,
     max_cache_bytes: usize,
-    sha256_cache: Arc<Mutex<HashMap<(path::PathBuf, u64), String>>>,
+    sha256_cache: Arc<Mutex<HashMap<Sha256CacheKey, String>>>,
     tile_cache: Arc<Mutex<LruTileMap>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
     catalog_cache: Arc<Mutex<Option<Bytes>>>,
@@ -168,7 +159,12 @@ impl AppState {
     pub fn cached_file_sha256(&self, path: &path::Path) -> io::Result<(u64, String)> {
         let meta = fs::metadata(path)?;
         let size = meta.len();
-        let key = (path.to_path_buf(), size);
+        let mtime_secs = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        let key = (path.to_path_buf(), size, mtime_secs);
         if let Ok(guard) = self.sha256_cache.lock()
             && let Some(cached) = guard.get(&key)
         {
@@ -176,15 +172,26 @@ impl AppState {
         }
         let (computed_size, digest) = compute_file_sha256_hex(path)?;
         if let Ok(mut guard) = self.sha256_cache.lock() {
-            guard.insert((path.to_path_buf(), computed_size), digest.clone());
+            if guard.len() >= 4096 {
+                guard.clear();
+            }
+            guard.insert((path.to_path_buf(), computed_size, mtime_secs), digest.clone());
         }
         Ok((computed_size, digest))
     }
 
     pub fn insert_cached_sha256(&self, path: path::PathBuf, size: u64, sha256_hex: String) {
+        let mtime_secs = fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
         if let Ok(mut guard) = self.sha256_cache.lock() {
-            guard.retain(|(p, _), _| p != &path);
-            guard.insert((path, size), sha256_hex);
+            if guard.len() >= 4096 {
+                guard.clear();
+            }
+            guard.retain(|(p, _, _), _| p != &path);
+            guard.insert((path, size, mtime_secs), sha256_hex);
         }
     }
 
@@ -220,6 +227,9 @@ impl AppState {
         if let Ok(mut g) = self.preload_cache.lock() {
             g.remove(partition_id);
         }
+        if let Ok(mut g) = self.tile_cache.lock() {
+            g.remove_partition(partition_id);
+        }
         self.invalidate_catalog_cache();
     }
 
@@ -231,7 +241,6 @@ impl AppState {
         if let Ok(mut g) = self.catalog_cache.lock() {
             *g = Some(payload);
         }
-        trim_process_heap();
     }
 
     pub fn invalidate_catalog_cache(&self) {
@@ -241,21 +250,16 @@ impl AppState {
     }
 
     pub fn enforce_memory_budget(&self) {
-        trim_process_heap();
         if self.max_cache_bytes == 0 {
             return;
         }
-        if let Some(rss) = Self::process_rss_bytes()
-            && (rss as usize) > self.max_cache_bytes
-        {
-            let excess = (rss as usize).saturating_sub(self.max_cache_bytes);
+        let (used_bytes, max_bytes) = self.cache_usage_bytes();
+        if used_bytes > max_bytes {
+            let excess = used_bytes.saturating_sub(max_bytes);
             if let Ok(mut g) = self.tile_cache.lock() {
-                let target = g
-                    .current_bytes()
-                    .saturating_sub(excess.max(16 * 1024 * 1024));
+                let target = g.current_bytes().saturating_sub(excess);
                 g.evict_to_target_bytes(target);
             }
-            trim_process_heap();
         }
     }
 

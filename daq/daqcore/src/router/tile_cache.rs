@@ -220,6 +220,21 @@ impl LruTileMap {
             }
         }
     }
+
+    /// Remove all cached tiles belonging to `partition_id`.
+    pub fn remove_partition(&mut self, partition_id: &str) {
+        let mut to_remove = Vec::new();
+        for (key, entry) in &self.entries {
+            if key.partition_id == partition_id {
+                to_remove.push((key.clone(), entry.generation, entry.bytes));
+            }
+        }
+        for (key, generation, bytes) in to_remove {
+            self.entries.remove(&key);
+            self.order.remove(&generation);
+            self.current_bytes = self.current_bytes.saturating_sub(bytes);
+        }
+    }
 }
 
 struct TileCacheDynamic {

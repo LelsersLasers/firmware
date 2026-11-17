@@ -427,12 +427,10 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
             ExportFormat::Csv | ExportFormat::MatlabMat => {
                 let table =
                     materialize_export_table(router, range, signal_patterns, sampling_mode)?;
-                let (bytes, mime) = match format {
-                    ExportFormat::Csv => (write_csv_bytes(&table)?, "text/csv"),
-                    ExportFormat::MatlabMat => {
-                        (write_matlab_mat_bytes(&table)?, "application/octet-stream")
-                    }
-                    ExportFormat::Parquet => unreachable!(),
+                let (bytes, mime) = if format == ExportFormat::Csv {
+                    (write_csv_bytes(&table)?, "text/csv")
+                } else {
+                    (write_matlab_mat_bytes(&table)?, "application/octet-stream")
                 };
                 self.browser.trigger_file_download(&filename, mime, &bytes);
                 let start_utc_ms = table.timestamps_utc_ms.first().copied().unwrap_or(0);
@@ -453,7 +451,12 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
                 })
             }
             ExportFormat::Parquet => {
-                let base_url = self.browser.origin_url();
+                let origin = self.browser.origin_url();
+                let base_url = if !origin.trim().is_empty() {
+                    origin
+                } else {
+                    DEFAULT_CLOUD_URL.to_owned()
+                };
                 let trimmed = base_url.trim().trim_end_matches('/');
                 let export_url = format!("{trimmed}/api/v1/export");
 

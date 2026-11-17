@@ -34,44 +34,8 @@ use std::{
 use tokio::sync::broadcast::error::RecvError;
 
 const EMBEDDED_PER_LOGO_PNG: &[u8] = include_bytes!("../../daqviewer/assets/per_logo.png");
-
-const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>PER — DaqWeb Telemetry Viewer</title>
-    <link rel="icon" type="image/png" href="/assets/per_logo.png" />
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #0d1117;
-            color: #c9d1d9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-        canvas#daqweb_canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            outline: none;
-        }
-    </style>
-</head>
-<body>
-    <canvas id="daqweb_canvas"></canvas>
-    <script type="module">
-        import init from '/assets/daqweb.js';
-        init('/assets/daqweb_bg.wasm');
-    </script>
-</body>
-</html>
-"#;
+const FALLBACK_WEB_INDEX_HTML: &str = include_str!("../../daqweb/index.html");
+const MAX_PARTITION_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
@@ -289,14 +253,16 @@ async fn post_track_day_handler(
     State(state): State<AppState>,
     Json(day): Json<daqcore::storage::TrackDay>,
 ) -> Result<Json<daqcore::storage::TrackDay>, (StatusCode, String)> {
-    state
+    let mut updated = state
         .registry
         .upsert_track_day(&day)
         .map_err(internal_registry_err)?;
-    let updated = state
-        .registry
-        .set_track_day_label(&day.id, &day.location)
-        .map_err(internal_registry_err)?;
+    if day.title.trim().is_empty() || !day.location.trim().is_empty() {
+        updated = state
+            .registry
+            .set_track_day_label(&day.id, &day.location)
+            .map_err(internal_registry_err)?;
+    }
     state.invalidate_catalog_cache();
     Ok(Json(updated))
 }
@@ -347,10 +313,7 @@ async fn head_partition_file_handler(
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&size_bytes.to_string()).unwrap(),
-    );
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(size_bytes));
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     if let Ok(etag) = HeaderValue::from_str(&format!("\"{sha256_hex}\"")) {
         headers.insert(header::ETAG, etag);
@@ -660,10 +623,7 @@ async fn get_partition_file_handler(
         let range_sha256 = compute_sha256_hex(&buf);
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-        headers.insert(
-            header::CONTENT_LENGTH,
-            HeaderValue::from_str(&buf.len().to_string()).unwrap(),
-        );
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(buf.len()));
         headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
         if let Ok(cr) = HeaderValue::from_str(&format!("bytes {start}-{end}/{total_size}")) {
             headers.insert(header::CONTENT_RANGE, cr);
@@ -694,10 +654,7 @@ async fn get_partition_file_handler(
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
-    );
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     if let Ok(etag) = HeaderValue::from_str(&format!("\"{full_sha256}\"")) {
         headers.insert(header::ETAG, etag);
@@ -715,7 +672,11 @@ async fn put_partition_file_handler(
     req_headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if !is_safe_path_segment(&partition_id) || !is_safe_path_segment(&filename) {
+    if !is_safe_path_segment(&partition_id)
+        || !is_safe_path_segment(&filename)
+        || filename == "preload"
+        || filename == "tile"
+    {
         return (StatusCode::BAD_REQUEST, "Invalid partition_id or filename").into_response();
     }
 
@@ -733,6 +694,10 @@ async fn put_partition_file_handler(
         .get(CHECKSUM_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_ascii_lowercase());
+    let expected_range_sha256 = req_headers
+        .get(RANGE_CHECKSUM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_ascii_lowercase());
 
     // Handle resumable chunked upload if `Content-Range: bytes start-end/total` is provided
     let (final_size, final_sha256) = if let Some(content_range_str) = req_headers
@@ -742,6 +707,13 @@ async fn put_partition_file_handler(
         let Some((start, end, total)) = parse_content_range(content_range_str) else {
             return (StatusCode::BAD_REQUEST, "Invalid Content-Range header").into_response();
         };
+        if total > MAX_PARTITION_UPLOAD_BYTES {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Upload total size exceeds maximum allowed partition asset size",
+            )
+                .into_response();
+        }
         if body.len() as u64 != end - start + 1 {
             return (
                 StatusCode::BAD_REQUEST,
@@ -749,8 +721,26 @@ async fn put_partition_file_handler(
             )
                 .into_response();
         }
+        let chunk_sha = compute_sha256_hex(&body);
+        if let Some(exp_range) = &expected_range_sha256
+            && exp_range != &chunk_sha
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Chunk SHA-256 mismatch: expected {exp_range}, got {chunk_sha}"),
+            )
+                .into_response();
+        }
 
         let part_file_path = part_dir.join(format!(".{filename}.upload.part"));
+        let current_len = fs::metadata(&part_file_path).map(|m| m.len()).unwrap_or(0);
+        if start > current_len {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Non-contiguous Content-Range start offset",
+            )
+                .into_response();
+        }
         let write_res = (|| -> std::io::Result<()> {
             let mut f = fs::OpenOptions::new()
                 .create(true)
@@ -771,7 +761,6 @@ async fn put_partition_file_handler(
         }
 
         if end + 1 < total {
-            let chunk_sha = compute_sha256_hex(&body);
             return (
                 StatusCode::OK,
                 Json(AssetUploadResponse {
@@ -959,10 +948,7 @@ async fn head_superdbc_handler(
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&size_bytes.to_string()).unwrap(),
-    );
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(size_bytes));
     if let Ok(etag) = HeaderValue::from_str(&format!("\"{sha256_hex}\"")) {
         headers.insert(header::ETAG, etag);
     }
@@ -1015,10 +1001,7 @@ async fn get_superdbc_handler(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
-    );
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
     if let Ok(etag) = HeaderValue::from_str(&format!("\"{full_sha256}\"")) {
         headers.insert(header::ETAG, etag);
     }
@@ -1573,14 +1556,22 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                         }
                                     }
                                 }
-                                CloudWsMessage::DerivedSignalUpdated { signal } => {
-                                    if state.registry.upsert_derived_signal(&signal).unwrap_or(false)
-                                        && let Ok(Some(stored)) = state.registry.get_derived_signal(&signal.id)
-                                    {
-                                        state.invalidate_catalog_cache();
-                                        let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
-                                            signal: stored,
-                                        });
+                                CloudWsMessage::DerivedSignalUpdated { mut signal } => {
+                                    signal.id = signal.id.trim().to_owned();
+                                    let valid = !signal.id.is_empty()
+                                        && (signal.deleted || Expr::parse(&signal.expression).is_ok());
+                                    if valid {
+                                        if signal.updated_at_ms <= 0 {
+                                            signal.updated_at_ms = Time::now().unix_millis();
+                                        }
+                                        if state.registry.upsert_derived_signal(&signal).unwrap_or(false)
+                                            && let Ok(Some(stored)) = state.registry.get_derived_signal(&signal.id)
+                                        {
+                                            state.invalidate_catalog_cache();
+                                            let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                                                signal: stored,
+                                            });
+                                        }
                                     }
                                 }
                                 CloudWsMessage::DerivedSignalDeleted { id, updated_at_ms } => {

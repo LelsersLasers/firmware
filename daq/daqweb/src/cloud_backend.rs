@@ -183,6 +183,8 @@ pub struct WebCloudRouterBackend {
     preloaded_partitions: HashSet<String>,
     last_catalog_poll: Option<web_time::Instant>,
     catalog_in_flight: bool,
+    annotations_in_flight: bool,
+    derived_in_flight: bool,
     initial_catalog_loaded: bool,
     last_annotation_sync_ms: i64,
     last_derived_sync_ms: i64,
@@ -203,6 +205,8 @@ impl WebCloudRouterBackend {
             preloaded_partitions: HashSet::new(),
             last_catalog_poll: None,
             catalog_in_flight: false,
+            annotations_in_flight: false,
+            derived_in_flight: false,
             initial_catalog_loaded: false,
             last_annotation_sync_ms: 0,
             last_derived_sync_ms: 0,
@@ -255,10 +259,11 @@ impl WebCloudRouterBackend {
         let Some(base_url) = self.base_url.clone() else {
             return;
         };
-        if self.catalog_in_flight {
+        if self.annotations_in_flight || self.derived_in_flight {
             return;
         }
-        self.catalog_in_flight = true;
+        self.annotations_in_flight = true;
+        self.derived_in_flight = true;
         self.last_catalog_poll = Some(web_time::Instant::now());
 
         let trimmed = base_url.trim_end_matches('/');
@@ -548,6 +553,8 @@ impl RouterBackend for WebCloudRouterBackend {
         self.base_url = Some(normalized.clone());
         self.status = CloudSyncStatus::Connecting { url: normalized };
         self.catalog_in_flight = false;
+        self.annotations_in_flight = false;
+        self.derived_in_flight = false;
         self.initial_catalog_loaded = false;
         self.last_annotation_sync_ms = 0;
         self.last_derived_sync_ms = 0;
@@ -559,8 +566,12 @@ impl RouterBackend for WebCloudRouterBackend {
         self.loader.set_base_url(None);
         self.base_url = None;
         self.status = CloudSyncStatus::Disconnected;
+        self.catalog = InMemoryCatalog::new();
+        self.preloaded_partitions.clear();
         self.in_flight_preloads.clear();
         self.catalog_in_flight = false;
+        self.annotations_in_flight = false;
+        self.derived_in_flight = false;
         self.initial_catalog_loaded = false;
         self.last_annotation_sync_ms = 0;
         self.last_derived_sync_ms = 0;
@@ -572,6 +583,8 @@ impl RouterBackend for WebCloudRouterBackend {
 
     fn trigger_cloud_sync(&mut self) {
         self.catalog_in_flight = false;
+        self.annotations_in_flight = false;
+        self.derived_in_flight = false;
         self.spawn_catalog_fetch();
     }
 
@@ -580,6 +593,8 @@ impl RouterBackend for WebCloudRouterBackend {
         // and `/api/v1/derived-signals?since_utc_ms=...` every 2.5 seconds.
         if self.base_url.is_some()
             && !self.catalog_in_flight
+            && !self.annotations_in_flight
+            && !self.derived_in_flight
             && self
                 .last_catalog_poll
                 .is_none_or(|t| t.elapsed().as_secs_f32() >= 2.5)
@@ -634,7 +649,7 @@ impl RouterBackend for WebCloudRouterBackend {
                     self.update_connected_status();
                 }
                 WebCloudEvent::AnnotationsPolled { annotations } => {
-                    self.catalog_in_flight = false;
+                    self.annotations_in_flight = false;
                     for ann in &annotations {
                         self.last_annotation_sync_ms =
                             self.last_annotation_sync_ms.max(ann.updated_at_ms);
@@ -645,7 +660,7 @@ impl RouterBackend for WebCloudRouterBackend {
                     self.update_connected_status();
                 }
                 WebCloudEvent::DerivedSignalsPolled { signals } => {
-                    self.catalog_in_flight = false;
+                    self.derived_in_flight = false;
                     for sig in &signals {
                         self.last_derived_sync_ms =
                             self.last_derived_sync_ms.max(sig.updated_at_ms);
@@ -689,6 +704,8 @@ impl RouterBackend for WebCloudRouterBackend {
                 }
                 WebCloudEvent::Error { url, error } => {
                     self.catalog_in_flight = false;
+                    self.annotations_in_flight = false;
+                    self.derived_in_flight = false;
                     self.status = CloudSyncStatus::Error { url, error };
                 }
             }
