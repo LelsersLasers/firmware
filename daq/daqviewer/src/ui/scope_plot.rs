@@ -393,7 +393,7 @@ impl Scope {
                     plot.vline(
                         egui_plot::VLine::new("", x)
                             .color(theme.playhead_color())
-                            .width(1.6_f32),
+                            .width(2.8_f32),
                     );
                 }
                 let hover_x = if x_mode == ScopeXAxisMode::TrackDistance {
