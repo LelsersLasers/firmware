@@ -588,14 +588,26 @@ async fn run_cloud_sync_runtime(
             CloudSyncCommand::PushAnnotation { annotation } => {
                 let url = format!("{base_url}/api/v1/annotations");
                 let payload = AnnotationUpsertPayload::Single(Box::new(annotation));
-                if let Err(err) = client.post(&url).json(&payload).send().await {
-                    log::warn!("Failed to push annotation to {url}: {err}");
+                match client.post(&url).json(&payload).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to push annotation to {url}: {err}");
+                    }
+                    Ok(_) => {}
                 }
             }
             CloudSyncCommand::PushTrackDay { day } => {
                 let url = format!("{base_url}/api/v1/track-days");
-                if let Err(err) = client.post(&url).json(&day).send().await {
-                    log::warn!("Failed to push track day to {url}: {err}");
+                match client.post(&url).json(&day).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to push track day to {url}: {err}");
+                    }
+                    Ok(_) => {}
                 }
             }
             CloudSyncCommand::DeleteAnnotation {
@@ -605,22 +617,40 @@ async fn run_cloud_sync_runtime(
                 let url = format!(
                     "{base_url}/api/v1/annotations/{annotation_id}?updated_at_ms={updated_at_ms}"
                 );
-                if let Err(err) = client.delete(&url).send().await {
-                    log::warn!("Failed to delete annotation at {url}: {err}");
+                match client.delete(&url).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        log::warn!("DELETE {url} returned HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to delete annotation at {url}: {err}");
+                    }
+                    Ok(_) => {}
                 }
             }
             CloudSyncCommand::PushDerivedSignal { signal } => {
                 let url = format!("{base_url}/api/v1/derived-signals");
                 let payload = DerivedSignalUpsertPayload::Single(Box::new(signal));
-                if let Err(err) = client.post(&url).json(&payload).send().await {
-                    log::warn!("Failed to push derived signal to {url}: {err}");
+                match client.post(&url).json(&payload).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to push derived signal to {url}: {err}");
+                    }
+                    Ok(_) => {}
                 }
             }
             CloudSyncCommand::DeleteDerivedSignal { id, updated_at_ms } => {
                 let url =
                     format!("{base_url}/api/v1/derived-signals/{id}?updated_at_ms={updated_at_ms}");
-                if let Err(err) = client.delete(&url).send().await {
-                    log::warn!("Failed to delete derived signal at {url}: {err}");
+                match client.delete(&url).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        log::warn!("DELETE {url} returned HTTP {}", resp.status());
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to delete derived signal at {url}: {err}");
+                    }
+                    Ok(_) => {}
                 }
             }
         }
@@ -689,7 +719,9 @@ async fn sync_catalog_and_overviews(
         if !to_push.is_empty() {
             let ann_url = format!("{base_url}/api/v1/annotations");
             let payload = AnnotationUpsertPayload::Batch(to_push);
-            let _ = client.post(&ann_url).json(&payload).send().await;
+            if let Err(err) = client.post(&ann_url).json(&payload).send().await {
+                log::warn!("Failed to push batch annotations to {ann_url}: {err}");
+            }
         }
     }
 
@@ -718,7 +750,9 @@ async fn sync_catalog_and_overviews(
         if !to_push.is_empty() {
             let sig_url = format!("{base_url}/api/v1/derived-signals");
             let payload = DerivedSignalUpsertPayload::Batch(to_push);
-            let _ = client.post(&sig_url).json(&payload).send().await;
+            if let Err(err) = client.post(&sig_url).json(&payload).send().await {
+                log::warn!("Failed to push batch derived signals to {sig_url}: {err}");
+            }
         }
     }
 
@@ -731,7 +765,10 @@ async fn sync_catalog_and_overviews(
         if !manifest_path.is_file()
             && let Ok(bytes) = serde_json::to_vec_pretty(manifest)
         {
-            let _ = fs::write(&manifest_path, bytes);
+            let tmp_path = part_dir.join("manifest.json.tmp");
+            if fs::write(&tmp_path, bytes).is_ok() {
+                let _ = fs::rename(&tmp_path, &manifest_path);
+            }
         }
         let is_complete = Registry::is_partition_dir_complete(&part_dir);
         if is_complete {
@@ -1004,22 +1041,39 @@ pub async fn download_file_resumable(
         .get(CHECKSUM_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_ascii_lowercase());
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed reading body from {url}: {e}"))?;
 
-    let actual_sha = compute_sha256_hex(&bytes);
+    let mut part_file = fs::File::create(&part_path)
+        .map_err(|e| format!("Failed creating {}: {e}", part_path.display()))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk_res) = stream.next().await {
+        let chunk =
+            chunk_res.map_err(|e| format!("Failed reading body stream from {url}: {e}"))?;
+        part_file
+            .write_all(&chunk)
+            .map_err(|e| format!("Failed writing {}: {e}", part_path.display()))?;
+        hasher.update(&chunk);
+    }
+    part_file
+        .flush()
+        .map_err(|e| format!("Failed flushing {}: {e}", part_path.display()))?;
+    drop(part_file);
+
+    let digest = hasher.finalize();
+    let mut actual_sha = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut actual_sha, "{b:02x}");
+    }
     if let Some(exp) = &expected_sha
         && &actual_sha != exp
     {
+        let _ = fs::remove_file(&part_path);
         return Err(format!(
             "SHA-256 mismatch for {url}: expected {exp}, got {actual_sha}"
         ));
     }
 
-    fs::write(&part_path, &bytes)
-        .map_err(|e| format!("Failed writing {}: {e}", part_path.display()))?;
     fs::rename(&part_path, &final_path).map_err(|e| {
         format!(
             "Failed renaming {} -> {}: {e}",

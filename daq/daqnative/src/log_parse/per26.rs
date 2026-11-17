@@ -309,7 +309,7 @@ fn parse_realtime_str_ms(rt_str: &str, fallback_date: NaiveDate) -> Option<i64> 
             0 => 0,
             1 => ms_str.parse::<u32>().ok()? * 100,
             2 => ms_str.parse::<u32>().ok()? * 10,
-            _ => ms_str[..3].parse::<u32>().ok()?,
+            _ => ms_str.get(..3)?.parse::<u32>().ok()?,
         };
         let naive = fallback_date.and_hms_milli_opt(hh, mm, ss, ms)?;
         // 2026-06-14 `09:54:22` was local EDT (`UTC-4`), add 4 hours for UTC
@@ -681,9 +681,17 @@ fn chain_raw_log_files_by_boot(dir: &Path) -> io::Result<Vec<Vec<PathBuf>>> {
         if n == 0 {
             continue;
         }
-        let first_tick = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-        let last_tick =
-            u32::from_le_bytes(bytes[(n - 1) * 16..(n - 1) * 16 + 4].try_into().unwrap());
+        let Some(first_b) = bytes.get(0..4).and_then(|s| s.try_into().ok()) else {
+            continue;
+        };
+        let Some(last_b) = bytes
+            .get((n - 1) * 16..(n - 1) * 16 + 4)
+            .and_then(|s| s.try_into().ok())
+        else {
+            continue;
+        };
+        let first_tick = u32::from_le_bytes(first_b);
+        let last_tick = u32::from_le_bytes(last_b);
         if first_tick > 86_400_000 || last_tick > 86_400_000 {
             continue;
         }
@@ -702,7 +710,9 @@ fn chain_raw_log_files_by_boot(dir: &Path) -> io::Result<Vec<Vec<PathBuf>>> {
         let mut best_idx = None;
         let mut best_gap = u32::MAX;
         for (idx, chain) in chains.iter().enumerate() {
-            let prev = chain.last().unwrap();
+            let Some(prev) = chain.last() else {
+                continue;
+            };
             if span.first_tick < prev.last_tick
                 || span.first_tick.saturating_sub(prev.last_tick) > 1_800_000
             {
@@ -901,10 +911,11 @@ fn import_day_2025_09_20(
             if gps_pts.len() < 10 {
                 continue;
             }
-            let dt_daq =
-                (gps_pts.last().unwrap().0 as f64 - gps_pts.first().unwrap().0 as f64) / 1000.0;
-            let dt_gps =
-                (gps_pts.last().unwrap().1 as f64 - gps_pts.first().unwrap().1 as f64) / 1000.0;
+            let (Some(first_pt), Some(last_pt)) = (gps_pts.first(), gps_pts.last()) else {
+                continue;
+            };
+            let dt_daq = (last_pt.0 as f64 - first_pt.0 as f64) / 1000.0;
+            let dt_gps = (last_pt.1 as f64 - first_pt.1 as f64) / 1000.0;
             if dt_daq < 5.0 {
                 continue;
             }
@@ -946,12 +957,12 @@ fn import_day_2025_09_20(
     // Group verified blocks into sessions separated by > 180 seconds
     let mut sessions: Vec<Vec<VerifiedBlock>> = Vec::new();
     for blk in verified_blocks {
-        if let Some(cur) = sessions.last_mut() {
-            let prev_start = cur.last().unwrap().gps_start_ms;
-            if (blk.gps_start_ms - prev_start).abs() <= 180_000 {
-                cur.push(blk);
-                continue;
-            }
+        if let Some(cur) = sessions.last_mut()
+            && let Some(prev) = cur.last()
+            && (blk.gps_start_ms - prev.gps_start_ms).abs() <= 180_000
+        {
+            cur.push(blk);
+            continue;
         }
         sessions.push(vec![blk]);
     }
@@ -1470,7 +1481,7 @@ fn import_days_2026_05(
     let db_0510 =
         Database::load(&dbc_0510).map_err(|e| ImportError::Io(io::Error::other(e.to_string())))?;
 
-    let date_0503 = NaiveDate::from_ymd_opt(2026, 5, 3).unwrap();
+    let date_0503 = NaiveDate::from_ymd_opt(2026, 5, 3).expect("valid literal date 2026-05-03");
     let p1 = may_root.join("may3_part1");
     let p2 = may_root.join("may3_part2");
     let p3 = may_root.join("may3_part3");
@@ -1577,7 +1588,7 @@ fn import_days_2026_05(
     }
 
     // Track Day 7: 2026-05-10
-    let date_0510 = NaiveDate::from_ymd_opt(2026, 5, 10).unwrap();
+    let date_0510 = NaiveDate::from_ymd_opt(2026, 5, 10).expect("valid literal date 2026-05-10");
     let hunter = may_root.join("may10-hunter-runs");
     let accel = may_root.join("may10-accel-skids");
 
@@ -1655,7 +1666,7 @@ fn import_day_2026_06_14(
     }
     let db =
         Database::load(&dbc_path).map_err(|e| ImportError::Io(io::Error::other(e.to_string())))?;
-    let date_0614 = NaiveDate::from_ymd_opt(2026, 6, 14).unwrap();
+    let date_0614 = NaiveDate::from_ymd_opt(2026, 6, 14).expect("valid literal date 2026-06-14");
     let s = import_csv_boot_group(
         &[(csv_path, None)],
         "VCAN",
@@ -1697,7 +1708,7 @@ fn import_day_2026_09_05(
     }
     let db =
         Database::load(&dbc_path).map_err(|e| ImportError::Io(io::Error::other(e.to_string())))?;
-    let date_0905 = NaiveDate::from_ymd_opt(2026, 9, 5).unwrap();
+    let date_0905 = NaiveDate::from_ymd_opt(2026, 9, 5).expect("valid literal date 2026-09-05");
 
     let mut csv_files: Vec<(PathBuf, Option<(f64, f64)>)> = fs::read_dir(&parsed_dir)?
         .filter_map(Result::ok)
@@ -1791,7 +1802,10 @@ fn import_raw_dir_streaming_boots(
             let mut prev_tick: Option<u32> = None;
             let (frame_chunks, _) = bytes[..usable].as_chunks::<16>();
             for frame_bytes in frame_chunks {
-                let tick = u32::from_le_bytes(frame_bytes[0..4].try_into().unwrap());
+                let (tick_b, _) = frame_bytes
+                    .split_first_chunk::<4>()
+                    .unwrap_or((&[0; 4], &[]));
+                let tick = u32::from_le_bytes(*tick_b);
                 if let Some(prev) = prev_tick
                     && (tick < prev
                         || tick.saturating_sub(prev) > crate::log_parse::consts::MAX_JUMP_MS)

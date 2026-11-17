@@ -49,6 +49,8 @@ pub struct NativeTileLoader {
     cloud_base_url: Arc<Mutex<Option<String>>>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
     req_tx: mpsc::Sender<NativeLoadJob>,
+    blocking_rt: Option<tokio::runtime::Runtime>,
+    blocking_client: Option<reqwest::Client>,
 }
 
 impl Default for NativeTileLoader {
@@ -63,15 +65,29 @@ impl NativeTileLoader {
         let repaint_cb: Arc<Mutex<Option<RepaintCallback>>> = Arc::new(Mutex::new(None));
         let worker_repaint = Arc::clone(&repaint_cb);
 
-        let _ = thread::Builder::new()
+        if let Err(err) = thread::Builder::new()
             .name("daq-tile-loader".into())
-            .spawn(move || Self::worker_loop(req_rx, worker_repaint));
+            .spawn(move || Self::worker_loop(req_rx, worker_repaint))
+        {
+            log::error!("Failed to spawn daq-tile-loader background thread: {err}");
+        }
+
+        let blocking_rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok();
+        let blocking_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .ok();
 
         Self {
             partition_dirs: Mutex::new(HashMap::new()),
             cloud_base_url: Arc::new(Mutex::new(None)),
             repaint_cb,
             req_tx,
+            blocking_rt,
+            blocking_client,
         }
     }
 
@@ -259,24 +275,16 @@ impl TileLoader for NativeTileLoader {
         }
 
         let cloud_base_url = self.cloud_base_url.lock().ok().and_then(|u| u.clone());
-        if let Some(base_url) = cloud_base_url {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .ok();
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(20))
-                .build()
-                .ok();
-            if let Ok(series) = Self::execute_load(
+        if let Some(base_url) = cloud_base_url
+            && let Ok(series) = Self::execute_load(
                 key,
                 part_dir.as_deref(),
                 Some(&base_url),
-                rt.as_ref(),
-                client.as_ref(),
-            ) {
-                return Ok(Some(series));
-            }
+                self.blocking_rt.as_ref(),
+                self.blocking_client.as_ref(),
+            )
+        {
+            return Ok(Some(series));
         }
 
         Ok(None)
@@ -382,7 +390,11 @@ impl RouterBackend for NativeRouterBackend {
         track_day_id: &str,
         label: &str,
     ) -> Result<TrackDay, RouterError> {
-        Ok(self.registry.set_track_day_label(track_day_id, label)?)
+        let day = self.registry.set_track_day_label(track_day_id, label)?;
+        if let Some(cloud) = &self.cloud_sync {
+            cloud.push_track_day(day.clone());
+        }
+        Ok(day)
     }
 
     fn list_partitions_for_day(

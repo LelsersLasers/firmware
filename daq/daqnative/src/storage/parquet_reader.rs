@@ -115,15 +115,29 @@ pub fn read_all_signals_overview_with_activity(
         let mut current_key: Option<i32> = None;
         let mut current_vec: Option<&mut Vec<EnvelopePoint>> = None;
 
+        let dict_len = dict_values.len();
         for row in 0..batch.num_rows() {
+            if sig_col.is_null(row) {
+                continue;
+            }
             let key = keys[row];
+            let Ok(key_idx) = usize::try_from(key) else {
+                return Err(RouterError::InvalidColumn(
+                    "negative dictionary key in overview Parquet",
+                ));
+            };
+            if key_idx >= dict_len {
+                return Err(RouterError::InvalidColumn(
+                    "out-of-bounds dictionary key in overview Parquet",
+                ));
+            }
             let bucket_ms = buckets[row];
             let sample_count = count_col.map_or(1, |c| c.value(row));
             let act_entry = activity.entry(bucket_ms).or_insert(0);
             *act_entry = act_entry.saturating_add(sample_count);
 
             if current_key != Some(key) {
-                let sig_name = dict_values.value(key as usize);
+                let sig_name = dict_values.value(key_idx);
                 current_key = Some(key);
                 current_vec = Some(map.entry(sig_name.to_owned()).or_default());
             }
@@ -265,8 +279,22 @@ pub fn read_all_signals_states(
         let ends = end_col.values();
         let raws = raw_col.values();
 
+        let dict_len = dict_values.len();
         for row in 0..batch.num_rows() {
-            let sig_name = dict_values.value(keys[row] as usize);
+            if sig_col.is_null(row) {
+                continue;
+            }
+            let Ok(key_idx) = usize::try_from(keys[row]) else {
+                return Err(RouterError::InvalidColumn(
+                    "negative dictionary key in states Parquet",
+                ));
+            };
+            if key_idx >= dict_len {
+                return Err(RouterError::InvalidColumn(
+                    "out-of-bounds dictionary key in states Parquet",
+                ));
+            }
+            let sig_name = dict_values.value(key_idx);
             map.entry(sig_name.to_owned())
                 .or_default()
                 .push(StateInterval {

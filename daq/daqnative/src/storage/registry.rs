@@ -314,10 +314,18 @@ impl Registry {
             if enable_wal {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
             }
-            conn.run_pending_migrations(MIGRATIONS)
-                .map_err(RegistryError::Migration)?;
-            Self::seed_builtin_derived_signals_in_conn(&mut conn)?;
-            Self::renumber_auto_stints_in_conn(&mut conn, None)?;
+            let any_applied = !conn
+                .run_pending_migrations(MIGRATIONS)
+                .map_err(RegistryError::Migration)?
+                .is_empty();
+            let existing_derived_count: i64 =
+                derived_signals::table.count().get_result(&mut conn)?;
+            if any_applied || existing_derived_count == 0 {
+                Self::seed_builtin_derived_signals_in_conn(&mut conn)?;
+            }
+            if any_applied {
+                Self::renumber_auto_stints_in_conn(&mut conn, None)?;
+            }
         }
 
         Ok(Self { pool })
@@ -428,8 +436,15 @@ impl Registry {
                 } else {
                     day.location.clone()
                 };
-                let start_utc_ms = prev.start_utc_ms.min(day.start_utc_ms);
-                let end_utc_ms = prev.end_utc_ms.max(day.end_utc_ms).max(start_utc_ms);
+                let (start_utc_ms, end_utc_ms) = if prev.start_utc_ms == 0 && prev.end_utc_ms == 0 {
+                    (day.start_utc_ms, day.end_utc_ms.max(day.start_utc_ms))
+                } else if day.start_utc_ms == 0 && day.end_utc_ms == 0 {
+                    (prev.start_utc_ms, prev.end_utc_ms.max(prev.start_utc_ms))
+                } else {
+                    let lo = prev.start_utc_ms.min(day.start_utc_ms);
+                    let hi = prev.end_utc_ms.max(day.end_utc_ms).max(lo);
+                    (lo, hi)
+                };
 
                 let updated = TrackDayRow {
                     id: day.id.clone(),
@@ -796,13 +811,33 @@ impl Registry {
         updated_at_ms: i64,
     ) -> Result<bool, RegistryError> {
         let mut conn = self.pool.get()?;
-        let updated = diesel::update(annotations::table.filter(annotations::id.eq(annotation_id)))
-            .set((
-                annotations::deleted.eq(true),
-                annotations::updated_at_ms.eq(updated_at_ms),
-            ))
-            .execute(&mut conn)?;
-        Ok(updated > 0)
+        conn.immediate_transaction::<bool, diesel::result::Error, _>(|conn| {
+            let existing = annotations::table
+                .filter(annotations::id.eq(annotation_id))
+                .select(AnnotationRow::as_select())
+                .first::<AnnotationRow>(conn)
+                .optional()?;
+            let Some(prev) = existing else {
+                return Ok(false);
+            };
+            if updated_at_ms < prev.updated_at_ms {
+                return Ok(false);
+            }
+            let updated =
+                diesel::update(annotations::table.filter(annotations::id.eq(annotation_id)))
+                    .set((
+                        annotations::deleted.eq(true),
+                        annotations::updated_at_ms.eq(updated_at_ms),
+                    ))
+                    .execute(conn)?;
+            if updated > 0
+                && (prev.category == "driving_stint" || prev.id.starts_with("auto_stint_"))
+            {
+                Self::renumber_auto_stints_in_conn(conn, Some(&prev.track_day_id))?;
+            }
+            Ok(updated > 0)
+        })
+        .map_err(RegistryError::from)
     }
 
     pub fn list_annotations_for_day(
@@ -996,7 +1031,7 @@ impl Registry {
             return Ok(false);
         }
         let mut conn = self.pool.get()?;
-        conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+        conn.immediate_transaction::<bool, diesel::result::Error, _>(|conn| {
             let existing = derived_signals::table
                 .filter(derived_signals::id.eq(&row.id))
                 .select(DerivedSignalRow::as_select())
@@ -1041,7 +1076,7 @@ impl Registry {
             return Ok(false);
         }
         let mut conn = self.pool.get()?;
-        conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+        conn.immediate_transaction::<bool, diesel::result::Error, _>(|conn| {
             let existing = derived_signals::table
                 .filter(derived_signals::id.eq(trimmed))
                 .select(DerivedSignalRow::as_select())
@@ -1111,12 +1146,7 @@ impl Registry {
         let mut stint_idx: usize = 0;
 
         for row in rows {
-            let is_default_auto_name =
-                row.name
-                    .strip_prefix("Driving Stint #")
-                    .is_some_and(|suffix| {
-                        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
-                    });
+            let is_default_auto_name = daqcore::storage::is_default_auto_stint_name(&row.name);
             let is_auto_origin =
                 row.id.starts_with("auto_stint_") || (row.source == "auto" && is_default_auto_name);
             if !is_auto_origin {

@@ -176,7 +176,7 @@ def parse_dbc_file(dbc_path: Path, bus_id: int, baud_rate: int = 500000, period_
         rest = m_val.group(3)
         choices = {}
         for k, v in val_pair_re.findall(rest):
-            if int(k) >= 0 and v.strip():
+            if v.strip():
                 choices[str(int(k))] = v.strip()
         if choices and raw_id in messages_by_id:
             for s in messages_by_id[raw_id]["signals"]:
@@ -519,7 +519,8 @@ def main() -> None:
                         s["scale"] = 300.0 * 0.5 * (5.7 / 4.7) * (3.3 / 4095.0)
                         s["unit"] = "V"
                         s["description"] = "VBATT analog pack voltage reading"
-    write_superdbc(SUPERDBC_DIR / "superdbc_per26.json", base_0906.get("source_hash", "per26_canonical"), buses_0906)
+    version_hash_0906 = base_0906.get("versions", {}).get("hash") or base_0906.get("source_hash", "per26_canonical")
+    write_superdbc(SUPERDBC_DIR / "superdbc_per26.json", version_hash_0906, buses_0906)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_09_06.json", "per26_2026_09_06_vbatt_fixed", buses_0906)
 
 

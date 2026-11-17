@@ -38,7 +38,14 @@ cargo run --manifest-path daq/Cargo.toml --release -p daqcli -- export \
 - `--format <parquet|csv|mat>` — Output file format (inferred from `-o` extension if omitted; defaults to `parquet`).
 - `--rate-hz <HZ>` — Override the uniform resampling rate in Hz (e.g. `100.0`).
 - `--sparse` — Export at exact union timestamps without uniform grid resampling.
-- `--superdbc <PATH>` — Optional SuperDBC JSON file for signal unit and enum/boolean state enrichment.
 - `-o, --output <PATH>` (required) — Destination file path.
+
+### 3. `daqcli sync` — Synchronize a Local Store with `daqcloud`
+
+```bash
+cargo run --manifest-path daq/Cargo.toml --release -p daqcli -- sync \
+    --store-dir ./store \
+    --cloud-url http://127.0.0.1:3000
+```
 
 Set `RUST_LOG` to control log verbosity (for example `RUST_LOG=debug`). Defaults to `info`.
