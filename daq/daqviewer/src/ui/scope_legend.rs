@@ -59,169 +59,161 @@ pub(super) fn short_label(channel: &ScopeChannel) -> &str {
     &channel.signal_id
 }
 
-/// Render a compact single-row horizontal channel key strip inside the existing Scope toolbar row
-/// so keys take zero extra vertical height and never cover the plot canvas.
+/// Render compact channel key pills inline in the Scope's wrapping header bar.
+/// Shows only `msg.signal` by default so all keys fit and are visible at once;
+/// includes live values and `[min..max, μ]` when `statistics` (`Show statistics`)
+/// or measurement cursors (`A/B`) are active.
 pub(super) fn show_toolbar_strip(
     ui: &mut egui::Ui,
     instance: usize,
     entries: &[Entry],
     statistics: bool,
 ) -> Option<Action> {
-    if entries.is_empty() || ui.available_width() < 24.0 {
+    if entries.is_empty() {
         return None;
     }
     let theme = ui::theme::get_theme(ui.ctx());
     let mut action = None;
     let strip_height = 18.0;
 
-    egui::ScrollArea::horizontal()
-        .id_salt(("scope_toolbar_strip", instance))
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-        .auto_shrink([false, false])
-        .max_height(strip_height)
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            ui.horizontal(|ui| {
-                for (index, entry) in entries.iter().enumerate() {
-                    let text_color = if entry.visible {
-                        theme.text_color()
-                    } else {
-                        theme.muted_text_color().gamma_multiply(0.6)
-                    };
-                    let label_galley = ui.painter().layout_no_wrap(
-                        entry.label.clone(),
-                        egui::FontId::proportional(10.5),
-                        text_color,
-                    );
-                    let mut val_str = entry.value.clone().unwrap_or_default();
-                    if statistics && let Some(st) = entry.stats {
-                        if !val_str.is_empty() {
-                            val_str.push(' ');
-                        }
-                        val_str.push_str(&format!(
-                            "[{:.1}..{:.1}, μ {:.1}]",
-                            st.min, st.max, st.mean
-                        ));
-                    }
-                    let value_galley = (!val_str.is_empty()).then(|| {
-                        ui.painter().layout_no_wrap(
-                            val_str,
-                            egui::FontId::monospace(10.0),
-                            text_color,
-                        )
-                    });
-                    let swatch_w = 14.0;
-                    let eye_w = 16.0;
-                    let pad_x = 5.0;
-                    let value_w = value_galley
-                        .as_ref()
-                        .map_or(0.0, |g| g.size().x + 6.0);
-                    let pill_w =
-                        swatch_w + pad_x + label_galley.size().x + value_w + pad_x + eye_w + 2.0;
-
-                    let (pill_rect, response) = ui.allocate_exact_size(
-                        egui::vec2(pill_w, strip_height),
-                        egui::Sense::click(),
-                    );
-                    let bg_fill = if response.hovered() {
-                        ui.visuals().widgets.hovered.weak_bg_fill
-                    } else {
-                        theme.panel_color().gamma_multiply(0.75)
-                    };
-                    ui.painter().rect_filled(pill_rect, 3.0, bg_fill);
-                    ui.painter().rect_stroke(
-                        pill_rect,
-                        3.0,
-                        Stroke::new(
-                            1.0_f32,
-                            if entry.visible {
-                                entry.color.gamma_multiply(0.55)
-                            } else {
-                                theme.border_color().gamma_multiply(0.5)
-                            },
-                        ),
-                        egui::StrokeKind::Inside,
-                    );
-
-                    // Left draggable line swatch
-                    let swatch_rect = Rect::from_min_size(
-                        egui::pos2(pill_rect.left() + 3.0, pill_rect.top()),
-                        egui::vec2(swatch_w, pill_rect.height()),
-                    );
-                    ui.interact(
-                        swatch_rect,
-                        ui.id().with(("toolbar_signal_drag", index)),
-                        egui::Sense::drag(),
-                    )
-                    .on_hover_text("Drag signal between plots")
-                    .dnd_set_drag_payload(SignalDrag {
-                        scope: instance,
-                        signal: entry.signal_id.clone(),
-                    });
-                    paint_swatch(
-                        ui,
-                        swatch_rect,
-                        if entry.visible {
-                            entry.color
-                        } else {
-                            entry.color.gamma_multiply(0.35)
-                        },
-                        entry.style,
-                    );
-
-                    // Right eye visibility toggle
-                    let eye_rect = Rect::from_min_size(
-                        egui::pos2(pill_rect.right() - eye_w - 1.0, pill_rect.top()),
-                        egui::vec2(eye_w, pill_rect.height()),
-                    );
-                    let eye_response = ui
-                        .interact(
-                            eye_rect,
-                            ui.id().with(("toolbar_signal_visibility", index)),
-                            egui::Sense::click(),
-                        )
-                        .on_hover_text(if entry.visible {
-                            "Hide signal"
-                        } else {
-                            "Show signal"
-                        });
-                    paint_eye(ui, eye_rect, entry.visible, text_color);
-                    if eye_response.clicked() {
-                        action = Some(Action::Toggle(entry.channel_index));
-                    }
-
-                    // Middle label + value galleys
-                    let label_x = swatch_rect.right() + pad_x - 1.0;
-                    let label_w = label_galley.size().x;
-                    ui.painter().galley(
-                        egui::pos2(label_x, pill_rect.center().y - label_galley.size().y * 0.5),
-                        label_galley,
-                        text_color,
-                    );
-                    if let Some(vg) = value_galley {
-                        ui.painter().galley(
-                            egui::pos2(
-                                label_x + label_w + 6.0,
-                                pill_rect.center().y - vg.size().y * 0.5,
-                            ),
-                            vg,
-                            text_color,
-                        );
-                    }
-
-                    let hover_tip = if let Some(st) = entry.stats {
-                        format!(
-                            "{}\nMin: {:.3} · Max: {:.3} · Mean: {:.3}\nClick for channel settings",
-                            entry.signal_id, st.min, st.max, st.mean
-                        )
-                    } else {
-                        format!("{}\nClick for channel settings", entry.signal_id)
-                    };
-                    let response = response.on_hover_text(hover_tip);
-                    show_channel_details_popup(ui, &response, instance, index, entry, &mut action);
+    for (index, entry) in entries.iter().enumerate() {
+        let text_color = if entry.visible {
+            theme.text_color()
+        } else {
+            theme.muted_text_color().gamma_multiply(0.6)
+        };
+        let label_galley = ui.painter().layout_no_wrap(
+            entry.label.clone(),
+            egui::FontId::proportional(10.5),
+            text_color,
+        );
+        let show_value = statistics || entry.measurements.is_some();
+        let value_galley = if show_value {
+            let mut val_str = entry.value.clone().unwrap_or_default();
+            if statistics && let Some(st) = entry.stats {
+                if !val_str.is_empty() {
+                    val_str.push(' ');
                 }
-            });
+                val_str.push_str(&format!("[{:.1}..{:.1}, μ {:.1}]", st.min, st.max, st.mean));
+            }
+            (!val_str.is_empty()).then(|| {
+                ui.painter().layout_no_wrap(
+                    val_str,
+                    egui::FontId::monospace(10.0),
+                    text_color,
+                )
+            })
+        } else {
+            None
+        };
+        let swatch_w = 10.0;
+        let eye_w = 14.0;
+        let pad_x = 4.0;
+        let value_w = value_galley.as_ref().map_or(0.0, |g| g.size().x + 5.0);
+        let pill_w = swatch_w + pad_x + label_galley.size().x + value_w + pad_x + eye_w + 2.0;
+
+        let (pill_rect, response) =
+            ui.allocate_exact_size(egui::vec2(pill_w, strip_height), egui::Sense::click());
+        let bg_fill = if response.hovered() {
+            ui.visuals().widgets.hovered.weak_bg_fill
+        } else {
+            theme.panel_color().gamma_multiply(0.75)
+        };
+        ui.painter().rect_filled(pill_rect, 3.0, bg_fill);
+        ui.painter().rect_stroke(
+            pill_rect,
+            3.0,
+            Stroke::new(
+                1.0_f32,
+                if entry.visible {
+                    entry.color.gamma_multiply(0.55)
+                } else {
+                    theme.border_color().gamma_multiply(0.5)
+                },
+            ),
+            egui::StrokeKind::Inside,
+        );
+
+        // Left draggable line swatch
+        let swatch_rect = Rect::from_min_size(
+            egui::pos2(pill_rect.left() + 3.0, pill_rect.top()),
+            egui::vec2(swatch_w, pill_rect.height()),
+        );
+        ui.interact(
+            swatch_rect,
+            ui.id().with(("toolbar_signal_drag", index)),
+            egui::Sense::drag(),
+        )
+        .on_hover_text("Drag signal between plots")
+        .dnd_set_drag_payload(SignalDrag {
+            scope: instance,
+            signal: entry.signal_id.clone(),
         });
+        paint_swatch(
+            ui,
+            swatch_rect,
+            if entry.visible {
+                entry.color
+            } else {
+                entry.color.gamma_multiply(0.35)
+            },
+            entry.style,
+        );
+
+        // Right eye visibility toggle
+        let eye_rect = Rect::from_min_size(
+            egui::pos2(pill_rect.right() - eye_w - 1.0, pill_rect.top()),
+            egui::vec2(eye_w, pill_rect.height()),
+        );
+        let eye_response = ui
+            .interact(
+                eye_rect,
+                ui.id().with(("toolbar_signal_visibility", index)),
+                egui::Sense::click(),
+            )
+            .on_hover_text(if entry.visible {
+                "Hide signal"
+            } else {
+                "Show signal"
+            });
+        paint_eye(ui, eye_rect, entry.visible, text_color);
+        if eye_response.clicked() {
+            action = Some(Action::Toggle(entry.channel_index));
+        }
+
+        // Middle label (+ optional value/stats) galleys
+        let label_x = swatch_rect.right() + pad_x - 1.0;
+        let label_w = label_galley.size().x;
+        ui.painter().galley(
+            egui::pos2(label_x, pill_rect.center().y - label_galley.size().y * 0.5),
+            label_galley,
+            text_color,
+        );
+        if let Some(vg) = value_galley {
+            ui.painter().galley(
+                egui::pos2(
+                    label_x + label_w + 5.0,
+                    pill_rect.center().y - vg.size().y * 0.5,
+                ),
+                vg,
+                text_color,
+            );
+        }
+
+        let hover_tip = match (&entry.value, entry.stats) {
+            (Some(val), Some(st)) => format!(
+                "{}\nCursor: {}\nMin: {:.3} · Max: {:.3} · Mean: {:.3}\nClick for channel settings",
+                entry.signal_id, val, st.min, st.max, st.mean
+            ),
+            (_, Some(st)) => format!(
+                "{}\nMin: {:.3} · Max: {:.3} · Mean: {:.3}\nClick for channel settings",
+                entry.signal_id, st.min, st.max, st.mean
+            ),
+            _ => format!("{}\nClick for channel settings", entry.signal_id),
+        };
+        let response = response.on_hover_text(hover_tip);
+        show_channel_details_popup(ui, &response, instance, index, entry, &mut action);
+    }
 
     action
 }

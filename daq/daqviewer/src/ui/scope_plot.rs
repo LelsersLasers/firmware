@@ -7,7 +7,7 @@ struct AxisView {
     index: usize,
     lane: usize,
     right: bool,
-    label: String,
+    custom_label: String,
     color: Color32,
 }
 
@@ -28,14 +28,6 @@ fn axes(
             let channel = channels
                 .iter()
                 .find(|channel| config.axis_key(channel) == *key);
-            let label = if !axis.label.is_empty() {
-                axis.label.clone()
-            } else {
-                channel
-                    .map(|channel| channel.unit.clone())
-                    .filter(|label| !label.is_empty())
-                    .unwrap_or_else(|| "Value".to_owned())
-            };
             let color = axis
                 .color
                 .map(|[r, g, b]| Color32::from_rgb(r, g, b))
@@ -51,7 +43,7 @@ fn axes(
                 index,
                 lane,
                 right,
-                label,
+                custom_label: axis.label,
                 color,
             }
         })
@@ -65,7 +57,7 @@ fn hints(
     lane_count: usize,
     slots: (usize, usize),
 ) -> Vec<egui_plot::AxisHints<'static>> {
-    let min_thick = if lane_count > 1 { 60.0 } else { 36.0 };
+    let min_thick = if lane_count > 1 { 44.0 } else { 14.0 };
     let mut result = Vec::new();
     for (right, count) in [(false, slots.0), (true, slots.1)] {
         let selected: Vec<_> = axes
@@ -78,16 +70,18 @@ fn hints(
             } else {
                 egui_plot::HPlacement::Left
             };
-            let hint = egui_plot::AxisHints::new_y()
+            let mut hint = egui_plot::AxisHints::new_y()
                 .placement(placement)
                 .min_thickness(min_thick);
             result.push(if let Some(axis) = selected.get(slot) {
                 let tf = cached.unit_transforms[axis.index];
-                hint.label(
-                    RichText::new(axis.label.chars().take(18).collect::<String>())
-                        .color(axis.color),
-                )
-                .formatter(move |mark, _| {
+                if !axis.custom_label.is_empty() {
+                    hint = hint.label(
+                        RichText::new(axis.custom_label.chars().take(18).collect::<String>())
+                            .color(axis.color),
+                    );
+                }
+                hint.formatter(move |mark, _| {
                     let value = tf.plot_to_phys(mark.value);
                     if value.abs() >= 10_000.0 || (value != 0.0 && value.abs() < 0.001) {
                         format!("{value:.1e}")

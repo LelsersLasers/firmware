@@ -968,7 +968,8 @@ impl Scope {
         let mut export_csv = false;
         let mut toolbar_action: Option<ui::scope_legend::Action> = None;
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
             if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
                 self.show_legend = !self.show_legend;
             }
@@ -1069,7 +1070,7 @@ impl Scope {
                         ui.close();
                     }
                     ui.separator();
-                    ui.checkbox(&mut self.show_inline_stats, "Show statistics");
+                    ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
                     ui.menu_button("Plots", |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Count");
