@@ -1,6 +1,6 @@
 use crate::{
     router::RepaintCallback,
-    storage::{Annotation, PartitionManifest, Registry, TrackDay},
+    storage::{Annotation, DerivedSignalDef, PartitionManifest, Registry, TrackDay},
 };
 use futures_util::StreamExt as _;
 use sha2::Digest as _;
@@ -21,8 +21,8 @@ use tokio::sync::mpsc as tokio_mpsc;
 pub use daqcore::storage::{
     AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse, CHECKSUM_HEADER,
     CatalogResponse, CloudSyncCommand, CloudSyncEvent, CloudSyncStatus, CloudSyncSummary,
-    CloudWsMessage, RANGE_CHECKSUM_HEADER, compute_sha256_hex, http_base_to_ws_url,
-    is_safe_path_segment, normalize_http_base_url,
+    CloudWsMessage, DerivedSignalUpsertPayload, RANGE_CHECKSUM_HEADER, compute_sha256_hex,
+    http_base_to_ws_url, is_safe_path_segment, normalize_http_base_url,
 };
 
 const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
@@ -270,6 +270,19 @@ impl CloudSyncHandle {
         });
     }
 
+    pub fn push_derived_signal(&self, signal: DerivedSignalDef) {
+        let _ = self
+            .cmd_tx
+            .send(CloudSyncCommand::PushDerivedSignal { signal });
+    }
+
+    pub fn delete_derived_signal(&self, id: String, updated_at_ms: i64) {
+        let _ = self.cmd_tx.send(CloudSyncCommand::DeleteDerivedSignal {
+            id,
+            updated_at_ms,
+        });
+    }
+
     /// Drain all pending [`CloudSyncEvent`]s without blocking.
     pub fn drain_events(&self) -> Vec<CloudSyncEvent> {
         let mut out = Vec::new();
@@ -411,6 +424,24 @@ async fn run_cloud_sync_runtime(
                                         .unwrap_or(false)
                                 {
                                     let _ = ws_event_tx.send(CloudSyncEvent::AnnotationsUpdated);
+                                    notify_repaint(&ws_repaint);
+                                }
+                            }
+                            CloudWsMessage::DerivedSignalUpdated { signal } => {
+                                if let Ok(reg) = Registry::open_store(&ws_store_dir)
+                                    && reg.upsert_derived_signal(&signal).unwrap_or(false)
+                                {
+                                    let _ = ws_event_tx.send(CloudSyncEvent::DerivedSignalsUpdated);
+                                    notify_repaint(&ws_repaint);
+                                }
+                            }
+                            CloudWsMessage::DerivedSignalDeleted { id, updated_at_ms } => {
+                                if let Ok(reg) = Registry::open_store(&ws_store_dir)
+                                    && reg
+                                        .soft_delete_derived_signal(&id, updated_at_ms)
+                                        .unwrap_or(false)
+                                {
+                                    let _ = ws_event_tx.send(CloudSyncEvent::DerivedSignalsUpdated);
                                     notify_repaint(&ws_repaint);
                                 }
                             }
@@ -579,6 +610,20 @@ async fn run_cloud_sync_runtime(
                     log::warn!("Failed to delete annotation at {url}: {err}");
                 }
             }
+            CloudSyncCommand::PushDerivedSignal { signal } => {
+                let url = format!("{base_url}/api/v1/derived-signals");
+                let payload = DerivedSignalUpsertPayload::Single(Box::new(signal));
+                if let Err(err) = client.post(&url).json(&payload).send().await {
+                    log::warn!("Failed to push derived signal to {url}: {err}");
+                }
+            }
+            CloudSyncCommand::DeleteDerivedSignal { id, updated_at_ms } => {
+                let url =
+                    format!("{base_url}/api/v1/derived-signals/{id}?updated_at_ms={updated_at_ms}");
+                if let Err(err) = client.delete(&url).send().await {
+                    log::warn!("Failed to delete derived signal at {url}: {err}");
+                }
+            }
         }
     }
 
@@ -649,6 +694,35 @@ async fn sync_catalog_and_overviews(
         }
     }
 
+    let mut remote_sig_map: HashMap<String, i64> = HashMap::new();
+    let mut derived_changed = false;
+    for sig in &catalog.derived_signals {
+        remote_sig_map.insert(sig.id.clone(), sig.updated_at_ms);
+        if reg
+            .upsert_derived_signal(sig)
+            .map_err(|e| format!("Failed to upsert remote derived signal {}: {e}", sig.id))?
+        {
+            derived_changed = true;
+        }
+    }
+
+    // Push any offline-created or newer local derived signals (including tombstones) to `daqcloud`.
+    if let Ok(local_sigs) = reg.list_derived_signals(true) {
+        let to_push: Vec<DerivedSignalDef> = local_sigs
+            .into_iter()
+            .filter(|local| {
+                remote_sig_map
+                    .get(&local.id)
+                    .is_none_or(|&remote_ts| local.updated_at_ms > remote_ts)
+            })
+            .collect();
+        if !to_push.is_empty() {
+            let sig_url = format!("{base_url}/api/v1/derived-signals");
+            let payload = DerivedSignalUpsertPayload::Batch(to_push);
+            let _ = client.post(&sig_url).json(&payload).send().await;
+        }
+    }
+
     let mut complete_count = 0usize;
     for manifest in &catalog.partitions {
         let part_dir = store_dir.join("partitions").join(&manifest.partition_id);
@@ -684,6 +758,9 @@ async fn sync_catalog_and_overviews(
     });
     if ann_changed {
         let _ = event_tx.send(CloudSyncEvent::AnnotationsUpdated);
+    }
+    if derived_changed {
+        let _ = event_tx.send(CloudSyncEvent::DerivedSignalsUpdated);
     }
     notify_repaint(repaint_cb);
 

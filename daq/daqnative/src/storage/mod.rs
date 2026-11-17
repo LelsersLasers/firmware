@@ -8,9 +8,10 @@ pub mod schema;
 pub use cloud_sync::{
     AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse, CHECKSUM_HEADER,
     CatalogResponse, CloudSyncCommand, CloudSyncEvent, CloudSyncHandle, CloudSyncStatus,
-    CloudSyncSummary, CloudWsMessage, RANGE_CHECKSUM_HEADER, compute_file_sha256_hex,
-    compute_sha256_hex, download_file_resumable, http_base_to_ws_url, is_safe_path_segment,
-    normalize_http_base_url, sync_store_with_cloud_blocking, upload_file_verified,
+    CloudSyncSummary, CloudWsMessage, DerivedSignalUpsertPayload, RANGE_CHECKSUM_HEADER,
+    compute_file_sha256_hex, compute_sha256_hex, download_file_resumable, http_base_to_ws_url,
+    is_safe_path_segment, normalize_http_base_url, sync_store_with_cloud_blocking,
+    upload_file_verified,
 };
 
 pub use native_backend::{
@@ -30,8 +31,8 @@ pub use partition_writer::{
     write_correlated_epochs_to_store_for_day, write_correlated_epochs_to_store_with_progress,
 };
 pub use registry::{
-    Annotation, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, Registry,
-    RegistryError, TrackDay,
+    Annotation, DerivedSignalDef, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition,
+    Registry, RegistryError, TrackDay,
 };
 
 pub use daqcore::storage::{InMemoryCatalog, SignalId, format_signal_id};

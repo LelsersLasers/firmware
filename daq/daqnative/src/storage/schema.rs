@@ -18,6 +18,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    derived_signals (id) {
+        id -> Text,
+        label -> Text,
+        expression -> Text,
+        unit -> Text,
+        updated_at_ms -> BigInt,
+        deleted -> Bool,
+    }
+}
+
+diesel::table! {
     partitions (partition_id) {
         partition_id -> Text,
         track_day_id -> Text,
@@ -57,4 +68,10 @@ diesel::joinable!(annotations -> track_days (track_day_id));
 diesel::joinable!(partitions -> track_days (track_day_id));
 diesel::joinable!(raw_assets -> track_days (track_day_id));
 
-diesel::allow_tables_to_appear_in_same_query!(annotations, partitions, raw_assets, track_days,);
+diesel::allow_tables_to_appear_in_same_query!(
+    annotations,
+    derived_signals,
+    partitions,
+    raw_assets,
+    track_days,
+);

@@ -427,6 +427,36 @@ impl RouterBackend for NativeRouterBackend {
         Ok(deleted)
     }
 
+    fn query_all_derived_signals(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<daqcore::analysis::DerivedSignalDef>, RouterError> {
+        Ok(self.registry.list_derived_signals(include_deleted)?)
+    }
+
+    fn upsert_derived_signal(
+        &mut self,
+        def: &daqcore::analysis::DerivedSignalDef,
+    ) -> Result<bool, RouterError> {
+        let applied = self.registry.upsert_derived_signal(def)?;
+        if applied && let Some(cloud) = &self.cloud_sync {
+            cloud.push_derived_signal(def.clone());
+        }
+        Ok(applied)
+    }
+
+    fn soft_delete_derived_signal(
+        &mut self,
+        id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RouterError> {
+        let deleted = self.registry.soft_delete_derived_signal(id, updated_at_ms)?;
+        if deleted && let Some(cloud) = &self.cloud_sync {
+            cloud.delete_derived_signal(id.trim().to_owned(), updated_at_ms);
+        }
+        Ok(deleted)
+    }
+
     fn set_repaint_callback(&mut self, callback: Option<RepaintCallback>) {
         self.repaint_cb = callback.clone();
         self.loader.set_repaint_callback(callback.clone());
@@ -525,6 +555,7 @@ impl RouterBackend for NativeRouterBackend {
             events_processed: events.len(),
             reload_partitions: false,
             invalidate_annotations: false,
+            reload_derived_signals: false,
         };
 
         for ev in events {
@@ -536,6 +567,9 @@ impl RouterBackend for NativeRouterBackend {
                 }
                 CloudSyncEvent::AnnotationsUpdated => {
                     outcome.invalidate_annotations = true;
+                }
+                CloudSyncEvent::DerivedSignalsUpdated => {
+                    outcome.reload_derived_signals = true;
                 }
                 CloudSyncEvent::PartitionUploaded { .. } | CloudSyncEvent::Error(_) => {}
             }

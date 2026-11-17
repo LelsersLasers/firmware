@@ -2,7 +2,7 @@ use crate::{
     log_parse::correlate,
     storage::{
         partition_writer::PartitionManifest,
-        schema::{annotations, partitions, raw_assets, track_days},
+        schema::{annotations, derived_signals, partitions, raw_assets, track_days},
     },
 };
 use diesel::connection::SimpleConnection as _;
@@ -67,8 +67,8 @@ impl From<serde_json::Error> for RegistryError {
 }
 
 pub use daqcore::storage::{
-    Annotation, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition, TrackDay,
-    default_track_day_title,
+    Annotation, DerivedSignalDef, LOCAL_REGISTRY_FILENAME, RawAssetRecord, RegisteredPartition,
+    TrackDay, default_track_day_title,
 };
 
 #[derive(Debug, Clone, Queryable, Selectable, Insertable, AsChangeset)]
@@ -210,6 +210,50 @@ impl From<&Annotation> for AnnotationRow {
     }
 }
 
+#[derive(Debug, Clone, Queryable, Selectable, Insertable, AsChangeset)]
+#[diesel(table_name = derived_signals)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+struct DerivedSignalRow {
+    id: String,
+    label: String,
+    expression: String,
+    unit: String,
+    updated_at_ms: i64,
+    deleted: bool,
+}
+
+impl From<DerivedSignalRow> for DerivedSignalDef {
+    fn from(row: DerivedSignalRow) -> Self {
+        Self {
+            id: row.id,
+            label: row.label,
+            expression: row.expression,
+            unit: row.unit,
+            updated_at_ms: row.updated_at_ms,
+            deleted: row.deleted,
+        }
+    }
+}
+
+impl From<&DerivedSignalDef> for DerivedSignalRow {
+    fn from(def: &DerivedSignalDef) -> Self {
+        let id = def.id.trim().to_owned();
+        let label = if def.label.trim().is_empty() {
+            id.clone()
+        } else {
+            def.label.trim().to_owned()
+        };
+        Self {
+            id,
+            label,
+            expression: def.expression.trim().to_owned(),
+            unit: def.unit.trim().to_owned(),
+            updated_at_ms: def.updated_at_ms,
+            deleted: def.deleted,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct SqliteConnectionCustomizer;
 
@@ -272,6 +316,7 @@ impl Registry {
             }
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(RegistryError::Migration)?;
+            Self::seed_builtin_derived_signals_in_conn(&mut conn)?;
             Self::renumber_auto_stints_in_conn(&mut conn, None)?;
         }
 
@@ -889,6 +934,149 @@ impl Registry {
                 Ok(true)
             }
         }
+    }
+
+    fn seed_builtin_derived_signals_in_conn(
+        conn: &mut SqliteConnection,
+    ) -> Result<(), diesel::result::Error> {
+        for def in daqcore::analysis::FormulaEngine::builtin_defs() {
+            let row = DerivedSignalRow::from(&def);
+            diesel::insert_or_ignore_into(derived_signals::table)
+                .values(&row)
+                .execute(conn)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_derived_signals(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<DerivedSignalDef>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let mut query = derived_signals::table.into_boxed();
+        if !include_deleted {
+            query = query.filter(derived_signals::deleted.eq(false));
+        }
+        let rows = query
+            .order(derived_signals::id.asc())
+            .select(DerivedSignalRow::as_select())
+            .load::<DerivedSignalRow>(&mut conn)?;
+        Ok(rows.into_iter().map(DerivedSignalDef::from).collect())
+    }
+
+    pub fn list_derived_signals_updated_since(
+        &self,
+        since_utc_ms: i64,
+    ) -> Result<Vec<DerivedSignalDef>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let rows = derived_signals::table
+            .filter(derived_signals::updated_at_ms.ge(since_utc_ms))
+            .order((
+                derived_signals::updated_at_ms.asc(),
+                derived_signals::id.asc(),
+            ))
+            .select(DerivedSignalRow::as_select())
+            .load::<DerivedSignalRow>(&mut conn)?;
+        Ok(rows.into_iter().map(DerivedSignalDef::from).collect())
+    }
+
+    pub fn get_derived_signal(&self, id: &str) -> Result<Option<DerivedSignalDef>, RegistryError> {
+        let mut conn = self.pool.get()?;
+        let row = derived_signals::table
+            .filter(derived_signals::id.eq(id.trim()))
+            .select(DerivedSignalRow::as_select())
+            .first::<DerivedSignalRow>(&mut conn)
+            .optional()?;
+        Ok(row.map(DerivedSignalDef::from))
+    }
+
+    pub fn upsert_derived_signal(&self, def: &DerivedSignalDef) -> Result<bool, RegistryError> {
+        let row = DerivedSignalRow::from(def);
+        if row.id.is_empty() {
+            return Ok(false);
+        }
+        let mut conn = self.pool.get()?;
+        conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+            let existing = derived_signals::table
+                .filter(derived_signals::id.eq(&row.id))
+                .select(DerivedSignalRow::as_select())
+                .first::<DerivedSignalRow>(conn)
+                .optional()?;
+            match existing {
+                None => {
+                    diesel::insert_into(derived_signals::table)
+                        .values(&row)
+                        .execute(conn)?;
+                    Ok(true)
+                }
+                Some(prev) => {
+                    if row.updated_at_ms < prev.updated_at_ms {
+                        return Ok(false);
+                    }
+                    let changed = row.label != prev.label
+                        || row.expression != prev.expression
+                        || row.unit != prev.unit
+                        || row.updated_at_ms != prev.updated_at_ms
+                        || row.deleted != prev.deleted;
+                    if !changed {
+                        return Ok(false);
+                    }
+                    diesel::update(derived_signals::table.filter(derived_signals::id.eq(&row.id)))
+                        .set(&row)
+                        .execute(conn)?;
+                    Ok(true)
+                }
+            }
+        })
+        .map_err(RegistryError::from)
+    }
+
+    pub fn soft_delete_derived_signal(
+        &self,
+        id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RegistryError> {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            return Ok(false);
+        }
+        let mut conn = self.pool.get()?;
+        conn.transaction::<bool, diesel::result::Error, _>(|conn| {
+            let existing = derived_signals::table
+                .filter(derived_signals::id.eq(trimmed))
+                .select(DerivedSignalRow::as_select())
+                .first::<DerivedSignalRow>(conn)
+                .optional()?;
+            match existing {
+                Some(prev) => {
+                    if updated_at_ms < prev.updated_at_ms {
+                        return Ok(false);
+                    }
+                    diesel::update(derived_signals::table.filter(derived_signals::id.eq(trimmed)))
+                        .set((
+                            derived_signals::deleted.eq(true),
+                            derived_signals::updated_at_ms.eq(updated_at_ms),
+                        ))
+                        .execute(conn)?;
+                    Ok(true)
+                }
+                None => {
+                    let tombstone = DerivedSignalRow {
+                        id: trimmed.to_owned(),
+                        label: trimmed.to_owned(),
+                        expression: "0".to_owned(),
+                        unit: String::new(),
+                        updated_at_ms,
+                        deleted: true,
+                    };
+                    diesel::insert_into(derived_signals::table)
+                        .values(&tombstone)
+                        .execute(conn)?;
+                    Ok(true)
+                }
+            }
+        })
+        .map_err(RegistryError::from)
     }
 
     /// Renumber active auto-detected driving stints sequentially (`Driving Stint #1`, `#2`, ...)
