@@ -940,12 +940,12 @@ pub fn show_timeline_contents(
         }
 
         if is_comparing {
-            let names: Vec<String> = router
+            let all_anns = router
                 .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|a| selected_ids.contains(&a.id))
-                .map(|a| a.name)
+                .unwrap_or_default();
+            let names: Vec<String> = selected_ids
+                .iter()
+                .filter_map(|id| all_anns.iter().find(|a| &a.id == id).map(|a| a.name.clone()))
                 .collect();
             let compare_label = if names.is_empty() {
                 format!("Comparing {} Events  ×", selected_ids.len())
@@ -990,10 +990,12 @@ pub fn show_timeline_contents(
             .speed(0.5)
             .suffix(" s");
         if ui.add(span_control).changed() {
-            let center_ms = timeline.setpoint_utc_ms();
-            let half_ms = ((span * 500.0).round() as i64).max(50);
-            timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
-            timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
+            if !timeline.is_live() {
+                let center_ms = timeline.setpoint_utc_ms();
+                let half_ms = ((span * 500.0).round() as i64).max(50);
+                timeline.set_start(daqcore::time::Time::from_unix_millis(center_ms - half_ms));
+                timeline.set_end(daqcore::time::Time::from_unix_millis(center_ms + half_ms));
+            }
             if let Err(error) = timeline.set_window_secs(span) {
                 *diagnostic = Some(error);
             }
@@ -1519,8 +1521,13 @@ fn show_day_overview_lane(
         let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
         let fx_min = (r_left + 1.0).min(r_right);
         let fx_max = (r_right - 1.0).max(fx_min);
+        let mut fault_anns: Vec<&daqcore::storage::Annotation> = annotations
+            .iter()
+            .filter(|a| a.category == "fault")
+            .collect();
+        fault_anns.sort_by_key(|a| a.start_utc_ms);
         let mut last_tick_px: Option<i32> = None;
-        for ann in annotations.iter().filter(|a| a.category == "fault") {
+        for ann in fault_anns {
             let fx = time_to_x(ann.start_utc_ms).clamp(fx_min, fx_max);
             let px_col = (fx.round() as i32) / 2;
             if last_tick_px == Some(px_col) {
@@ -1815,11 +1822,13 @@ fn show_active_window_scrub_lane(
     }
     if timeline_ui.show_faults {
         let fault_color = eframe::egui::Color32::from_rgb(239, 68, 68);
-        let mut last_tick_px: Option<i32> = None;
-        for ann in overlapping_annotations
+        let mut fault_anns: Vec<&daqcore::storage::Annotation> = overlapping_annotations
             .iter()
             .filter(|a| a.category == "fault")
-        {
+            .collect();
+        fault_anns.sort_by_key(|a| a.start_utc_ms);
+        let mut last_tick_px: Option<i32> = None;
+        for ann in fault_anns {
             if ann.start_utc_ms < win_start_ms || ann.start_utc_ms > win_end_ms {
                 continue;
             }
@@ -2624,7 +2633,7 @@ mod tests {
         .expect("live router");
         router
             .set_track_day_label("2026-09-06", "Purdue Grand Prix Track")
-            .unwrap();
+            .expect("set track day label");
 
         let ann1 = daqcore::storage::Annotation {
             id: "stint_1".to_owned(),
@@ -2654,8 +2663,8 @@ mod tests {
             updated_at_ms: 8_900_000,
             deleted: false,
         };
-        router.upsert_annotation(&ann1).unwrap();
-        router.upsert_annotation(&ann2).unwrap();
+        router.upsert_annotation(&ann1).expect("upsert ann1");
+        router.upsert_annotation(&ann2).expect("upsert ann2");
 
         router
             .timeline_mut()

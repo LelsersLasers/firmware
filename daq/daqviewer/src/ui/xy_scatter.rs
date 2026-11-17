@@ -309,6 +309,9 @@ impl XYScatter {
                 let z_span = (z_max - z_min).abs().max(1e-9);
                 let mut bins: Vec<Vec<[f64; 2]>> = vec![Vec::new(); GRADIENT_BINS];
                 for i in 0..timestamps_ms.len() {
+                    if !zv[i].is_finite() {
+                        continue;
+                    }
                     let norm = ((zv[i] - z_min) / z_span).clamp(0.0, 1.0);
                     let bin = ((norm * ((GRADIENT_BINS - 1) as f64)).round() as usize)
                         .min(GRADIENT_BINS - 1);
@@ -358,11 +361,15 @@ impl XYScatter {
 
         let cursor_ms = view.active_cursor_utc_ms();
         let (x_pill, y_pill, z_pill, x_tip, y_tip, z_tip, x_axis_lbl, y_axis_lbl) = {
-            let cached = self.cached_data.as_ref().expect("populated above");
-            let cursor_idx = (!cached.timestamps_ms.is_empty()).then(|| {
+            let Some(cached) = self.cached_data.as_ref() else {
+                return egui_tiles::UiResponse::None;
+            };
+            let cursor_idx = if cached.timestamps_ms.is_empty() {
+                None
+            } else {
                 let pos = cached.timestamps_ms.partition_point(|&t| t <= cursor_ms);
-                pos.saturating_sub(1).min(cached.timestamps_ms.len() - 1)
-            });
+                (pos > 0).then(|| (pos - 1).min(cached.timestamps_ms.len() - 1))
+            };
 
             let x_u = if cached.x_unit.is_empty() {
                 String::new()
@@ -577,7 +584,9 @@ impl XYScatter {
             return egui_tiles::UiResponse::None;
         }
 
-        let cached = self.cached_data.as_ref().expect("populated above");
+        let Some(cached) = self.cached_data.as_ref() else {
+            return egui_tiles::UiResponse::None;
+        };
         let timestamps_ms = &cached.timestamps_ms;
         let x_vals = &cached.x_vals;
         let y_vals = &cached.y_vals;
@@ -687,29 +696,37 @@ impl XYScatter {
                 }
 
                 // Playhead marker
-                let play_idx = hi.saturating_sub(1).min(timestamps_ms.len() - 1);
-                plot_ui.points(
-                    egui_plot::Points::new("Playhead", vec![[x_vals[play_idx], y_vals[play_idx]]])
+                if hi > 0 {
+                    let play_idx = (hi - 1).min(timestamps_ms.len() - 1);
+                    plot_ui.points(
+                        egui_plot::Points::new(
+                            "Playhead",
+                            vec![[x_vals[play_idx], y_vals[play_idx]]],
+                        )
                         .radius(5.8_f32)
                         .color(eframe::egui::Color32::YELLOW)
                         .allow_hover(false),
-                );
+                    );
+                }
             }
 
             // Synchronized Hover Crosshair marker
             if let Some(h_ms) = hover_ms
                 && !timestamps_ms.is_empty()
             {
-                let h_idx = timestamps_ms
-                    .partition_point(|&t| t <= h_ms)
-                    .saturating_sub(1)
-                    .min(timestamps_ms.len() - 1);
-                plot_ui.points(
-                    egui_plot::Points::new("Linked Cursor", vec![[x_vals[h_idx], y_vals[h_idx]]])
+                let h_pos = timestamps_ms.partition_point(|&t| t <= h_ms);
+                if h_pos > 0 {
+                    let h_idx = (h_pos - 1).min(timestamps_ms.len() - 1);
+                    plot_ui.points(
+                        egui_plot::Points::new(
+                            "Linked Cursor",
+                            vec![[x_vals[h_idx], y_vals[h_idx]]],
+                        )
                         .radius(6.2_f32)
                         .color(eframe::egui::Color32::from_rgb(130, 235, 255))
                         .allow_hover(false),
-                );
+                    );
+                }
             }
 
             let popup_open = eframe::egui::Popup::is_any_open(plot_ui.ctx());

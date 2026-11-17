@@ -686,12 +686,16 @@ impl Bootloader {
             return "—".to_string();
         };
 
-        let suffix = if now.duration_since(observation.last_seen) > CAPABILITY_TIMEOUT {
+        let suffix = if now.saturating_duration_since(observation.last_seen) > CAPABILITY_TIMEOUT {
             " (stale)"
         } else {
             ""
         };
         format!("0x{git_hash:08X}{suffix}")
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running
     }
 
     pub fn reset_database(&mut self) {
@@ -892,10 +896,10 @@ fn capability_state(
 
     let recent_application = observations
         .application
-        .filter(|observation| now.duration_since(observation.last_seen) <= timeout);
+        .filter(|observation| now.saturating_duration_since(observation.last_seen) <= timeout);
     let recent_bootloader = observations
         .bootloader
-        .filter(|observation| now.duration_since(observation.last_seen) <= timeout);
+        .filter(|observation| now.saturating_duration_since(observation.last_seen) <= timeout);
     let Some(observation) = recent_application.or(recent_bootloader) else {
         return CapabilityState::NoRecentTelemetry;
     };

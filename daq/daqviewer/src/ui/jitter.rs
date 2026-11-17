@@ -70,11 +70,13 @@ impl Jitter {
                 )
         {
             let period = self.period_ms.max(1) as f64;
+            let max_interval_ms = (self.period_ms as i64 * 20).max(5_000);
             deviations = timestamps_ms
                 .windows(2)
-                .map(|w| {
-                    let elapsed_ms = (w[1] - w[0]) as f64;
-                    100.0 * (elapsed_ms - period) / period
+                .filter_map(|w| {
+                    let elapsed_ms = w[1] - w[0];
+                    (elapsed_ms >= 0 && elapsed_ms <= max_interval_ms)
+                        .then(|| 100.0 * ((elapsed_ms as f64) - period) / period)
                 })
                 .collect();
         }
@@ -84,8 +86,8 @@ impl Jitter {
             return egui_tiles::UiResponse::None;
         }
 
-        let minimum = deviations.iter().copied().fold(0.0, f64::min);
-        let maximum = deviations.iter().copied().fold(0.0, f64::max);
+        let minimum = deviations.iter().copied().fold(f64::INFINITY, f64::min);
+        let maximum = deviations.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let worst_error = if minimum.abs() > maximum.abs() {
             minimum
         } else {

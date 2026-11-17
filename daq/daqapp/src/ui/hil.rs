@@ -171,7 +171,11 @@ impl Hil {
                 preset.tests.len()
             ));
             if all_finished {
-                let executed_count = self.snapshot.skipped_from.unwrap_or(tests.len());
+                let executed_count = self
+                    .snapshot
+                    .skipped_from
+                    .unwrap_or(tests.len())
+                    .min(tests.len());
 
                 Self::show_preset_summary(ui, &tests[..executed_count]);
 

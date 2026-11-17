@@ -223,11 +223,17 @@ pub fn show(
     ui::timeline::show(app, platform, ctx);
     show_workspace_tabs_bar(app, platform.supports_hardware_widgets(), ctx);
     app.router.poll_background_tiles();
-    let start = app.router.timeline().start();
-    let removed = app
-        .bus_load_samples
-        .partition_point(|s| s.timestamp < start);
-    app.bus_load_samples.drain(..removed);
+    const MAX_BUS_LOAD_SAMPLES: usize = 10_000;
+    if app.router.timeline().is_live() {
+        let start = app.router.timeline().start();
+        let removed = app
+            .bus_load_samples
+            .partition_point(|s| s.timestamp < start);
+        app.bus_load_samples.drain(..removed);
+    } else if app.bus_load_samples.len() > MAX_BUS_LOAD_SAMPLES {
+        let excess = app.bus_load_samples.len() - MAX_BUS_LOAD_SAMPLES;
+        app.bus_load_samples.drain(..excess);
+    }
     let selection_pending = app.selection_pending();
     let view = workspace_view::WorkspaceDataView::with_hover(
         &app.router,

@@ -134,7 +134,10 @@ impl ChannelCursorLookup {
                     return None;
                 }
                 let pos = ts.partition_point(|&t| t <= target_ms);
-                let idx = pos.saturating_sub(1).min(vals.len() - 1);
+                if pos == 0 {
+                    return None;
+                }
+                let idx = (pos - 1).min(vals.len() - 1);
                 let v = vals[idx];
                 v.is_finite().then_some(v)
             }
@@ -483,9 +486,9 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        // Resolve units for any channel whose unit was not populated yet.
+        // Resolve units for any channel whose unit was not populated yet or is a derived formula.
         for ch in &mut self.channels {
-            if ch.unit.is_empty() {
+            if ch.unit.is_empty() || view.router.formula_engine().contains(&ch.signal_id) {
                 ch.unit = view.resolve_signal_unit(&ch.signal_id);
             }
         }
@@ -493,11 +496,13 @@ impl Scope {
         let comparison_annotations: Vec<daqcore::storage::Annotation> =
             if view.timeline.is_comparison_mode() {
                 let selected_ids = view.timeline.selected_annotation_ids();
-                view.router
+                let all_anns = view
+                    .router
                     .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|ann| selected_ids.iter().any(|id| id == &ann.id))
+                    .unwrap_or_default();
+                selected_ids
+                    .iter()
+                    .filter_map(|id| all_anns.iter().find(|ann| &ann.id == id).cloned())
                     .collect()
             } else {
                 Vec::new()
@@ -1673,30 +1678,65 @@ pub fn build_envelope_quads(
 
     let target_quads = (pixels / 3).clamp(64, 240);
     let step = buckets.len().div_ceil(target_quads).max(1);
-    let mut sampled: Vec<&daqcore::router::EnvelopePoint> = buckets.iter().step_by(step).collect();
-    if let Some(last) = buckets.last()
-        && sampled.last().is_none_or(|b| b.utc_ms != last.utc_ms)
-    {
-        sampled.push(last);
-    }
 
-    let mut quads = Vec::with_capacity(sampled.len().saturating_sub(1));
-    for pair in sampled.windows(2) {
-        let b0 = pair[0];
-        let b1 = pair[1];
-        if b1.utc_ms <= b0.utc_ms || b1.utc_ms - b0.utc_ms > max_gap_ms {
+    let mut quads = Vec::with_capacity(target_quads.min(buckets.len().saturating_sub(1)));
+    let mut run_start = 0usize;
+    while run_start < buckets.len() {
+        if !buckets[run_start].min.is_finite() || !buckets[run_start].max.is_finite() {
+            run_start += 1;
             continue;
         }
-        if !b0.min.is_finite() || !b0.max.is_finite() || !b1.min.is_finite() || !b1.max.is_finite()
-        {
-            continue;
+        let mut run_end = run_start + 1;
+        while run_end < buckets.len() {
+            let prev = &buckets[run_end - 1];
+            let curr = &buckets[run_end];
+            if !curr.min.is_finite()
+                || !curr.max.is_finite()
+                || curr.utc_ms <= prev.utc_ms
+                || curr.utc_ms - prev.utc_ms > max_gap_ms
+            {
+                break;
+            }
+            run_end += 1;
         }
-        if (b0.max - b0.min).abs() <= 1e-9 && (b1.max - b1.min).abs() <= 1e-9 {
-            continue;
+
+        let run = &buckets[run_start..run_end];
+        if run.len() >= 2 {
+            let mut aggregated: Vec<(i64, f64, f64)> =
+                Vec::with_capacity(run.len().div_ceil(step) + 1);
+            for chunk in run.chunks(step) {
+                let mut c_min = f64::INFINITY;
+                let mut c_max = f64::NEG_INFINITY;
+                for b in chunk {
+                    c_min = c_min.min(b.min);
+                    c_max = c_max.max(b.max);
+                }
+                aggregated.push((chunk[0].utc_ms, c_min, c_max));
+            }
+            if let Some(last) = run.last()
+                && aggregated
+                    .last()
+                    .is_none_or(|&(ts, _, _)| ts != last.utc_ms)
+            {
+                aggregated.push((last.utc_ms, last.min, last.max));
+            }
+
+            for pair in aggregated.windows(2) {
+                let (ts0, min0, max0) = pair[0];
+                let (ts1, min1, max1) = pair[1];
+                if ts1 <= ts0 {
+                    continue;
+                }
+                if (max0 - min0).abs() <= 1e-9 && (max1 - min1).abs() <= 1e-9 {
+                    continue;
+                }
+                let t0 = ((ts0 - start_ms) as f64) / 1000.0;
+                let t1 = ((ts1 - start_ms) as f64) / 1000.0;
+                quads.push([[t0, min0], [t1, min1], [t1, max1], [t0, max0]]);
+            }
         }
-        let t0 = ((b0.utc_ms - start_ms) as f64) / 1000.0;
-        let t1 = ((b1.utc_ms - start_ms) as f64) / 1000.0;
-        quads.push([[t0, b0.min], [t1, b1.min], [t1, b1.max], [t0, b0.max]]);
+
+        run_start = run_end;
     }
     quads
 }
@@ -2079,5 +2119,39 @@ mod tests {
         router.timeline_mut().zoom_to_range_ms(zoom_lo, zoom_hi);
         assert_eq!(router.timeline().start_utc_ms(), zoom_lo);
         assert_eq!(router.timeline().end_utc_ms(), zoom_hi);
+    }
+
+    #[test]
+    fn build_envelope_quads_preserves_bands_and_extrema_when_step_exceeds_max_gap() {
+        let base_ms = 1_788_719_000_000;
+        // 1,200 1 Hz buckets -> step = 5 when target_quads = 240, so step * 1000 ms (5,000 ms)
+        // exceeds max_gap_ms = 3,000 ms.
+        let mut buckets: Vec<daqcore::router::EnvelopePoint> = (0..1_200)
+            .map(|i| daqcore::router::EnvelopePoint {
+                utc_ms: base_ms + i * 1_000,
+                min: 10.0,
+                max: 20.0,
+                mean: 15.0,
+            })
+            .collect();
+        // Put a spike on an intermediate bucket (not divisible by step = 5)
+        buckets[3].min = -50.0;
+        buckets[3].max = 99.0;
+
+        let quads = build_envelope_quads(&buckets, base_ms, 3_000, 720);
+        assert!(
+            !quads.is_empty(),
+            "envelope quads must not be dropped when decimation step exceeds max_gap_ms"
+        );
+        let overall_min = quads
+            .iter()
+            .flat_map(|q| q.iter().map(|pt| pt[1]))
+            .fold(f64::INFINITY, f64::min);
+        let overall_max = quads
+            .iter()
+            .flat_map(|q| q.iter().map(|pt| pt[1]))
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(overall_min, -50.0);
+        assert_eq!(overall_max, 99.0);
     }
 }

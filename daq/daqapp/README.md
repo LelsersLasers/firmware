@@ -6,7 +6,7 @@ DaqApp is PER's complete trackside data acquisition and analysis desktop applica
 
 - Connects to supported CAN sources and decodes traffic with a selected SuperDBC artifact and CAN bus selection
 - Displays live and historical signals in configurable tables, lists, multi-unit scopes, state lanes, XY scatter plots, and GPS maps
-- Built-in Subteam Workspace Presets (`daq/daqapp/default_presets/*.daqview.json`) for Vehicle Dynamics, Powertrain, Thermals, Aerodynamics, Sensors & Controls, and Trackside Live Debug
+- Built-in Subteam Workspace Presets (`daq/daqviewer/default_presets/*.daqview.json`) for Vehicle Dynamics, Powertrain, Thermals, Aerodynamics, Sensors & Controls, and Trackside Live Debug
 - Portable `.daqview.json` workspace layouts and compressed `daqview1:...` Slack/Discord share strings with optional time-range and custom formula restoration
 - 3-click Dataset Export Modal (`Parquet`, `CSV`, and MATLAB v5 `.mat`) powered by `daq/config/export_presets.json`
 - Logs all received CAN traffic and imports SD card logs into canonical Arrow Parquet partitions with multi-resolution pyramid tiles
@@ -79,14 +79,14 @@ cargo build --locked
 cargo run
 ```
 
-The app's source is organized by responsibility:
+The app's source is organized by responsibility across the DAQ workspace:
 
-- `src/ui/` - application views and panels.
-- `../daqcore/src/can_thread/` - CAN worker and operational commands/events.
-- `../daqcore/src/superdbc/` - bus-aware definitions, decoding, and encoding.
-- `../daqcore/src/log_parse/` - recorded-log parsing and correlation.
-- `../daqcore/src/hil/` and `hil_config/` - HIL support and presets
-- `themes/` - user-selectable visual themes.
+- `src/ui/` - desktop-specific panels (`Bootloader`, `LogParser`, `SendUi`, `Hil`).
+- `../daqviewer/src/` - shared analysis UI (`Scope`, `StateLane`, `XYScatter`, `GpsPlot`, `Timeline`, `SignalBrowser`, `WorkspaceView`, and `themes/`).
+- `../daqnative/src/can_thread/` - CAN worker and operational commands/events.
+- `../daqnative/src/storage/` - SQLite `Registry`, Arrow/Parquet partition I/O, and background `daqcloud` sync.
+- `../daqnative/src/hil/` and `hil_config/` - HIL support and presets.
+- `../daqcore/src/` - target-independent SuperDBC decoding/encoding, formula engine, virtual timeline router, log parsing, and dataset export.
 
 ### Thread overview
 

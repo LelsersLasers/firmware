@@ -389,10 +389,14 @@ impl SendUi {
     }
 
     pub fn reset_database(&mut self) {
+        for msg in self.sending_messages.drain(..) {
+            let _ = self
+                .ui_to_can_tx
+                .send(daqnative::can_thread::CanThreadCommand::DeleteSendMessage { key: msg.key });
+        }
         self.msg_picker = ui::message_picker::MessagePickerState::default();
         self.selected_msg = None;
         self.signal_values.clear();
-        self.sending_messages.clear();
         self.adjustable_values_enabled = false;
         self.error = None;
     }

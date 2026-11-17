@@ -328,11 +328,8 @@ impl WorkspacePresetRegistry {
         let presets = DEFAULT_WORKSPACE_PRESET_FILES
             .iter()
             .map(|&(preset_id, raw_json)| {
-                let mut view = WorkspaceView::from_str_flexible(raw_json).unwrap_or_else(|e| {
-                    panic!(
-                        "embedded daq/daqviewer/default_presets/{preset_id}.daqview.json must be valid .daqview.json: {e}"
-                    )
-                });
+                let mut view = WorkspaceView::from_str_flexible(raw_json)
+                    .expect("embedded default_presets/*.daqview.json must be valid .daqview.json");
                 if view.id.as_deref().is_none_or(|s| s.trim().is_empty()) {
                     view.id = Some(preset_id.to_owned());
                 }
@@ -472,15 +469,23 @@ impl WorkspaceView {
             }
         }
 
+        const MAX_DECOMPRESSED_DAQVIEW_BYTES: u64 = 16 * 1024 * 1024;
+
         if let Some(payload) = trimmed.strip_prefix(SHARE_STRING_PREFIX) {
             let compressed = URL_SAFE_NO_PAD
                 .decode(payload.trim())
                 .map_err(|e| WorkspaceIoError::ShareStringDecode(e.to_string()))?;
-            let mut decoder = ZlibDecoder::new(compressed.as_slice());
+            let mut decoder =
+                ZlibDecoder::new(compressed.as_slice()).take(MAX_DECOMPRESSED_DAQVIEW_BYTES + 1);
             let mut json_bytes = Vec::new();
             decoder
                 .read_to_end(&mut json_bytes)
                 .map_err(|e| WorkspaceIoError::ShareStringDecode(e.to_string()))?;
+            if json_bytes.len() as u64 > MAX_DECOMPRESSED_DAQVIEW_BYTES {
+                return Err(WorkspaceIoError::ShareStringDecode(
+                    "decompressed share payload exceeds 16 MiB limit".to_owned(),
+                ));
+            }
             let view: Self = serde_json::from_slice(&json_bytes)?;
             let _ = view.resolved_layout()?;
             return Ok(view);
@@ -504,11 +509,17 @@ impl WorkspaceView {
             return Ok(view);
         }
 
-        let mut decoder = ZlibDecoder::new(bytes.as_slice());
+        let mut decoder =
+            ZlibDecoder::new(bytes.as_slice()).take(MAX_DECOMPRESSED_DAQVIEW_BYTES + 1);
         let mut decompressed = Vec::new();
         decoder
             .read_to_end(&mut decompressed)
             .map_err(|e| WorkspaceIoError::ShareStringDecode(e.to_string()))?;
+        if decompressed.len() as u64 > MAX_DECOMPRESSED_DAQVIEW_BYTES {
+            return Err(WorkspaceIoError::ShareStringDecode(
+                "decompressed share payload exceeds 16 MiB limit".to_owned(),
+            ));
+        }
         let view: Self = serde_json::from_slice(&decompressed)?;
         let _ = view.resolved_layout()?;
         Ok(view)
@@ -625,11 +636,17 @@ impl WorkspaceView {
         *widget_ids = new_widget_ids;
 
         if apply_time_context && let Some(ctx) = &self.context {
+            if let Some(day_id) = &ctx.track_day_id {
+                let _ = router.select_track_day(Some(day_id.clone()));
+                router
+                    .timeline_mut()
+                    .set_active_track_day_id(Some(day_id.clone()));
+            }
+            let all_anns = router
+                .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+                .unwrap_or_default();
             let tl = router.timeline_mut();
             tl.set_collapse_idle_gaps(ctx.gap_folding_enabled);
-            if let Some(day_id) = &ctx.track_day_id {
-                tl.set_active_track_day_id(Some(day_id.clone()));
-            }
             if ctx.viewport_end_utc_ms >= ctx.viewport_start_utc_ms {
                 tl.snap_to_range_ms(ctx.viewport_start_utc_ms, ctx.viewport_end_utc_ms);
             }
@@ -638,21 +655,21 @@ impl WorkspaceView {
             }
             tl.clear_selected_annotations();
             for (idx, ann_id) in ctx.compare_annotation_ids.iter().enumerate() {
+                let (ann_start, ann_end) = all_anns
+                    .iter()
+                    .find(|a| &a.id == ann_id)
+                    .map(|a| (a.start_utc_ms, a.end_utc_ms))
+                    .unwrap_or((ctx.viewport_start_utc_ms, Some(ctx.viewport_end_utc_ms)));
                 if idx == 0 {
-                    tl.select_single_annotation(
-                        ann_id.clone(),
-                        ctx.viewport_start_utc_ms,
-                        Some(ctx.viewport_end_utc_ms),
-                    );
+                    tl.select_single_annotation(ann_id.clone(), ann_start, ann_end);
+                    if ctx.viewport_end_utc_ms >= ctx.viewport_start_utc_ms {
+                        tl.snap_to_range_ms(ctx.viewport_start_utc_ms, ctx.viewport_end_utc_ms);
+                    }
                     if let Some(sp_ms) = ctx.setpoint_utc_ms {
                         tl.set_setpoint(Time::from_unix_millis(sp_ms));
                     }
                 } else {
-                    tl.toggle_comparison_annotation(
-                        ann_id.clone(),
-                        ctx.viewport_start_utc_ms,
-                        Some(ctx.viewport_end_utc_ms),
-                    );
+                    tl.toggle_comparison_annotation(ann_id.clone(), ann_start, ann_end);
                 }
             }
         }
@@ -1144,6 +1161,9 @@ impl Default for WorkspaceViewModalState {
 impl WorkspaceViewModalState {
     pub fn open(&mut self) {
         self.is_open = true;
+        self.generated_share_string.clear();
+        self.generated_share_url.clear();
+        self.generated_raw_json.clear();
         self.status_banner = None;
     }
 
@@ -1171,6 +1191,7 @@ impl WorkspaceViewModalState {
         router: &daqcore::router::VirtualTimelineRouter,
     ) -> Result<(), WorkspaceIoError> {
         self.refresh_generated_codes(tile_tree, router)?;
+        self.generated_share_url.clear();
         let active_code = if self.show_raw_json_code {
             &self.generated_raw_json
         } else {

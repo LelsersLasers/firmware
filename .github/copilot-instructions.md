@@ -11,8 +11,11 @@ These review checks capture the essence of consistent, safe, and maintainable co
 - `firmware/can_library/`: CAN runtime, codecs, and generated CAN/fault code
 - `firmware/external/`: third-party and vendor dependencies
 - `daq/`: Rust Cargo workspace with:
-  - shared CAN/processing logic in `daqcore`
-  - desktop UI in `daqapp`
+  - target-independent CAN/SuperDBC, formula analysis, timeline router, log parsing, and export logic in `daqcore`
+  - native hardware I/O, Arrow/Parquet storage, SQLite registry, HIL, firmware updater, and cloud sync in `daqnative`
+  - shared egui analysis UI and workspace layout engine in `daqviewer`
+  - desktop application in `daqapp`
+  - WebAssembly browser viewer in `daqweb`
   - CLI presentation in `daqcli`
   - Axum/Diesel SQLite backend in `daqcloud`
   - declarative derived-signal, workspace, and export presets in `daq/config/`

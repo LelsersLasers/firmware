@@ -448,14 +448,14 @@ impl ViewerState {
                 let current_scale = self
                     .pixels_per_point
                     .unwrap_or_else(|| ctx.pixels_per_point());
-                self.pixels_per_point = Some(current_scale + UI_SCALE_STEP);
+                self.pixels_per_point = Some((current_scale + UI_SCALE_STEP).clamp(0.5, 3.0));
                 platform.save_settings(self);
             }
             action::AppAction::DecreaseScale => {
                 let current_scale = self
                     .pixels_per_point
                     .unwrap_or_else(|| ctx.pixels_per_point());
-                self.pixels_per_point = Some(current_scale - UI_SCALE_STEP);
+                self.pixels_per_point = Some((current_scale - UI_SCALE_STEP).clamp(0.5, 3.0));
                 platform.save_settings(self);
             }
             action::AppAction::TogglePlayback => {
@@ -591,7 +591,7 @@ impl ViewerState {
         self.router.poll_cloud_sync();
         platform.poll_platform(self, ctx);
         if let Some(ppp) = self.pixels_per_point {
-            ctx.set_pixels_per_point(ppp);
+            ctx.set_pixels_per_point(ppp.clamp(0.5, 3.0));
         }
         ctx.set_style(self.theme.clone());
         let bg_color = ui::theme::get_theme(ctx).panel_color();

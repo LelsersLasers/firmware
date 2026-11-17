@@ -653,6 +653,11 @@ pub fn state_color_for_interval(
             eframe::egui::Color32::from_rgb(225, 65, 65)
         };
     }
+    let has_token = |token: &str| {
+        upper
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|w| w == token)
+    };
     if upper.contains("FAULT")
         || upper.contains("ERROR")
         || upper.contains("TRIP")
@@ -666,21 +671,21 @@ pub fn state_color_for_interval(
     if upper.contains("READY")
         || upper.contains("DRIVING")
         || upper.contains("ACTIVE")
-        || upper.contains("ON")
+        || has_token("ON")
         || upper.contains("ENABLED")
         || upper.contains("CLOSED")
-        || upper.contains("OK")
+        || has_token("OK")
     {
         return eframe::egui::Color32::from_rgb(50, 180, 105);
     }
     if upper.contains("PRECHARGE")
-        || upper.contains("INIT")
+        || has_token("INIT")
         || upper.contains("WAIT")
         || upper.contains("STANDBY")
     {
         return eframe::egui::Color32::from_rgb(235, 165, 45);
     }
-    if raw_int == 0 || upper == "0" || upper.contains("OFF") || upper.contains("IDLE") {
+    if raw_int == 0 || upper == "0" || has_token("OFF") || upper.contains("IDLE") {
         return eframe::egui::Color32::from_rgb(75, 95, 120);
     }
     STATE_PALETTE[(raw_int.unsigned_abs() as usize) % STATE_PALETTE.len()]

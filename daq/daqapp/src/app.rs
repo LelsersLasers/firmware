@@ -29,6 +29,20 @@ impl DesktopWidget {
     }
 }
 
+impl Drop for DesktopWidget {
+    fn drop(&mut self) {
+        if let DesktopWidget::Bootloader {
+            widget,
+            ui_to_can_tx,
+        } = self
+            && widget.is_running()
+        {
+            let _ =
+                ui_to_can_tx.send(daqnative::can_thread::CanThreadCommand::CancelFirmwareUpdate);
+        }
+    }
+}
+
 impl PlatformWidget for DesktopWidget {
     fn kind(&self) -> widget_constructor::WidgetKind {
         match self {
@@ -118,6 +132,7 @@ pub struct DesktopPlatform {
     pub udp_port: u16,
     pub hil_snapshot: daqnative::hil::engine::HilSnapshot,
     pub active_source: Option<daqnative::connection::ConnectionSource>,
+    pub settings_dirty_since: Option<std::time::Instant>,
 }
 
 impl DesktopPlatform {
@@ -270,7 +285,7 @@ impl DesktopPlatform {
             }
         }
         if state.connection_status == ConnectionStatus::Connected
-            || state.router.partitions().is_empty()
+            || (state.router.partitions().is_empty() && state.router.timeline().is_live())
         {
             state.router.reset_live(daqnative::time::Time::now());
         } else {
@@ -476,6 +491,11 @@ impl ViewerPlatform for DesktopPlatform {
     }
 
     fn poll_platform(&mut self, state: &mut ViewerState, _ctx: &eframe::egui::Context) {
+        if let Some(since) = self.settings_dirty_since
+            && since.elapsed() >= std::time::Duration::from_millis(500)
+        {
+            self.save_settings(state);
+        }
         while let Ok(event) = self.can_to_ui_rx.try_recv() {
             for tile in state.tile_tree.tiles.tiles_mut() {
                 if let egui_tiles::Tile::Pane(widgets::Widget::Platform(pw)) = tile
@@ -753,7 +773,14 @@ impl ViewerPlatform for DesktopPlatform {
     }
 
     fn save_settings(&mut self, state: &ViewerState) {
+        self.settings_dirty_since = None;
         self.build_settings(state).save();
+    }
+
+    fn on_workspace_changed(&mut self, _state: &ViewerState) {
+        if self.settings_dirty_since.is_none() {
+            self.settings_dirty_since = Some(std::time::Instant::now());
+        }
     }
 
     fn on_connect_cloud(&mut self, state: &mut ViewerState, url: String) {
@@ -867,7 +894,6 @@ impl DAQApp {
                     .join("..")
                     .join(settings::DEFAULT_LOG_FOLDER),
             ),
-            Some(path::PathBuf::from("/tmp/per26_store")),
         ];
         if let Some(store_dir) = candidate_store_dirs.into_iter().flatten().find(|dir| {
             dir.join(daqnative::storage::LOCAL_REGISTRY_FILENAME)
@@ -907,6 +933,7 @@ impl DAQApp {
             udp_port: settings.udp_port,
             hil_snapshot: daqnative::hil::engine::HilSnapshot::idle(),
             active_source: None,
+            settings_dirty_since: None,
         };
 
         let mut state = ViewerState::new(
@@ -1020,6 +1047,7 @@ mod tests {
             udp_port: 5000,
             hil_snapshot: daqnative::hil::engine::HilSnapshot::idle(),
             active_source: None,
+            settings_dirty_since: None,
         }
     }
 
@@ -1508,8 +1536,10 @@ mod tests {
         let tmp_store = tempfile::tempdir().expect("temp store");
         let tmp_raw1 = tempfile::tempdir().expect("temp raw 1");
         let tmp_raw2 = tempfile::tempdir().expect("temp raw 2");
-        std::fs::copy(&log1, tmp_raw1.path().join("log-2026-09-06--18-36-02.log")).unwrap();
-        std::fs::copy(&log2, tmp_raw2.path().join("log-2026-09-06--20-21-44.log")).unwrap();
+        std::fs::copy(&log1, tmp_raw1.path().join("log-2026-09-06--18-36-02.log"))
+            .expect("copy log1");
+        std::fs::copy(&log2, tmp_raw2.path().join("log-2026-09-06--20-21-44.log"))
+            .expect("copy log2");
 
         let summary_1 = daqnative::log_parse::import_logs_to_store(
             tmp_raw1.path(),

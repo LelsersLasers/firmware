@@ -63,11 +63,19 @@ impl Settings {
 
     pub fn load() -> Self {
         let path = Self::path();
-        Self::load_from(&path).unwrap_or_else(|| {
-            let default = Settings::default();
+        if let Some(settings) = Self::load_from(&path) {
+            return settings;
+        }
+        let default = Settings::default();
+        if !path.exists() {
             default.save();
-            default
-        })
+        } else {
+            log::warn!(
+                "Failed to parse existing {}; using default settings in memory without overwriting file",
+                path.display()
+            );
+        }
+        default
     }
 
     pub fn load_from(path: &path::Path) -> Option<Self> {
@@ -88,8 +96,17 @@ impl Settings {
             }
         };
 
-        if let Err(error) = fs::write(path, json) {
-            log::error!("Failed to write {}: {error}", path.display());
+        let tmp_path = path.with_extension("json.tmp");
+        if let Err(error) = fs::write(&tmp_path, json) {
+            log::error!("Failed to write {}: {error}", tmp_path.display());
+            return;
+        }
+        if let Err(error) = fs::rename(&tmp_path, path) {
+            log::error!(
+                "Failed to rename {} to {}: {error}",
+                tmp_path.display(),
+                path.display()
+            );
         }
     }
 }

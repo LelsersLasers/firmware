@@ -86,6 +86,7 @@ impl DraggedSignal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormulaDraft {
     pub id: String,
+    pub original_id: Option<String>,
     pub label: String,
     pub expression: String,
     pub unit: String,
@@ -96,6 +97,7 @@ impl Default for FormulaDraft {
     fn default() -> Self {
         Self {
             id: "custom_power_kw".to_owned(),
+            original_id: None,
             label: "Custom Power".to_owned(),
             expression: "(pack_stats.vbatt_adc * pack_stats.ibatt_adc) / 1000.0".to_owned(),
             unit: "kW".to_owned(),
@@ -108,6 +110,7 @@ impl FormulaDraft {
     pub fn from_compiled(compiled: &daqcore::analysis::CompiledDerivedSignal) -> Self {
         Self {
             id: compiled.def.id.clone(),
+            original_id: Some(compiled.def.id.clone()),
             label: compiled.def.label.clone(),
             expression: compiled.def.expression.clone(),
             unit: compiled.def.unit.clone(),
@@ -965,12 +968,18 @@ pub fn show_formula_editor_modal(
         });
 
     if delete_clicked {
-        let _ = router.delete_derived_signal(&draft.id);
+        let target_id = draft.original_id.as_deref().unwrap_or(&draft.id);
+        let _ = router.delete_derived_signal(target_id);
         state.formula_draft = None;
     } else if save_clicked || save_and_plot_clicked {
         let def = draft.to_def();
         match router.save_derived_signal(def.clone()) {
             Ok(()) => {
+                if let Some(orig_id) = &draft.original_id
+                    && orig_id != &def.id
+                {
+                    let _ = router.delete_derived_signal(orig_id);
+                }
                 if save_and_plot_clicked {
                     action_queue.push(action::AppAction::SpawnWidget(
                         widget_constructor::WidgetConstructor::ScopeChannel {
@@ -1021,6 +1030,7 @@ mod tests {
         let engine = daqcore::analysis::FormulaEngine::default();
         let draft = FormulaDraft {
             id: "mech_power_kw".to_owned(),
+            original_id: None,
             label: "Mechanical Power".to_owned(),
             expression: "(motor_stats.torque * motor_stats.rpm) / 9549.0".to_owned(),
             unit: "kW".to_owned(),
@@ -1037,6 +1047,7 @@ mod tests {
 
         let bad_syntax = FormulaDraft {
             id: "bad_expr".to_owned(),
+            original_id: None,
             label: "Bad".to_owned(),
             expression: "pack_stats.vbatt_adc * (".to_owned(),
             unit: "V".to_owned(),
@@ -1046,6 +1057,7 @@ mod tests {
 
         let self_cycle = FormulaDraft {
             id: "self_loop".to_owned(),
+            original_id: None,
             label: "Cycle".to_owned(),
             expression: "self_loop + 1.0".to_owned(),
             unit: "".to_owned(),
@@ -1198,7 +1210,7 @@ mod tests {
         }
         assert_eq!(state.search_query, "temp");
         let first_w = widths[1];
-        let last_w = *widths.last().unwrap();
+        let last_w = *widths.last().expect("widths populated");
         assert!(
             (last_w - first_w).abs() < 1.0,
             "Sidebar width crept from {first_w} to {last_w} across 40 frames: {widths:?}"

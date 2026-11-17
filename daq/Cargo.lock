@@ -1233,21 +1233,14 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 name = "daqapp-rust"
 version = "26.0.0"
 dependencies = [
- "base64 0.22.1",
- "bytemuck",
  "chrono",
  "daqcore",
  "daqnative",
  "daqviewer",
  "eframe",
  "egui_extras",
- "egui_plot",
  "egui_tiles",
  "env_logger",
- "flate2",
- "globset",
- "hashbrown 0.16.1",
- "indexmap",
  "log",
  "rfd",
  "rusb",
@@ -1255,9 +1248,6 @@ dependencies = [
  "serde_json",
  "serialport",
  "tempfile",
- "toml",
- "uuid",
- "walkers",
 ]
 
 [[package]]
@@ -1301,7 +1291,6 @@ name = "daqcore"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "bytes",
  "chrono",
  "globset",
  "indexmap",
@@ -1314,7 +1303,6 @@ dependencies = [
  "syn 2.0.119",
  "tempfile",
  "typify",
- "uuid",
 ]
 
 [[package]]
