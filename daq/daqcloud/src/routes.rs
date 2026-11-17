@@ -11,12 +11,13 @@ use axum::{
     routing::{get, put},
 };
 use daqcore::{
+    analysis::{DerivedSignalDef, Expr},
     export::{DatasetExportRequest, ExportFormat},
     router::{Resolution, TileKey, wire::encode_tile_payload},
     storage::{
         Annotation, AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse,
-        CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, PartitionManifest, RANGE_CHECKSUM_HEADER,
-        compute_sha256_hex, is_safe_path_segment,
+        CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, DerivedSignalUpsertPayload,
+        PartitionManifest, RANGE_CHECKSUM_HEADER, compute_sha256_hex, is_safe_path_segment,
     },
     time::Time,
 };
@@ -109,6 +110,16 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/annotations/{id}",
             axum::routing::patch(patch_annotation_id_handler).delete(delete_annotation_id_handler),
+        )
+        .route(
+            "/api/v1/derived-signals",
+            get(get_derived_signals_handler)
+                .post(post_derived_signals_handler)
+                .delete(delete_derived_signal_query_handler),
+        )
+        .route(
+            "/api/v1/derived-signals/{id}",
+            axum::routing::delete(delete_derived_signal_id_handler),
         )
         .route("/api/v1/ws", get(ws_upgrade_handler))
         .layer(axum::middleware::from_fn_with_state(
@@ -242,10 +253,15 @@ async fn get_catalog_handler(State(state): State<AppState>) -> Response {
             Ok(v) => v,
             Err(e) => return internal_registry_err(e).into_response(),
         };
+        let derived_signals = match state.registry.list_derived_signals(true) {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
         let catalog = CatalogResponse {
             track_days,
             partitions,
             annotations,
+            derived_signals,
         };
         let bytes = match serde_json::to_vec(&catalog) {
             Ok(b) => Bytes::from(b),
@@ -515,6 +531,7 @@ async fn post_export_handler(
     Json(req): Json<DatasetExportRequest>,
 ) -> Response {
     let store_dir = state.store_dir.clone();
+    let cloud_derived = state.registry.list_derived_signals(true).unwrap_or_default();
     let export_res = tokio::task::spawn_blocking(move || {
         let mut router = daqcore::router::VirtualTimelineRouter::open_store(
             &store_dir,
@@ -522,6 +539,9 @@ async fn post_export_handler(
             30.0,
         )
         .map_err(daqnative::export::ExportError::Router)?;
+        if !cloud_derived.is_empty() {
+            let _ = router.formula_engine_mut().apply_synced_defs(&cloud_derived);
+        }
         if !req.custom_formulas.is_empty() {
             router
                 .formula_engine_mut()
@@ -1316,6 +1336,178 @@ fn soft_delete_and_broadcast(
     Ok(Json(stored))
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct DerivedSignalsQuery {
+    #[serde(default)]
+    since_utc_ms: Option<i64>,
+    #[serde(default)]
+    include_deleted: Option<bool>,
+}
+
+async fn get_derived_signals_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DerivedSignalsQuery>,
+) -> Result<Json<Vec<DerivedSignalDef>>, (StatusCode, String)> {
+    let include_deleted = query.include_deleted.unwrap_or(false);
+    let list = if let Some(since_ms) = query.since_utc_ms {
+        let mut sigs = state
+            .registry
+            .list_derived_signals_updated_since(since_ms)
+            .map_err(internal_registry_err)?;
+        if !include_deleted && query.include_deleted.is_some() {
+            sigs.retain(|s| !s.deleted);
+        }
+        sigs
+    } else {
+        state
+            .registry
+            .list_derived_signals(include_deleted)
+            .map_err(internal_registry_err)?
+    };
+    Ok(Json(list))
+}
+
+async fn post_derived_signals_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<DerivedSignalUpsertPayload>,
+) -> Result<Json<Vec<DerivedSignalDef>>, (StatusCode, String)> {
+    let incoming = payload.into_vec();
+    let mut stored_list = Vec::with_capacity(incoming.len());
+    let now_ms = Time::now().unix_millis();
+
+    for mut sig in incoming {
+        sig.id = sig.id.trim().to_owned();
+        if sig.id.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Derived signal ID must not be empty".to_owned(),
+            ));
+        }
+        if !sig.deleted {
+            Expr::parse(&sig.expression).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid expression for '{}': {e}", sig.id),
+                )
+            })?;
+        }
+        if sig.updated_at_ms <= 0 {
+            let prev_ts = state
+                .registry
+                .get_derived_signal(&sig.id)
+                .ok()
+                .flatten()
+                .map_or(0, |s| s.updated_at_ms);
+            sig.updated_at_ms = now_ms.max(prev_ts.saturating_add(1));
+        }
+
+        let changed = state
+            .registry
+            .upsert_derived_signal(&sig)
+            .map_err(internal_registry_err)?;
+        let stored = state
+            .registry
+            .get_derived_signal(&sig.id)
+            .map_err(internal_registry_err)?
+            .unwrap_or(sig);
+        if changed {
+            if stored.deleted {
+                let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+                    id: stored.id.clone(),
+                    updated_at_ms: stored.updated_at_ms,
+                });
+            }
+            let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                signal: stored.clone(),
+            });
+        }
+        stored_list.push(stored);
+    }
+    state.invalidate_catalog_cache();
+
+    Ok(Json(stored_list))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct DeleteDerivedSignalQuery {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    updated_at_ms: Option<i64>,
+}
+
+async fn delete_derived_signal_query_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DeleteDerivedSignalQuery>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    let Some(id) = query.id else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "DELETE /api/v1/derived-signals requires '?id=<signal_id>'".to_owned(),
+        ));
+    };
+    soft_delete_derived_signal_and_broadcast(&state, &id, query.updated_at_ms)
+}
+
+async fn delete_derived_signal_id_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<DeleteDerivedSignalQuery>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    soft_delete_derived_signal_and_broadcast(&state, &id, query.updated_at_ms)
+}
+
+fn soft_delete_derived_signal_and_broadcast(
+    state: &AppState,
+    id: &str,
+    requested_updated_at_ms: Option<i64>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Derived signal ID must not be empty".to_owned(),
+        ));
+    }
+    let prev_ts = state
+        .registry
+        .get_derived_signal(trimmed)
+        .map_err(internal_registry_err)?
+        .map_or(0, |s| s.updated_at_ms);
+
+    let now_ms = Time::now().unix_millis();
+    let effective_updated_at_ms = requested_updated_at_ms
+        .unwrap_or(now_ms)
+        .max(prev_ts.saturating_add(1));
+
+    state
+        .registry
+        .soft_delete_derived_signal(trimmed, effective_updated_at_ms)
+        .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
+
+    let stored = state
+        .registry
+        .get_derived_signal(trimmed)
+        .map_err(internal_registry_err)?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Deleted derived signal missing from registry".to_owned(),
+            )
+        })?;
+
+    let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+        id: stored.id.clone(),
+        updated_at_ms: stored.updated_at_ms,
+    });
+    let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+        signal: stored.clone(),
+    });
+
+    Ok(Json(stored))
+}
+
 async fn ws_upgrade_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -1356,6 +1548,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                     if state.registry.upsert_annotation(&annotation).unwrap_or(false)
                                         && let Ok(Some(stored)) = state.registry.get_annotation(&annotation.id)
                                     {
+                                        state.invalidate_catalog_cache();
                                         let _ = state.ws_tx.send(CloudWsMessage::AnnotationUpdated {
                                             annotation: stored,
                                         });
@@ -1363,6 +1556,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                 }
                                 CloudWsMessage::AnnotationDeleted { annotation_id, updated_at_ms } => {
                                     if state.registry.soft_delete_annotation(&annotation_id, updated_at_ms).unwrap_or(false) {
+                                        state.invalidate_catalog_cache();
                                         let _ = state.ws_tx.send(CloudWsMessage::AnnotationDeleted {
                                             annotation_id: annotation_id.clone(),
                                             updated_at_ms,
@@ -1370,6 +1564,30 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                         if let Ok(Some(stored)) = state.registry.get_annotation(&annotation_id) {
                                             let _ = state.ws_tx.send(CloudWsMessage::AnnotationUpdated {
                                                 annotation: stored,
+                                            });
+                                        }
+                                    }
+                                }
+                                CloudWsMessage::DerivedSignalUpdated { signal } => {
+                                    if state.registry.upsert_derived_signal(&signal).unwrap_or(false)
+                                        && let Ok(Some(stored)) = state.registry.get_derived_signal(&signal.id)
+                                    {
+                                        state.invalidate_catalog_cache();
+                                        let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                                            signal: stored,
+                                        });
+                                    }
+                                }
+                                CloudWsMessage::DerivedSignalDeleted { id, updated_at_ms } => {
+                                    if state.registry.soft_delete_derived_signal(&id, updated_at_ms).unwrap_or(false) {
+                                        state.invalidate_catalog_cache();
+                                        let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+                                            id: id.clone(),
+                                            updated_at_ms,
+                                        });
+                                        if let Ok(Some(stored)) = state.registry.get_derived_signal(&id) {
+                                            let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                                                signal: stored,
                                             });
                                         }
                                     }
