@@ -62,8 +62,8 @@
     },
     {
       "id": "powertrain.total_torque_request",
-      "label": "Total VCU requested torque",
-      "expression": "vcu_torque_request.front_left + vcu_torque_request.front_right + vcu_torque_request.rear_left + vcu_torque_request.rear_right",
+      "label": "Total requested torque (MCAN)",
+      "expression": "INVA_SET.AMK_TorqueSetpoint + INVB_SET.AMK_TorqueSetpoint + INVC_SET.AMK_TorqueSetpoint + INVD_SET.AMK_TorqueSetpoint",
       "unit": "%"
     },
     {

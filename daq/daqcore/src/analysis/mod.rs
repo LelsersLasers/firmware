@@ -520,6 +520,15 @@ mod tests {
         assert!(!engine.contains("vd.fl_damper_vel_mms"));
         assert!(!engine.contains("vd.fl_shockpot_50hz_mm"));
         assert!(engine.contains("vd.understeer_gradient"));
+        assert!(engine.contains("powertrain.total_torque_request"));
+        assert_eq!(
+            engine
+                .get("powertrain.total_torque_request")
+                .map(|c| c.def.expression.as_str()),
+            Some(
+                "INVA_SET.AMK_TorqueSetpoint + INVB_SET.AMK_TorqueSetpoint + INVC_SET.AMK_TorqueSetpoint + INVD_SET.AMK_TorqueSetpoint"
+            )
+        );
         assert!(engine.contains("thermals.max_igbt_temp_c"));
         assert_eq!(engine.unit_for("battery.power_w"), Some("W"));
     }

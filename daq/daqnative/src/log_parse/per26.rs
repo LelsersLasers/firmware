@@ -2873,6 +2873,8 @@ pub fn normalize_per26_columns_to_canonical(
             "vcu_torque_request.rear_right",
             "vcu_torque_request.front_right",
         ),
+        ("INVA_SET.AMK_TorqueSetpoint", "INVC_SET.AMK_TorqueSetpoint"),
+        ("INVB_SET.AMK_TorqueSetpoint", "INVD_SET.AMK_TorqueSetpoint"),
         ("INVA_CRIT.AMK_ActualTorque", "INVC_CRIT.AMK_ActualTorque"),
         ("INVB_CRIT.AMK_ActualTorque", "INVD_CRIT.AMK_ActualTorque"),
         ("pedals.throttle", "pedals.regen"),
