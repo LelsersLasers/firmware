@@ -258,6 +258,31 @@ pub fn series_to_timestamp_values(series: &SignalSeries) -> (Vec<i64>, Vec<f64>)
     }
 }
 
+/// Infer a per-series staleness threshold from the observed sample cadence of `timestamps_ms`
+/// (inspecting up to 64 consecutive pairs with `0 < dt <= 2_000 ms`, ignoring unlogged gaps `> 2 s`).
+///
+/// This ensures low-rate signals (such as 2 Hz `INV*_TEMPS` transmitted every `500 ms`) interpolate
+/// across their normal sample period (`3 * 500 ms = 1,500 ms`) when aligned at `FullRes` alongside
+/// staggered or higher-rate channels, while keeping `base_staleness_ms` (`250 ms`) for fast signals.
+pub fn infer_series_staleness_ms(timestamps_ms: &[i64], base_staleness_ms: i64) -> i64 {
+    let mut dts: Vec<i64> = Vec::with_capacity(64);
+    for pair in timestamps_ms.windows(2) {
+        let dt = pair[1].saturating_sub(pair[0]);
+        if dt > 0 && dt <= 2_000 {
+            dts.push(dt);
+            if dts.len() >= 64 {
+                break;
+            }
+        }
+    }
+    if dts.is_empty() {
+        return base_staleness_ms;
+    }
+    dts.sort_unstable();
+    let median_dt = dts[(dts.len() - 1) / 2];
+    base_staleness_ms.max(median_dt.saturating_mul(3))
+}
+
 /// Align a map of named [`SignalSeries`] onto a shared timestamp grid using staleness-aware
 /// linear interpolation.
 pub fn align_series_map(
@@ -274,7 +299,8 @@ pub fn align_series_map(
     let mut aligned = BTreeMap::new();
 
     for (name, (ts, vals)) in &extracted {
-        let col = resample_continuous_linear(ts, vals, &target_ts, max_staleness_ms);
+        let sig_staleness_ms = infer_series_staleness_ms(ts, max_staleness_ms);
+        let col = resample_continuous_linear(ts, vals, &target_ts, sig_staleness_ms);
         aligned.insert(name.clone(), col);
     }
 
@@ -299,8 +325,10 @@ pub fn align_xy_pairs(
     let (x_ts, x_vals) = series_to_timestamp_values(x_series);
     let (y_ts, y_vals) = series_to_timestamp_values(y_series);
     let grid = TargetGrid::Union.build_timestamps([x_ts.as_slice(), y_ts.as_slice()]);
-    let x_aligned = resample_continuous_linear(&x_ts, &x_vals, &grid, max_staleness_ms);
-    let y_aligned = resample_continuous_linear(&y_ts, &y_vals, &grid, max_staleness_ms);
+    let x_staleness = infer_series_staleness_ms(&x_ts, max_staleness_ms);
+    let y_staleness = infer_series_staleness_ms(&y_ts, max_staleness_ms);
+    let x_aligned = resample_continuous_linear(&x_ts, &x_vals, &grid, x_staleness);
+    let y_aligned = resample_continuous_linear(&y_ts, &y_vals, &grid, y_staleness);
 
     let mut out = AlignedXY::default();
     for ((t, x), y) in grid.into_iter().zip(x_aligned).zip(y_aligned) {
@@ -335,9 +363,12 @@ pub fn align_xyz_triples(
     let (z_ts, z_vals) = series_to_timestamp_values(z_series);
     let grid =
         TargetGrid::Union.build_timestamps([x_ts.as_slice(), y_ts.as_slice(), z_ts.as_slice()]);
-    let x_aligned = resample_continuous_linear(&x_ts, &x_vals, &grid, max_staleness_ms);
-    let y_aligned = resample_continuous_linear(&y_ts, &y_vals, &grid, max_staleness_ms);
-    let z_aligned = resample_continuous_linear(&z_ts, &z_vals, &grid, max_staleness_ms);
+    let x_staleness = infer_series_staleness_ms(&x_ts, max_staleness_ms);
+    let y_staleness = infer_series_staleness_ms(&y_ts, max_staleness_ms);
+    let z_staleness = infer_series_staleness_ms(&z_ts, max_staleness_ms);
+    let x_aligned = resample_continuous_linear(&x_ts, &x_vals, &grid, x_staleness);
+    let y_aligned = resample_continuous_linear(&y_ts, &y_vals, &grid, y_staleness);
+    let z_aligned = resample_continuous_linear(&z_ts, &z_vals, &grid, z_staleness);
 
     let mut out = AlignedXYZ::default();
     for (((t, x), y), z) in grid

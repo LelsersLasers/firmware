@@ -4,7 +4,8 @@ pub mod expr;
 
 pub use align::{
     AlignedXY, AlignedXYZ, TargetGrid, align_series_map, align_xy_pairs, align_xyz_triples,
-    resample_continuous_linear, resample_discrete_hold, series_to_timestamp_values,
+    infer_series_staleness_ms, resample_continuous_linear, resample_discrete_hold,
+    series_to_timestamp_values,
 };
 pub use distance::{
     DEFAULT_SPEED_INTEGRATION_GAP_MS, DistanceSeries, compute_distance_axis,
@@ -486,7 +487,8 @@ fn align_envelope_bound(
                 (ts, vals)
             }
         };
-        let aligned = resample_continuous_linear(&ts, &vals, target_ts, max_staleness_ms);
+        let sig_staleness_ms = infer_series_staleness_ms(&ts, max_staleness_ms);
+        let aligned = resample_continuous_linear(&ts, &vals, target_ts, sig_staleness_ms);
         out.insert(name.clone(), aligned);
     }
     out
@@ -741,5 +743,67 @@ mod tests {
         // and max must be the end of the step (10 * 2000 / 3600 = 5.5556 Wh), NOT [0.0, 11.111 Wh]!
         assert!((fb_last.min - (18_000.0 / 3_600.0)).abs() < 1e-4);
         assert!((fb_last.max - expected_total_wh).abs() < 1e-4);
+    }
+
+    #[test]
+    fn thermals_derived_signals_evaluate_for_staggered_2hz_inverter_temps() {
+        let engine = FormulaEngine::with_builtin_config();
+
+        // Simulate 2 Hz (500 ms period) staggered inverter temperatures as on MCAN (`2026-06-14`):
+        // INVA at t = 502, 1002, 1502, 2002 ms
+        // INVB at t = 500, 1000, 1500, 2000 ms
+        // INVC at t = 504, 1004, 1504, 2004 ms
+        // INVD at t = 500, 1000, 1500, 2000 ms
+        let inva = SignalSeries::Exact {
+            timestamps_ms: vec![502, 1002, 1502, 2002],
+            values: vec![48.0, 49.0, 50.0, 51.0],
+        };
+        let invb = SignalSeries::Exact {
+            timestamps_ms: vec![500, 1000, 1500, 2000],
+            values: vec![45.0, 46.0, 47.0, 48.0],
+        };
+        let invc = SignalSeries::Exact {
+            timestamps_ms: vec![504, 1004, 1504, 2004],
+            values: vec![52.0, 53.0, 54.0, 55.0],
+        };
+        let invd = SignalSeries::Exact {
+            timestamps_ms: vec![500, 1000, 1500, 2000],
+            values: vec![49.0, 50.0, 51.0, 52.0],
+        };
+
+        for channel_id in [
+            "thermals.max_igbt_temp_c",
+            "thermals.max_motor_temp_c",
+            "thermals.max_inverter_temp_c",
+        ] {
+            let series = engine
+                .evaluate_channel_with(
+                    channel_id,
+                    &TargetGrid::Union,
+                    Resolution::FullRes,
+                    |raw_id| {
+                        if raw_id.starts_with("INVA_TEMPS.") {
+                            inva.clone()
+                        } else if raw_id.starts_with("INVB_TEMPS.") {
+                            invb.clone()
+                        } else if raw_id.starts_with("INVC_TEMPS.") {
+                            invc.clone()
+                        } else if raw_id.starts_with("INVD_TEMPS.") {
+                            invd.clone()
+                        } else {
+                            panic!("unexpected raw signal: {raw_id}")
+                        }
+                    },
+                )
+                .expect("evaluate thermal derived channel");
+
+            let (_, latest_val) = series
+                .latest_at_or_before(1_800)
+                .expect("must produce finite readout at cursor");
+            assert!(
+                (latest_val - 54.0).abs() < 1.0,
+                "unexpected value for {channel_id}: {latest_val}"
+            );
+        }
     }
 }
