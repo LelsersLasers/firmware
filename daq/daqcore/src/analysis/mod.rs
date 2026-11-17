@@ -60,6 +60,12 @@ impl FormulaEngine {
             .expect("embedded daq/config/derived_signals.json must be valid")
     }
 
+    /// Return the built-in [`DerivedSignalDef`] definitions from `daq/config/derived_signals.json`.
+    pub fn builtin_defs() -> Vec<DerivedSignalDef> {
+        parse_derived_signals_json(BUILTIN_DERIVED_SIGNALS_JSON)
+            .expect("embedded daq/config/derived_signals.json must be valid")
+    }
+
     /// Construct a `FormulaEngine` from a slice of [`DerivedSignalDef`]s.
     pub fn from_defs(defs: &[DerivedSignalDef]) -> Result<Self, AnalysisError> {
         let ordered = compile_and_sort_derived_signals(defs)?;
@@ -178,6 +184,36 @@ impl FormulaEngine {
         } else {
             false
         }
+    }
+
+    /// Reconcile a slice of synced [`DerivedSignalDef`] records (including tombstones with `deleted = true`)
+    /// into `self` using last-write-wins `updated_at_ms`. Returns `true` if `self` changed.
+    pub fn apply_synced_defs(&mut self, defs: &[DerivedSignalDef]) -> bool {
+        let mut changed = false;
+        for def in defs {
+            let target_id = def.id.trim();
+            if target_id.is_empty() {
+                continue;
+            }
+            if def.deleted {
+                if let Some(existing) = self.get(target_id)
+                    && def.updated_at_ms >= existing.def.updated_at_ms
+                    && self.remove_formula(target_id)
+                {
+                    changed = true;
+                }
+            } else {
+                let should_apply = self.get(target_id).is_none_or(|existing| {
+                    def.updated_at_ms > existing.def.updated_at_ms
+                        || (def.updated_at_ms == existing.def.updated_at_ms
+                            && existing.def != *def)
+                });
+                if should_apply && self.upsert_formula(def.clone()).is_ok() {
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// Compute the topological execution plan for `expr`:

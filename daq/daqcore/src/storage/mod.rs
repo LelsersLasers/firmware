@@ -1,5 +1,6 @@
 //! Portable storage, manifest, annotation, and cloud sync protocol types.
 
+pub use crate::analysis::DerivedSignalDef;
 pub use crate::log_parse::auto_annotate::Annotation;
 use crate::log_parse::{correlate, parse};
 use sha2::Digest as _;
@@ -139,6 +140,8 @@ pub struct CatalogResponse {
     pub partitions: Vec<PartitionManifest>,
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    #[serde(default)]
+    pub derived_signals: Vec<DerivedSignalDef>,
 }
 
 /// Metadata payload returned by `PUT /api/v1/partitions/{partition_id}/{filename}`.
@@ -148,6 +151,23 @@ pub struct AssetUploadResponse {
     pub filename: String,
     pub size_bytes: u64,
     pub sha256_hex: String,
+}
+
+/// Flexible request payload for `POST /api/v1/derived-signals`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum DerivedSignalUpsertPayload {
+    Single(Box<DerivedSignalDef>),
+    Batch(Vec<DerivedSignalDef>),
+}
+
+impl DerivedSignalUpsertPayload {
+    pub fn into_vec(self) -> Vec<DerivedSignalDef> {
+        match self {
+            Self::Single(def) => vec![*def],
+            Self::Batch(list) => list,
+        }
+    }
 }
 
 /// Flexible request payload for `POST /api/v1/annotations`.
@@ -249,6 +269,13 @@ pub enum CloudWsMessage {
     },
     AnnotationDeleted {
         annotation_id: String,
+        updated_at_ms: i64,
+    },
+    DerivedSignalUpdated {
+        signal: DerivedSignalDef,
+    },
+    DerivedSignalDeleted {
+        id: String,
         updated_at_ms: i64,
     },
     Ping {
@@ -368,6 +395,13 @@ pub enum CloudSyncCommand {
         annotation_id: String,
         updated_at_ms: i64,
     },
+    PushDerivedSignal {
+        signal: DerivedSignalDef,
+    },
+    DeleteDerivedSignal {
+        id: String,
+        updated_at_ms: i64,
+    },
     SetActiveTrackDay {
         track_day_id: Option<String>,
     },
@@ -392,6 +426,7 @@ pub enum CloudSyncEvent {
         partition_id: String,
     },
     AnnotationsUpdated,
+    DerivedSignalsUpdated,
     Error(String),
 }
 
@@ -409,11 +444,27 @@ pub struct CloudSyncSummary {
 
 /// Portable in-memory metadata catalog (used by `InMemoryRouterBackend` and `WebCloudRouterBackend`),
 /// implementing the exact same LWW annotation conflict resolution and auto-stint numbering as `Registry`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InMemoryCatalog {
     track_days: BTreeMap<String, TrackDay>,
     partitions: BTreeMap<String, RegisteredPartition>,
     annotations: BTreeMap<String, Annotation>,
+    derived_signals: BTreeMap<String, DerivedSignalDef>,
+}
+
+impl Default for InMemoryCatalog {
+    fn default() -> Self {
+        let mut derived_signals = BTreeMap::new();
+        for def in crate::analysis::FormulaEngine::builtin_defs() {
+            derived_signals.insert(def.id.clone(), def);
+        }
+        Self {
+            track_days: BTreeMap::new(),
+            partitions: BTreeMap::new(),
+            annotations: BTreeMap::new(),
+            derived_signals,
+        }
+    }
 }
 
 impl InMemoryCatalog {
@@ -594,6 +645,63 @@ impl InMemoryCatalog {
         list
     }
 
+    pub fn upsert_derived_signal(&mut self, def: &DerivedSignalDef) -> bool {
+        let id = def.id.trim();
+        if id.is_empty() {
+            return false;
+        }
+        if let Some(prev) = self.derived_signals.get(id)
+            && def.updated_at_ms < prev.updated_at_ms
+        {
+            return false;
+        }
+        let mut clean = def.clone();
+        clean.id = id.to_owned();
+        if clean.label.trim().is_empty() {
+            clean.label = clean.id.clone();
+        }
+        self.derived_signals.insert(clean.id.clone(), clean);
+        true
+    }
+
+    pub fn soft_delete_derived_signal(&mut self, id: &str, updated_at_ms: i64) -> bool {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        if let Some(existing) = self.derived_signals.get(trimmed)
+            && updated_at_ms < existing.updated_at_ms
+        {
+            return false;
+        }
+        let tombstone = match self.derived_signals.get(trimmed) {
+            Some(prev) => {
+                let mut t = prev.clone();
+                t.deleted = true;
+                t.updated_at_ms = updated_at_ms;
+                t
+            }
+            None => DerivedSignalDef {
+                id: trimmed.to_owned(),
+                label: trimmed.to_owned(),
+                expression: "0".to_owned(),
+                unit: String::new(),
+                updated_at_ms,
+                deleted: true,
+            },
+        };
+        self.derived_signals.insert(trimmed.to_owned(), tombstone);
+        true
+    }
+
+    pub fn query_derived_signals(&self, include_deleted: bool) -> Vec<DerivedSignalDef> {
+        self.derived_signals
+            .values()
+            .filter(|d| include_deleted || !d.deleted)
+            .cloned()
+            .collect()
+    }
+
     pub fn replace_from_catalog(&mut self, catalog: CatalogResponse) {
         for day in &catalog.track_days {
             self.upsert_track_day(day);
@@ -607,6 +715,9 @@ impl InMemoryCatalog {
         }
         for ann in &catalog.annotations {
             self.upsert_annotation_no_renumber(ann);
+        }
+        for sig in &catalog.derived_signals {
+            self.upsert_derived_signal(sig);
         }
         let day_ids: Vec<String> = self.track_days.keys().cloned().collect();
         for day_id in day_ids {

@@ -22,8 +22,8 @@ pub use wire::{
 
 use crate::{
     analysis::{
-        AnalysisError, DistanceSeries, Expr, FormulaEngine, TargetGrid, canonicalize_signal_ref,
-        map_series_to_distance,
+        AnalysisError, DerivedSignalDef, DistanceSeries, Expr, FormulaEngine, TargetGrid,
+        canonicalize_signal_ref, map_series_to_distance,
     },
     frame::ParsedFrame,
     storage::{
@@ -45,6 +45,7 @@ pub struct CloudPollOutcome {
     pub events_processed: usize,
     pub reload_partitions: bool,
     pub invalidate_annotations: bool,
+    pub reload_derived_signals: bool,
 }
 
 /// Platform-agnostic storage, metadata registry, and cloud synchronization backend
@@ -103,6 +104,25 @@ pub trait RouterBackend: Send {
         annotation_id: &str,
         updated_at_ms: i64,
     ) -> Result<bool, RouterError>;
+
+    fn query_all_derived_signals(
+        &self,
+        _include_deleted: bool,
+    ) -> Result<Vec<DerivedSignalDef>, RouterError> {
+        Ok(Vec::new())
+    }
+
+    fn upsert_derived_signal(&mut self, _def: &DerivedSignalDef) -> Result<bool, RouterError> {
+        Ok(false)
+    }
+
+    fn soft_delete_derived_signal(
+        &mut self,
+        _id: &str,
+        _updated_at_ms: i64,
+    ) -> Result<bool, RouterError> {
+        Ok(false)
+    }
 
     fn set_repaint_callback(&mut self, _callback: Option<RepaintCallback>) {}
 
@@ -231,6 +251,25 @@ impl RouterBackend for InMemoryRouterBackend {
         Ok(self
             .catalog
             .soft_delete_annotation(annotation_id, updated_at_ms))
+    }
+
+    fn query_all_derived_signals(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<DerivedSignalDef>, RouterError> {
+        Ok(self.catalog.query_derived_signals(include_deleted))
+    }
+
+    fn upsert_derived_signal(&mut self, def: &DerivedSignalDef) -> Result<bool, RouterError> {
+        Ok(self.catalog.upsert_derived_signal(def))
+    }
+
+    fn soft_delete_derived_signal(
+        &mut self,
+        id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RouterError> {
+        Ok(self.catalog.soft_delete_derived_signal(id, updated_at_ms))
     }
 }
 
@@ -424,7 +463,59 @@ impl VirtualTimelineRouter {
         }
 
         self.partitions = all_partitions;
+        self.reload_derived_signals();
         Ok(newly_preloaded)
+    }
+
+    /// Synchronize `self.formula_engine` with the backend's persisted/synced derived signal records.
+    pub fn reload_derived_signals(&mut self) -> bool {
+        let Ok(defs) = self.backend.query_all_derived_signals(true) else {
+            return false;
+        };
+        if defs.is_empty() {
+            return false;
+        }
+        let changed = self.formula_engine.apply_synced_defs(&defs);
+        if changed {
+            self.router_revision = self.router_revision.wrapping_add(1);
+        }
+        changed
+    }
+
+    /// Validate, save, and sync a derived signal definition to the active backend and cloud.
+    pub fn save_derived_signal(&mut self, mut def: DerivedSignalDef) -> Result<(), AnalysisError> {
+        let now_ms = Time::now().unix_millis();
+        let prev_ts = self
+            .formula_engine
+            .get(&def.id)
+            .map_or(0, |c| c.def.updated_at_ms);
+        if def.updated_at_ms <= prev_ts {
+            def.updated_at_ms = now_ms.max(prev_ts.saturating_add(1));
+        }
+        def.deleted = false;
+        self.formula_engine.upsert_formula(def.clone())?;
+        let _ = self.backend.upsert_derived_signal(&def);
+        self.router_revision = self.router_revision.wrapping_add(1);
+        Ok(())
+    }
+
+    /// Delete (tombstone) a derived signal by ID and sync the tombstone to the backend and cloud.
+    pub fn delete_derived_signal(&mut self, id: &str) -> Result<bool, RouterError> {
+        let trimmed = id.trim();
+        let now_ms = Time::now().unix_millis();
+        let prev_ts = self
+            .formula_engine
+            .get(trimmed)
+            .map_or(0, |c| c.def.updated_at_ms);
+        let updated_at_ms = now_ms.max(prev_ts.saturating_add(1));
+        let removed_local = self.formula_engine.remove_formula(trimmed);
+        let removed_backend = self
+            .backend
+            .soft_delete_derived_signal(trimmed, updated_at_ms)?;
+        if removed_local || removed_backend {
+            self.router_revision = self.router_revision.wrapping_add(1);
+        }
+        Ok(removed_local || removed_backend)
     }
 
     /// Register a newly written [`PartitionManifest`] and preload its 1Hz overview and states.
@@ -501,8 +592,13 @@ impl VirtualTimelineRouter {
         let outcome = self.backend.poll_cloud_sync(&mut self.tile_cache);
         if outcome.reload_partitions {
             let _ = self.reload_registry_state();
-        } else if outcome.invalidate_annotations {
-            self.invalidate_metadata_cache();
+        } else {
+            if outcome.invalidate_annotations {
+                self.invalidate_metadata_cache();
+            }
+            if outcome.reload_derived_signals {
+                self.reload_derived_signals();
+            }
         }
 
         if self.timeline.window_ms() <= OVERVIEW_1HZ_THRESHOLD_MS {

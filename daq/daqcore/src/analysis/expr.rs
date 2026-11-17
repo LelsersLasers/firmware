@@ -867,7 +867,7 @@ fn eval_rolling_mean(
 // Derived Signal Definitions & Topological Sort
 // ============================================================================
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DerivedSignalDef {
     #[serde(alias = "name")]
     pub id: String,
@@ -876,9 +876,13 @@ pub struct DerivedSignalDef {
     pub expression: String,
     #[serde(default)]
     pub unit: String,
+    #[serde(default)]
+    pub updated_at_ms: i64,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DerivedSignalsConfigFile {
     #[serde(alias = "channels", alias = "channel")]
     pub derived_signals: Vec<DerivedSignalDef>,
@@ -901,6 +905,9 @@ pub fn compile_and_sort_derived_signals(
     let mut by_id: BTreeMap<String, CompiledDerivedSignal> = BTreeMap::new();
 
     for def in defs {
+        if def.deleted {
+            continue;
+        }
         let id = def.id.trim().to_owned();
         if id.is_empty() {
             return Err(AnalysisError::EmptyChannelId);
@@ -1653,18 +1660,21 @@ mod tests {
                 label: "Battery Power (kW)".to_owned(),
                 expression: "battery.power_w / 1000.0".to_owned(),
                 unit: "kW".to_owned(),
+                ..Default::default()
             },
             DerivedSignalDef {
                 id: "battery.power_w".to_owned(),
                 label: "Battery Power (W)".to_owned(),
                 expression: "battery.voltage_v * pack_stats.pack_current".to_owned(),
                 unit: "W".to_owned(),
+                ..Default::default()
             },
             DerivedSignalDef {
                 id: "battery.voltage_v".to_owned(),
                 label: "Battery Voltage (V)".to_owned(),
                 expression: "pack_stats.vbatt_adc * 0.14659808276".to_owned(),
                 unit: "V".to_owned(),
+                ..Default::default()
             },
         ];
 
@@ -1681,12 +1691,14 @@ mod tests {
                 label: String::new(),
                 expression: "b + 1".to_owned(),
                 unit: String::new(),
+                ..Default::default()
             },
             DerivedSignalDef {
                 id: "b".to_owned(),
                 label: String::new(),
                 expression: "a + 1".to_owned(),
                 unit: String::new(),
+                ..Default::default()
             },
         ];
         let err = compile_and_sort_derived_signals(&cyclic).unwrap_err();
