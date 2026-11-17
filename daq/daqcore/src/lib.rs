@@ -1,16 +1,17 @@
-//! Single-owner CAN libraries. The worker moves events; callers own telemetry history.
+//! Portable DAQ telemetry kernel, timeline, router, formula engine, SuperDBC codec, and traits.
 pub mod analysis;
-pub mod can;
-pub mod can_thread;
+pub mod bus_load;
 pub mod connection;
 pub mod export;
-pub mod firmware;
 pub mod formatter;
 pub mod frame;
-pub mod hil;
 pub mod log_parse;
 pub mod router;
 pub mod storage;
 pub mod superdbc;
 pub mod time;
 pub mod timeline;
+
+pub mod can {
+    pub use crate::bus_load;
+}

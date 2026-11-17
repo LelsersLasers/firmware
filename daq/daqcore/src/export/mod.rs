@@ -1,28 +1,18 @@
 use crate::{
     analysis::{
-        AnalysisError, TargetGrid, canonicalize_signal_ref, resample_continuous_linear,
-        resample_discrete_hold, series_to_timestamp_values,
+        AnalysisError, DerivedSignalDef, TargetGrid, canonicalize_signal_ref,
+        resample_continuous_linear, resample_discrete_hold, series_to_timestamp_values,
     },
     router::{Resolution, RouterError, SignalSeries, VirtualTimelineRouter},
 };
-use arrow::{
-    array::{ArrayRef, Float64Array, Int64Array, RecordBatch},
-    datatypes::{DataType, Field, Schema},
-};
 use globset::GlobBuilder;
 use indexmap::IndexMap;
-use parquet::{
-    arrow::{ArrowWriter, arrow_reader::ParquetRecordBatchReaderBuilder},
-    basic::{Compression, ZstdLevel},
-    file::properties::WriterProperties,
-};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     io::{self, BufWriter, Write},
     ops::RangeInclusive,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 /// Embedded JSON configuration from `daq/config/export_presets.json`.
@@ -36,8 +26,7 @@ pub enum ExportError {
     Io(io::Error),
     Router(RouterError),
     Analysis(AnalysisError),
-    Arrow(arrow::error::ArrowError),
-    Parquet(parquet::errors::ParquetError),
+    Format(String),
     ConfigParse(String),
     UnknownPreset(String),
     UnknownAnnotation(String),
@@ -53,8 +42,7 @@ impl fmt::Display for ExportError {
             Self::Io(e) => write!(f, "I/O error during export: {e}"),
             Self::Router(e) => write!(f, "router error during export: {e}"),
             Self::Analysis(e) => write!(f, "formula evaluation error during export: {e}"),
-            Self::Arrow(e) => write!(f, "Arrow error during export: {e}"),
-            Self::Parquet(e) => write!(f, "Parquet error during export: {e}"),
+            Self::Format(msg) => write!(f, "format error during export: {msg}"),
             Self::ConfigParse(msg) => write!(f, "failed to parse export presets config: {msg}"),
             Self::UnknownPreset(id) => write!(f, "unknown export preset '{id}'"),
             Self::UnknownAnnotation(name) => {
@@ -103,18 +91,6 @@ impl From<RouterError> for ExportError {
 impl From<AnalysisError> for ExportError {
     fn from(value: AnalysisError) -> Self {
         Self::Analysis(value)
-    }
-}
-
-impl From<arrow::error::ArrowError> for ExportError {
-    fn from(value: arrow::error::ArrowError) -> Self {
-        Self::Arrow(value)
-    }
-}
-
-impl From<parquet::errors::ParquetError> for ExportError {
-    fn from(value: parquet::errors::ParquetError) -> Self {
-        Self::Parquet(value)
     }
 }
 
@@ -226,6 +202,21 @@ impl ExportFormat {
     }
 }
 
+/// Serializable request payload for dataset export (used by `ViewerPlatform::execute_dataset_export`
+/// and `POST /api/v1/export` on `daqcloud`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DatasetExportRequest {
+    pub start_utc_ms: i64,
+    pub end_utc_ms: i64,
+    pub signal_patterns: Vec<String>,
+    pub sampling_mode: SamplingMode,
+    pub format: ExportFormat,
+    #[serde(default)]
+    pub output_path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_formulas: Vec<DerivedSignalDef>,
+}
+
 /// Subteam signal export preset loaded from `daq/config/export_presets.json`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ExportPresetDef {
@@ -258,7 +249,6 @@ impl Default for ExportPresetRegistry {
 
 impl ExportPresetRegistry {
     pub fn with_builtin() -> Self {
-        // The embedded `daq/config/export_presets.json` is version-controlled and validated by unit tests.
         Self::from_json_str(BUILTIN_EXPORT_PRESETS_JSON)
             .expect("embedded daq/config/export_presets.json must be valid JSON")
     }
@@ -351,7 +341,7 @@ impl ExportTable {
     }
 }
 
-/// Summary returned after writing an [`ExportTable`] to disk.
+/// Summary returned after writing an [`ExportTable`] to disk or browser download.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportSummary {
     pub output_path: PathBuf,
@@ -370,7 +360,6 @@ pub fn discover_available_signals(
 ) -> IndexMap<String, ExportSignalMeta> {
     let mut catalog: IndexMap<String, ExportSignalMeta> = IndexMap::new();
 
-    // 1. Raw signals active in `range` (from overlapping partitions and live buffer)
     for meta in router.active_signals_in_range(range) {
         catalog.insert(
             meta.signal_id.clone(),
@@ -385,7 +374,6 @@ pub fn discover_available_signals(
         );
     }
 
-    // 2. Derived signals from FormulaEngine whose leaf dependencies exist in `range`
     for compiled in router.formula_engine().definitions() {
         let raw_deps_available = if let Ok((_, leaf_raw)) = router
             .formula_engine()
@@ -418,11 +406,7 @@ pub fn discover_available_signals(
     catalog
 }
 
-/// Expand a list of signal patterns (e.g. `["IMU_acceleration.*", "battery.power_w"]`)
-/// against the signals available in `router` over `range`.
-///
-/// Wildcard patterns only include signals that actually have samples (or active leaf dependencies)
-/// in `range` when active signals exist, preventing unpopulated DBC signals from cluttering exports.
+/// Expand a list of signal patterns against the signals available in `router` over `range`.
 pub fn expand_signal_patterns(
     signal_patterns: &[String],
     router: &VirtualTimelineRouter,
@@ -461,8 +445,6 @@ pub fn expand_signal_patterns(
         }
     }
 
-    // If strict active filtering yielded nothing (e.g. querying a synthetic/empty range),
-    // fall back to matching against the full catalog without the `has_samples_in_range` filter.
     if selected.is_empty() {
         for raw_pattern in signal_patterns {
             let pattern = canonicalize_signal_ref(raw_pattern);
@@ -519,7 +501,6 @@ pub fn materialize_export_table(
 
     let metas = expand_signal_patterns(signal_patterns, router, range.clone())?;
 
-    // Collect all required raw leaf signals (both directly requested and referenced by derived formulas)
     let mut raw_ids_needed: BTreeSet<String> = BTreeSet::new();
     for meta in &metas {
         if meta.is_derived {
@@ -546,7 +527,6 @@ pub fn materialize_export_table(
         raw_samples_map.insert(raw_id.clone(), (ts, vals));
     }
 
-    // Build target timestamp vector
     let target_grid = match sampling_mode {
         SamplingMode::UniformGridHz(rate_hz) => TargetGrid::UniformGridHz {
             start_utc_ms,
@@ -636,7 +616,6 @@ pub fn materialize_export_table(
             }
         };
 
-        // In SparseRaw mode, omit columns that turned out to have zero finite values in the window
         if sampling_mode == SamplingMode::SparseRaw && !values.iter().any(|v| v.is_finite()) {
             continue;
         }
@@ -660,8 +639,6 @@ pub fn materialize_export_table(
     })
 }
 
-/// Place exact samples `(src_ts, src_vals)` onto a superset sorted timestamp grid `target_grid_ms`,
-/// emitting `f64::NAN` at timestamps where this signal did not record a sample.
 fn resample_sparse_exact(src_ts: &[i64], src_vals: &[f64], target_grid_ms: &[i64]) -> Vec<f64> {
     let n = src_ts.len().min(src_vals.len());
     if n == 0 || target_grid_ms.is_empty() {
@@ -674,7 +651,6 @@ fn resample_sparse_exact(src_ts: &[i64], src_vals: &[f64], target_grid_ms: &[i64
             idx += 1;
         }
         if idx < n && src_ts[idx] == t {
-            // If multiple samples exist at the same ms, take the last one
             let mut val = src_vals[idx];
             while idx + 1 < n && src_ts[idx + 1] == t {
                 idx += 1;
@@ -690,8 +666,7 @@ fn resample_sparse_exact(src_ts: &[i64], src_vals: &[f64], target_grid_ms: &[i64
     out
 }
 
-/// Resolve an annotation name or ID against the router's registry (case-insensitive exact match
-/// first, then substring match) and return `(annotation_name, start_utc_ms..=end_utc_ms)`.
+/// Resolve an annotation name or ID against the router's annotations and return `(annotation_name, start_utc_ms..=end_utc_ms)`.
 pub fn resolve_annotation_time_range(
     router: &VirtualTimelineRouter,
     event_query: &str,
@@ -701,18 +676,7 @@ pub fn resolve_annotation_time_range(
         return Err(ExportError::UnknownAnnotation(String::new()));
     }
     let query_lower = query_trimmed.to_ascii_lowercase();
-    let days = router
-        .registry()
-        .list_track_days()
-        .map_err(RouterError::from)?;
-    let mut all_annotations = Vec::new();
-    for day in &days {
-        let mut day_anns = router
-            .registry()
-            .list_annotations_for_day(&day.id, false)
-            .map_err(RouterError::from)?;
-        all_annotations.append(&mut day_anns);
-    }
+    let all_annotations = router.query_annotations_in_range(i64::MIN..=i64::MAX)?;
 
     let matched = all_annotations
         .iter()
@@ -731,105 +695,25 @@ pub fn resolve_annotation_time_range(
     Ok((matched.name.clone(), start_ms..=end_ms.max(start_ms)))
 }
 
-/// Materialize and write a dataset to `output_path` in `format`.
-pub fn export_dataset(
-    router: &VirtualTimelineRouter,
-    range: RangeInclusive<i64>,
-    signal_patterns: &[String],
-    sampling_mode: SamplingMode,
-    format: ExportFormat,
-    output_path: impl AsRef<Path>,
-) -> Result<ExportSummary, ExportError> {
-    let table = materialize_export_table(router, range, signal_patterns, sampling_mode)?;
-    let out_path = output_path.as_ref().to_path_buf();
-    if let Some(parent) = out_path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
-    match format {
-        ExportFormat::Parquet => write_parquet(&table, &out_path)?,
-        ExportFormat::Csv => write_csv(&table, &out_path)?,
-        ExportFormat::MatlabMat => write_matlab_mat(&table, &out_path)?,
-    }
-
-    let start_utc_ms = table.timestamps_utc_ms.first().copied().unwrap_or(0);
-    let end_utc_ms = table.timestamps_utc_ms.last().copied().unwrap_or(0);
-    let signals = table
-        .columns
-        .iter()
-        .map(|c| (c.signal_id.clone(), c.unit.clone()))
-        .collect();
-
-    Ok(ExportSummary {
-        output_path: out_path,
-        format,
-        start_utc_ms,
-        end_utc_ms,
-        row_count: table.row_count(),
-        signal_count: table.column_count(),
-        signals,
-    })
-}
-
-/// Write an [`ExportTable`] to a ZSTD-compressed Apache Parquet file, embedding `"unit"` and
-/// `"label"` metadata on each Arrow [`Field`].
-pub fn write_parquet(table: &ExportTable, path: &Path) -> Result<(), ExportError> {
-    let mut fields = Vec::with_capacity(table.columns.len() + 2);
-
-    let mut utc_meta = HashMap::new();
-    utc_meta.insert("unit".to_owned(), "ms".to_owned());
-    utc_meta.insert("label".to_owned(), "UTC Timestamp (ms)".to_owned());
-    fields.push(Field::new("utc_ms", DataType::Int64, false).with_metadata(utc_meta));
-
-    let mut elapsed_meta = HashMap::new();
-    elapsed_meta.insert("unit".to_owned(), "s".to_owned());
-    elapsed_meta.insert("label".to_owned(), "Elapsed Time (s)".to_owned());
-    fields.push(Field::new("elapsed_s", DataType::Float64, false).with_metadata(elapsed_meta));
-
-    for col in &table.columns {
-        let mut meta = HashMap::new();
-        meta.insert("unit".to_owned(), col.unit.clone());
-        meta.insert("label".to_owned(), col.label.clone());
-        fields.push(Field::new(&col.signal_id, DataType::Float64, true).with_metadata(meta));
-    }
-
-    let schema = Arc::new(Schema::new(fields));
-    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(table.columns.len() + 2);
-    arrays.push(Arc::new(Int64Array::from(table.timestamps_utc_ms.clone())));
-    arrays.push(Arc::new(Float64Array::from(table.elapsed_s.clone())));
-
-    for col in &table.columns {
-        let opt_vals: Vec<Option<f64>> = col
-            .values
-            .iter()
-            .map(|&v| if v.is_finite() { Some(v) } else { None })
-            .collect();
-        arrays.push(Arc::new(Float64Array::from(opt_vals)));
-    }
-
-    let batch = RecordBatch::try_new(schema.clone(), arrays)?;
-    let file = fs::File::create(path)?;
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::default()))
-        .build();
-    let mut writer = ArrowWriter::try_new(file, schema, Some(props))?;
-    writer.write(&batch)?;
-    writer.close()?;
-    Ok(())
+/// Write an [`ExportTable`] to an in-memory RFC-4180 CSV byte vector.
+pub fn write_csv_bytes(table: &ExportTable) -> Result<Vec<u8>, ExportError> {
+    let mut out = Vec::with_capacity(table.row_count() * (table.column_count() * 10 + 24));
+    write_csv_to_writer(table, &mut out)?;
+    Ok(out)
 }
 
 /// Write an [`ExportTable`] to an RFC-4180 CSV file (`utc_ms,elapsed_s,<signal_id_1>,...`).
-/// Non-finite (`NaN`) cells are emitted as empty cells so Python/MATLAB parse numeric columns cleanly.
 pub fn write_csv(table: &ExportTable, path: &Path) -> Result<(), ExportError> {
     let file = fs::File::create(path)?;
     let mut out = BufWriter::new(file);
+    write_csv_to_writer(table, &mut out)
+}
 
+pub fn write_csv_to_writer<W: Write>(table: &ExportTable, out: &mut W) -> Result<(), ExportError> {
     write!(out, "utc_ms,elapsed_s")?;
     for col in &table.columns {
         write!(out, ",")?;
-        write_csv_escaped(&mut out, &col.signal_id)?;
+        write_csv_escaped(out, &col.signal_id)?;
     }
     writeln!(out)?;
 
@@ -874,8 +758,7 @@ const MI_DOUBLE: u32 = 9;
 const MI_MATRIX: u32 = 14;
 const MX_DOUBLE_CLASS: u32 = 6;
 
-/// Sanitize a canonical `msg_name.sig_name` into a valid MATLAB Level 5 variable identifier
-/// (`[a-zA-Z][a-zA-Z0-9_]*`, max 63 characters).
+/// Sanitize a canonical `msg_name.sig_name` into a valid MATLAB Level 5 variable identifier.
 pub fn sanitize_matlab_var_name(signal_id: &str) -> String {
     let mut out = String::with_capacity(signal_id.len().min(63));
     for ch in signal_id.chars() {
@@ -894,15 +777,24 @@ pub fn sanitize_matlab_var_name(signal_id: &str) -> String {
     out
 }
 
+/// Write an [`ExportTable`] to an in-memory MATLAB Level 5 `.mat` byte vector.
+pub fn write_matlab_mat_bytes(table: &ExportTable) -> Result<Vec<u8>, ExportError> {
+    let mut out = Vec::with_capacity(256 + table.row_count() * (table.column_count() + 2) * 8);
+    write_matlab_mat_to_writer(table, &mut out)?;
+    Ok(out)
+}
+
 /// Write an [`ExportTable`] to a native MATLAB Level 5 `.mat` file.
-///
-/// Writes `utc_ms` (`N x 1 double`), `elapsed_s` (`N x 1 double`), and one `N x 1 double`
-/// vector for each signal column (with deduplicated MATLAB-safe variable names).
 pub fn write_matlab_mat(table: &ExportTable, path: &Path) -> Result<(), ExportError> {
     let file = fs::File::create(path)?;
     let mut out = BufWriter::new(file);
+    write_matlab_mat_to_writer(table, &mut out)
+}
 
-    // 128-byte Level 5 header: 116-byte text + 8-byte subsys offset (zeros) + version (0x0100) + endian ("IM")
+pub fn write_matlab_mat_to_writer<W: Write>(
+    table: &ExportTable,
+    out: &mut W,
+) -> Result<(), ExportError> {
     let mut header = [b' '; MAT_L5_HEADER_LEN];
     let desc = b"MATLAB 5.0 MAT-file, Platform: PER DAQ (daqcore), Created by Option A v2";
     header[..desc.len()].copy_from_slice(desc);
@@ -914,8 +806,8 @@ pub fn write_matlab_mat(table: &ExportTable, path: &Path) -> Result<(), ExportEr
     out.write_all(&header)?;
 
     let utc_f64: Vec<f64> = table.timestamps_utc_ms.iter().map(|&t| t as f64).collect();
-    write_mat_double_column(&mut out, "utc_ms", &utc_f64)?;
-    write_mat_double_column(&mut out, "elapsed_s", &table.elapsed_s)?;
+    write_mat_double_column(out, "utc_ms", &utc_f64)?;
+    write_mat_double_column(out, "elapsed_s", &table.elapsed_s)?;
 
     let mut used_names: BTreeSet<String> = BTreeSet::new();
     used_names.insert("utc_ms".to_owned());
@@ -933,7 +825,7 @@ pub fn write_matlab_mat(table: &ExportTable, path: &Path) -> Result<(), ExportEr
             suffix += 1;
         }
         used_names.insert(var_name.clone());
-        write_mat_double_column(&mut out, &var_name, &col.values)?;
+        write_mat_double_column(out, &var_name, &col.values)?;
     }
 
     out.flush()?;
@@ -947,20 +839,17 @@ fn write_mat_double_column<W: Write>(
 ) -> io::Result<()> {
     let mut matrix_body: Vec<u8> = Vec::with_capacity(64 + values.len() * 8);
 
-    // 1. Array Flags subelement: tag (MI_UINT32, 8) + [MX_DOUBLE_CLASS, 0]
     matrix_body.extend_from_slice(&MI_UINT32.to_le_bytes());
     matrix_body.extend_from_slice(&8u32.to_le_bytes());
     matrix_body.extend_from_slice(&MX_DOUBLE_CLASS.to_le_bytes());
     matrix_body.extend_from_slice(&0u32.to_le_bytes());
 
-    // 2. Dimensions Array subelement: tag (MI_INT32, 8) + [rows = N, cols = 1]
     let rows = i32::try_from(values.len()).unwrap_or(i32::MAX);
     matrix_body.extend_from_slice(&MI_INT32.to_le_bytes());
     matrix_body.extend_from_slice(&8u32.to_le_bytes());
     matrix_body.extend_from_slice(&rows.to_le_bytes());
     matrix_body.extend_from_slice(&1i32.to_le_bytes());
 
-    // 3. Array Name subelement: tag (MI_INT8, name_len) + padded to 8-byte boundary
     let name_bytes = var_name.as_bytes();
     let name_len = u32::try_from(name_bytes.len()).unwrap_or(0);
     matrix_body.extend_from_slice(&MI_INT8.to_le_bytes());
@@ -969,7 +858,6 @@ fn write_mat_double_column<W: Write>(
     let name_pad = (8 - (name_bytes.len() % 8)) % 8;
     matrix_body.resize(matrix_body.len() + name_pad, 0);
 
-    // 4. Real part (`pr`) subelement: tag (MI_DOUBLE, values.len() * 8) + f64 little-endian bytes
     let data_bytes_len = u32::try_from(values.len().saturating_mul(8)).unwrap_or(0);
     matrix_body.extend_from_slice(&MI_DOUBLE.to_le_bytes());
     matrix_body.extend_from_slice(&data_bytes_len.to_le_bytes());
@@ -977,7 +865,6 @@ fn write_mat_double_column<W: Write>(
         matrix_body.extend_from_slice(&v.to_le_bytes());
     }
 
-    // Outer miMATRIX tag + body
     let total_body_len = u32::try_from(matrix_body.len()).unwrap_or(0);
     out.write_all(&MI_MATRIX.to_le_bytes())?;
     out.write_all(&total_body_len.to_le_bytes())?;
@@ -988,6 +875,11 @@ fn write_mat_double_column<W: Write>(
 /// Read numeric double vectors from a Level 5 `.mat` file written by [`write_matlab_mat`].
 pub fn read_matlab_mat_vars(path: &Path) -> Result<IndexMap<String, Vec<f64>>, ExportError> {
     let bytes = fs::read(path)?;
+    read_matlab_mat_vars_bytes(&bytes)
+}
+
+/// Read numeric double vectors from an in-memory Level 5 `.mat` byte slice.
+pub fn read_matlab_mat_vars_bytes(bytes: &[u8]) -> Result<IndexMap<String, Vec<f64>>, ExportError> {
     if bytes.len() < MAT_L5_HEADER_LEN || &bytes[126..128] != b"IM" {
         return Err(ExportError::ConfigParse(
             "invalid Level 5 MAT-file header".to_owned(),
@@ -1024,13 +916,11 @@ pub fn read_matlab_mat_vars(path: &Path) -> Result<IndexMap<String, Vec<f64>>, E
 }
 
 fn parse_mat_matrix_element(elem: &[u8]) -> Option<(String, Vec<f64>)> {
-    // Skip Array Flags (16 bytes) + Dimensions (16 bytes) = 32 bytes
     if elem.len() < 40 {
         return None;
     }
     let mut idx = 32usize;
 
-    // Name subelement
     let name_type = u32::from_le_bytes(elem.get(idx..idx + 4)?.try_into().ok()?);
     let name_len = u32::from_le_bytes(elem.get(idx + 4..idx + 8)?.try_into().ok()?) as usize;
     idx += 8;
@@ -1041,7 +931,6 @@ fn parse_mat_matrix_element(elem: &[u8]) -> Option<(String, Vec<f64>)> {
     let name_pad = (8 - (name_len % 8)) % 8;
     idx = idx.saturating_add(name_len).saturating_add(name_pad);
 
-    // Data subelement
     let data_type = u32::from_le_bytes(elem.get(idx..idx + 4)?.try_into().ok()?);
     let data_len = u32::from_le_bytes(elem.get(idx + 4..idx + 8)?.try_into().ok()?) as usize;
     idx += 8;
@@ -1059,36 +948,9 @@ fn parse_mat_matrix_element(elem: &[u8]) -> Option<(String, Vec<f64>)> {
     Some((name, values))
 }
 
-/// Read back an exported Parquet file's column headers, units (from Arrow field metadata),
-/// and row count for verification.
-pub fn read_exported_parquet_info(
-    path: &Path,
-) -> Result<(usize, Vec<(String, String)>), ExportError> {
-    let file = fs::File::open(path)?;
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-    let schema = builder.schema().clone();
-    let mut columns = Vec::with_capacity(schema.fields().len());
-    for field in schema.fields() {
-        let unit = field.metadata().get("unit").cloned().unwrap_or_default();
-        columns.push((field.name().clone(), unit));
-    }
-    let reader = builder.build()?;
-    let mut total_rows = 0usize;
-    for batch in reader {
-        let b = batch?;
-        total_rows += b.num_rows();
-    }
-    Ok((total_rows, columns))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        frame::{FrameKind, ParsedFrame},
-        superdbc::database::Database,
-        time::Time,
-    };
 
     #[test]
     fn builtin_export_presets_load_and_validate() {
@@ -1113,191 +975,5 @@ mod tests {
             .get("raw_all")
             .expect("raw_all preset should exist");
         assert_eq!(raw_all.default_sampling, SamplingMode::SparseRaw);
-    }
-
-    #[test]
-    fn export_parquet_csv_and_mat_round_trip_with_per26_data() {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        let log_path =
-            manifest_dir.join("../../PER26/2026-09-06/2_regen/raw/log-2026-09-06--20-21-44.log");
-        if !dbc_path.is_file() || !log_path.is_file() {
-            return;
-        }
-
-        let db = Database::load(&dbc_path).expect("load PER26 database");
-        let tmp_raw = tempfile::tempdir().expect("temp raw dir");
-        fs::copy(
-            &log_path,
-            tmp_raw.path().join("log-2026-09-06--20-21-44.log"),
-        )
-        .expect("copy PER26 log");
-
-        let tmp_store = tempfile::tempdir().expect("temp store dir");
-        let summary = crate::log_parse::import_logs_to_store(tmp_raw.path(), tmp_store.path(), &db)
-            .expect("import PER26 log");
-        assert!(!summary.manifests.is_empty());
-
-        let m0 = &summary.manifests[0];
-        let mut router = VirtualTimelineRouter::open_store(
-            tmp_store.path(),
-            Time::from_unix_millis(m0.end_utc_ms),
-            30.0,
-        )
-        .expect("open store");
-
-        // Export a 10-second window using the "vd" preset to Parquet, CSV, and MATLAB .mat
-        let window_start = m0.start_utc_ms;
-        let window_end = (m0.start_utc_ms + 10_000).min(m0.end_utc_ms);
-        let range = window_start..=window_end;
-
-        let presets = ExportPresetRegistry::with_builtin();
-        let vd_preset = presets.get("vd").expect("vd preset");
-
-        let tmp_out = tempfile::tempdir().expect("temp out dir");
-        let pq_path = tmp_out.path().join("vd_10s.parquet");
-        let csv_path = tmp_out.path().join("vd_10s.csv");
-        let mat_path = tmp_out.path().join("vd_10s.mat");
-
-        let pq_summary = export_dataset(
-            &router,
-            range.clone(),
-            &vd_preset.signals,
-            vd_preset.default_sampling,
-            ExportFormat::Parquet,
-            &pq_path,
-        )
-        .expect("export vd parquet");
-        assert_eq!(pq_summary.row_count, 1001); // 10.0s at 100 Hz inclusive
-        assert!(pq_summary.signal_count >= 10);
-
-        let (pq_rows, pq_cols) =
-            read_exported_parquet_info(&pq_path).expect("read exported parquet info");
-        assert_eq!(pq_rows, 1001);
-        assert_eq!(pq_cols[0], ("utc_ms".to_owned(), "ms".to_owned()));
-        assert_eq!(pq_cols[1], ("elapsed_s".to_owned(), "s".to_owned()));
-        assert!(
-            pq_cols
-                .iter()
-                .any(|(name, unit)| name == "IMU_acceleration.X_axis" && unit == "g")
-        );
-        assert!(
-            pq_cols
-                .iter()
-                .any(|(name, unit)| name == "battery.power_w" && unit == "W")
-        );
-
-        let csv_summary = export_dataset(
-            &router,
-            range.clone(),
-            &vd_preset.signals,
-            vd_preset.default_sampling,
-            ExportFormat::Csv,
-            &csv_path,
-        )
-        .expect("export vd csv");
-        assert_eq!(csv_summary.row_count, 1001);
-        let csv_text = fs::read_to_string(&csv_path).expect("read csv");
-        let mut lines = csv_text.lines();
-        let header = lines.next().expect("csv header");
-        assert!(header.starts_with("utc_ms,elapsed_s,"));
-        assert!(header.contains("IMU_acceleration.X_axis"));
-        assert!(header.contains("battery.power_w"));
-        assert_eq!(lines.count(), 1001);
-
-        let mat_summary = export_dataset(
-            &router,
-            range,
-            &vd_preset.signals,
-            vd_preset.default_sampling,
-            ExportFormat::MatlabMat,
-            &mat_path,
-        )
-        .expect("export vd mat");
-        assert_eq!(mat_summary.row_count, 1001);
-        let mat_vars = read_matlab_mat_vars(&mat_path).expect("read mat vars");
-        assert_eq!(mat_vars.get("utc_ms").map(Vec::len), Some(1001));
-        assert_eq!(mat_vars.get("elapsed_s").map(Vec::len), Some(1001));
-        assert_eq!(
-            mat_vars.get("IMU_acceleration_X_axis").map(Vec::len),
-            Some(1001)
-        );
-        assert_eq!(mat_vars.get("battery_power_w").map(Vec::len), Some(1001));
-
-        // Verify annotation-based lookup on both auto-generated annotations and "Driving Stint 1"
-        if let Some(first_auto) = m0.annotations.first() {
-            let (auto_name, auto_range) =
-                resolve_annotation_time_range(&router, &first_auto.name).expect("resolve auto ann");
-            assert_eq!(auto_name, first_auto.name);
-            assert!(!auto_range.is_empty());
-        }
-
-        let track_day_id = router
-            .timeline()
-            .active_track_day_id()
-            .unwrap_or("2026-09-06")
-            .to_owned();
-        router
-            .upsert_annotation(&crate::storage::Annotation {
-                id: "stint_1".to_owned(),
-                track_day_id,
-                name: "Driving Stint 1".to_owned(),
-                category: "driving_stint".to_owned(),
-                color: "#2ECC71".to_owned(),
-                start_utc_ms: window_start,
-                end_utc_ms: Some(window_end),
-                author: "engineer".to_owned(),
-                source: "manual".to_owned(),
-                notes: String::new(),
-                updated_at_ms: window_end,
-                deleted: false,
-            })
-            .expect("upsert Driving Stint 1");
-        let (ann_name, ann_range) =
-            resolve_annotation_time_range(&router, "Driving Stint 1").expect("resolve stint 1");
-        assert_eq!(ann_name, "Driving Stint 1");
-        assert_eq!(ann_range, window_start..=window_end);
-    }
-
-    #[test]
-    fn sparse_raw_export_preserves_exact_timestamps_on_live_data() {
-        let t0 = Time::from_unix_millis(1_794_500_000_000);
-        let mut router = VirtualTimelineRouter::live(t0, 30.0).expect("live router");
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
-        if !dbc_path.is_file() {
-            return;
-        }
-        let db = Database::load(&dbc_path).expect("load PER26 db");
-        let msg = db
-            .messages()
-            .find(|m| m.name() == "pack_stats")
-            .expect("pack_stats message");
-        let key = msg.key();
-
-        for i in 0..5 {
-            let raw = vec![0x10, 0x27, 0x30, 0x00, 0x50, 0x00, 0x00, 0x00];
-            let decoded = db.decode(key.bus_id, key.identity, &raw).ok();
-            router.ingest_frame(ParsedFrame {
-                timestamp: t0.offset(i * 20),
-                bus_id: key.bus_id,
-                identity: key.identity,
-                kind: FrameKind::Data,
-                dlc: 8,
-                raw_bytes: raw,
-                decoded,
-            });
-        }
-
-        let table = materialize_export_table(
-            &router,
-            t0.unix_millis()..=(t0.unix_millis() + 100),
-            &["pack_stats.*".to_owned(), "battery.power_w".to_owned()],
-            SamplingMode::SparseRaw,
-        )
-        .expect("materialize sparse table");
-        assert_eq!(table.row_count(), 5);
-        assert!(table.column("pack_stats.vbatt_adc").is_some());
-        assert!(table.column("battery.power_w").is_some());
     }
 }

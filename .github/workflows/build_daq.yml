@@ -44,7 +44,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Regenerate schema from migrations and verify checked-in schema
-        working-directory: daq/daqcore
+        working-directory: daq/daqnative
         shell: bash
         run: |
           database_dir="$(mktemp -d)"
@@ -111,6 +111,10 @@ jobs:
         working-directory: daq
         run: cargo build --workspace --all-targets --locked
 
+      - name: Build DAQ WebAssembly targets
+        working-directory: daq
+        run: cargo build -p daqcore -p daqviewer -p daqweb --target wasm32-unknown-unknown --locked
+
       - name: Test DAQ workspace
         working-directory: daq
         run: cargo test --workspace --all-targets --locked
@@ -162,4 +166,6 @@ jobs:
 
       - name: Check Clippy
         working-directory: daq
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: |
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo clippy -p daqcore -p daqviewer -p daqweb --target wasm32-unknown-unknown --locked -- -D warnings

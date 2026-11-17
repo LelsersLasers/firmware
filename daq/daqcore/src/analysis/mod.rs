@@ -60,6 +60,12 @@ impl FormulaEngine {
             .expect("embedded daq/config/derived_signals.json must be valid")
     }
 
+    /// Return the built-in [`DerivedSignalDef`] definitions from `daq/config/derived_signals.json`.
+    pub fn builtin_defs() -> Vec<DerivedSignalDef> {
+        parse_derived_signals_json(BUILTIN_DERIVED_SIGNALS_JSON)
+            .expect("embedded daq/config/derived_signals.json must be valid")
+    }
+
     /// Construct a `FormulaEngine` from a slice of [`DerivedSignalDef`]s.
     pub fn from_defs(defs: &[DerivedSignalDef]) -> Result<Self, AnalysisError> {
         let ordered = compile_and_sort_derived_signals(defs)?;
@@ -178,6 +184,35 @@ impl FormulaEngine {
         } else {
             false
         }
+    }
+
+    /// Reconcile a slice of synced [`DerivedSignalDef`] records (including tombstones with `deleted = true`)
+    /// into `self` using last-write-wins `updated_at_ms`. Returns `true` if `self` changed.
+    pub fn apply_synced_defs(&mut self, defs: &[DerivedSignalDef]) -> bool {
+        let mut changed = false;
+        for def in defs {
+            let target_id = def.id.trim();
+            if target_id.is_empty() {
+                continue;
+            }
+            if def.deleted {
+                if let Some(existing) = self.get(target_id)
+                    && def.updated_at_ms >= existing.def.updated_at_ms
+                    && self.remove_formula(target_id)
+                {
+                    changed = true;
+                }
+            } else {
+                let should_apply = self.get(target_id).is_none_or(|existing| {
+                    def.updated_at_ms > existing.def.updated_at_ms
+                        || (def.updated_at_ms == existing.def.updated_at_ms && existing.def != *def)
+                });
+                if should_apply && self.upsert_formula(def.clone()).is_ok() {
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// Compute the topological execution plan for `expr`:
@@ -446,18 +481,17 @@ mod tests {
 
         // Stint 1: 0 ..= 100 ms
         // Stint 2: 10,100 ..= 10,200 ms (after a 10,000 ms gap)
-        // `pack_stats.vbatt_adc` at 100 Hz (every 10 ms):
-        //   Stint 1: constant raw ADC = 1000.0 / 0.14659808276 -> voltage = 1000.0 * 0.14659808276 = 146.59808276 V
-        //   Wait: let's set vbatt_adc = 2000.0 in Stint 1 (V = 293.19616552 V) and 3000.0 in Stint 2 (V = 439.79424828 V)
+        // `pack_stats.vbatt_adc` at 100 Hz (every 10 ms), calibrated in Volts:
+        //   Stint 1: constant 300.0 V, Stint 2: constant 400.0 V
         let mut v_ts = Vec::new();
         let mut v_vals = Vec::new();
         for step in 0..=10 {
             v_ts.push(step * 10);
-            v_vals.push(2000.0);
+            v_vals.push(300.0);
         }
         for step in 0..=10 {
             v_ts.push(10_100 + step * 10);
-            v_vals.push(3000.0);
+            v_vals.push(400.0);
         }
 
         // `pack_stats.pack_current` at 500 Hz (every 2 ms):
@@ -513,7 +547,7 @@ mod tests {
         // Total union points: 51 (Stint 1 at 2ms) + 1 (at 5000ms) + 51 (Stint 2 at 2ms) = 103
         assert_eq!(timestamps_ms.len(), 103);
 
-        let v1_expected = 2000.0 * 0.14659808276;
+        let v1_expected = 300.0;
         for (idx, &val) in values.iter().enumerate().take(51) {
             let t = (idx * 2) as f64;
             let expected_w = v1_expected * (10.0 + 0.1 * t);
@@ -532,7 +566,7 @@ mod tests {
         );
 
         // Stint 2 (idx 52..=102, t = 10,100 ..= 10,200 ms)
-        let v2_expected = 3000.0 * 0.14659808276;
+        let v2_expected = 400.0;
         for (idx, &val) in values.iter().enumerate().take(103).skip(52) {
             let expected_w = v2_expected * 50.0;
             assert!(
@@ -551,7 +585,7 @@ mod tests {
 
         // 1. High-rate (100 Hz) oscillating current around 20 A (between 0 A and 40 A) over 10 seconds,
         //    evaluated at Overview1Hz from Exact inputs (integrate high-rate, then downscale).
-        let vbatt_adc_const = 100.0 / 0.14659808276; // -> 100.0 V
+        let vbatt_adc_const = 100.0; // -> 100.0 V
         let mut ts = Vec::new();
         let mut v_vals = Vec::new();
         let mut i_vals = Vec::new();

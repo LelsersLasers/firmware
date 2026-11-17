@@ -11,28 +11,81 @@ use axum::{
     routing::{get, put},
 };
 use daqcore::{
+    analysis::{DerivedSignalDef, Expr},
+    export::{DatasetExportRequest, ExportFormat},
+    router::{Resolution, TileKey, wire::encode_tile_payload},
     storage::{
         Annotation, AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse,
-        CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, PartitionManifest, RANGE_CHECKSUM_HEADER,
-        Registry, compute_file_sha256_hex, compute_sha256_hex, is_safe_path_segment,
+        CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, DerivedSignalUpsertPayload,
+        PartitionManifest, RANGE_CHECKSUM_HEADER, compute_sha256_hex, is_safe_path_segment,
     },
     time::Time,
+};
+use daqnative::storage::{
+    NativeRouterExt as _, Registry, build_partition_preload_payload, compute_file_sha256_hex,
+    read_single_signal_full_res, read_single_signal_overview,
 };
 use std::{
     fs,
     io::{Read as _, Seek as _, SeekFrom, Write as _},
     path,
+    sync::Arc,
 };
 use tokio::sync::broadcast::error::RecvError;
 
+const EMBEDDED_PER_LOGO_PNG: &[u8] = include_bytes!("../../daqviewer/assets/per_logo.png");
+
+const FALLBACK_WEB_INDEX_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>PER — DaqWeb Telemetry Viewer</title>
+    <link rel="icon" type="image/png" href="/assets/per_logo.png" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        canvas#daqweb_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="daqweb_canvas"></canvas>
+    <script type="module">
+        import init from '/assets/daqweb.js';
+        init('/assets/daqweb_bg.wasm');
+    </script>
+</body>
+</html>
+"#;
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(health_handler))
+        .route("/", get(web_index_handler))
+        .route("/favicon.ico", get(favicon_handler))
+        .route("/daqview/{*payload}", get(web_daqview_handler))
+        .route("/assets/{*asset_path}", get(web_asset_handler))
+        .route("/api/v1/health", get(health_handler))
         .route("/api/v1/catalog", get(get_catalog_handler))
         .route(
             "/api/v1/track-days",
             axum::routing::post(post_track_day_handler),
         )
+        .route("/api/v1/export", axum::routing::post(post_export_handler))
         .route(
             "/api/v1/partitions/{partition_id}/{filename}",
             put(put_partition_file_handler)
@@ -58,39 +111,178 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/annotations/{id}",
             axum::routing::patch(patch_annotation_id_handler).delete(delete_annotation_id_handler),
         )
+        .route(
+            "/api/v1/derived-signals",
+            get(get_derived_signals_handler)
+                .post(post_derived_signals_handler)
+                .delete(delete_derived_signal_query_handler),
+        )
+        .route(
+            "/api/v1/derived-signals/{id}",
+            axum::routing::delete(delete_derived_signal_id_handler),
+        )
         .route("/api/v1/ws", get(ws_upgrade_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            log_request_middleware,
+        ))
         .with_state(state)
+}
+
+async fn log_request_middleware(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let start = std::time::Instant::now();
+    let resp = next.run(req).await;
+    let status = resp.status();
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let (cache_used, cache_max) = state.cache_usage_bytes();
+    let cache_used_mb = cache_used as f64 / (1024.0 * 1024.0);
+    let cache_max_mb = cache_max as f64 / (1024.0 * 1024.0);
+    if let Some(rss_bytes) = AppState::process_rss_bytes() {
+        let rss_mb = rss_bytes as f64 / (1024.0 * 1024.0);
+        log::info!(
+            "{method} {uri} -> {} ({elapsed_ms:.2} ms) [rss: {rss_mb:.1} MiB, cache: {cache_used_mb:.1}/{cache_max_mb:.0} MiB]",
+            status.as_u16()
+        );
+    } else {
+        log::info!(
+            "{method} {uri} -> {} ({elapsed_ms:.2} ms) [cache: {cache_used_mb:.1}/{cache_max_mb:.0} MiB]",
+            status.as_u16()
+        );
+    }
+    resp
 }
 
 async fn health_handler() -> &'static str {
     "daqcloud\n"
 }
 
-async fn get_catalog_handler(
-    State(state): State<AppState>,
-) -> Result<Json<CatalogResponse>, (StatusCode, String)> {
-    let track_days = state
-        .registry
-        .list_track_days()
-        .map_err(internal_registry_err)?;
-    let registered_partitions = state
-        .registry
-        .list_all_partitions()
-        .map_err(internal_registry_err)?;
-    let partitions = registered_partitions
-        .into_iter()
-        .map(|p| p.manifest)
-        .collect();
-    let annotations = state
-        .registry
-        .list_annotations_updated_since(0)
-        .map_err(internal_registry_err)?;
+async fn web_index_handler(State(state): State<AppState>) -> Response {
+    serve_web_index_html(&state)
+}
 
-    Ok(Json(CatalogResponse {
-        track_days,
-        partitions,
-        annotations,
-    }))
+async fn web_daqview_handler(
+    State(state): State<AppState>,
+    Path(_payload): Path<String>,
+) -> Response {
+    serve_web_index_html(&state)
+}
+
+fn serve_web_index_html(state: &AppState) -> Response {
+    let index_path = state.web_dist_dir.join("index.html");
+    let html_bytes =
+        fs::read(&index_path).unwrap_or_else(|_| FALLBACK_WEB_INDEX_HTML.as_bytes().to_vec());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    (StatusCode::OK, headers, html_bytes).into_response()
+}
+
+async fn favicon_handler() -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    (StatusCode::OK, headers, EMBEDDED_PER_LOGO_PNG).into_response()
+}
+
+async fn web_asset_handler(
+    State(state): State<AppState>,
+    Path(asset_path): Path<String>,
+) -> Response {
+    let clean_rel = asset_path.trim_start_matches('/');
+    if clean_rel.is_empty() || clean_rel.contains("..") || clean_rel.contains('\\') {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    if clean_rel == "per_logo.png" || clean_rel == "favicon.ico" {
+        return favicon_handler().await;
+    }
+    let candidate_dirs = [
+        state.web_dist_dir.join("assets").join(clean_rel),
+        state.web_dist_dir.join(clean_rel),
+    ];
+    let Some(file_path) = candidate_dirs.into_iter().find(|p| p.is_file()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(bytes) = fs::read(&file_path) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let mime = if clean_rel.ends_with(".wasm") {
+        "application/wasm"
+    } else if clean_rel.ends_with(".js") || clean_rel.ends_with(".mjs") {
+        "application/javascript; charset=utf-8"
+    } else if clean_rel.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if clean_rel.ends_with(".png") {
+        "image/png"
+    } else if clean_rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else if clean_rel.ends_with(".json") {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
+async fn get_catalog_handler(State(state): State<AppState>) -> Response {
+    let payload = if let Some(cached) = state.get_cached_catalog() {
+        cached
+    } else {
+        let track_days = match state.registry.list_track_days() {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let registered_partitions = match state.registry.list_all_partitions() {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let partitions = registered_partitions
+            .into_iter()
+            .map(|p| p.manifest)
+            .collect();
+        let annotations = match state.registry.list_annotations_updated_since(0) {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let derived_signals = match state.registry.list_derived_signals(true) {
+            Ok(v) => v,
+            Err(e) => return internal_registry_err(e).into_response(),
+        };
+        let catalog = CatalogResponse {
+            track_days,
+            partitions,
+            annotations,
+            derived_signals,
+        };
+        let bytes = match serde_json::to_vec(&catalog) {
+            Ok(b) => Bytes::from(b),
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to serialize catalog: {e}"),
+                )
+                    .into_response();
+            }
+        };
+        state.insert_cached_catalog(bytes.clone());
+        bytes
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    (StatusCode::OK, headers, payload).into_response()
 }
 
 async fn post_track_day_handler(
@@ -105,6 +297,7 @@ async fn post_track_day_handler(
         .registry
         .set_track_day_label(&day.id, &day.location)
         .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
     Ok(Json(updated))
 }
 
@@ -169,13 +362,251 @@ async fn head_partition_file_handler(
     (StatusCode::OK, headers).into_response()
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct TileQueryParams {
+    #[serde(default)]
+    signal_id: Option<String>,
+    #[serde(default)]
+    resolution: Option<String>,
+}
+
+fn parse_resolution_param(raw: &str) -> Option<Resolution> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1hz" | "overview_1hz" | "overview1hz" => Some(Resolution::Overview1Hz),
+        "10hz" | "overview_10hz" | "overview10hz" => Some(Resolution::Overview10Hz),
+        "full" | "full_res" | "fullres" => Some(Resolution::FullRes),
+        _ => None,
+    }
+}
+
+async fn serve_partition_preload(state: AppState, partition_id: String) -> Response {
+    if let Some(cached) = state.get_cached_preload(&partition_id) {
+        log::info!(
+            "Preload {partition_id} [cache hit, {:.1} KiB]",
+            cached.len() as f64 / 1024.0
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        return (StatusCode::OK, headers, cached).into_response();
+    }
+
+    let part_dir = state.store_dir.join("partitions").join(&partition_id);
+    if !part_dir.join("overview_1hz.parquet").is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let part_id_clone = partition_id.clone();
+    let encoded_res = tokio::task::spawn_blocking(move || {
+        build_partition_preload_payload(&part_id_clone, &part_dir)
+    })
+    .await;
+
+    let bytes_vec = match encoded_res {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(err)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to build preload payload: {err}"),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let bytes = Bytes::from(bytes_vec);
+    log::info!(
+        "Preload {partition_id} [decoded from parquet, {:.1} KiB]",
+        bytes.len() as f64 / 1024.0
+    );
+    state.insert_cached_preload(partition_id, bytes.clone());
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
+async fn serve_partition_tile(
+    state: AppState,
+    partition_id: String,
+    query: TileQueryParams,
+) -> Response {
+    let Some(signal_id) = query.signal_id.filter(|s| !s.trim().is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "GET /api/v1/partitions/{id}/tile requires ?signal_id=<id>",
+        )
+            .into_response();
+    };
+    let resolution = query
+        .resolution
+        .as_deref()
+        .and_then(parse_resolution_param)
+        .unwrap_or(Resolution::FullRes);
+
+    let key = TileKey {
+        partition_id: partition_id.clone(),
+        signal_id: signal_id.clone(),
+        resolution,
+    };
+
+    if let Some(series) = state.get_cached_tile(&key) {
+        let encoded = encode_tile_payload(&series);
+        log::info!(
+            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB]",
+            encoded.len() as f64 / 1024.0
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        return (StatusCode::OK, headers, encoded).into_response();
+    }
+
+    let part_dir = state.store_dir.join("partitions").join(&partition_id);
+    let parquet_filename = match resolution {
+        Resolution::Overview1Hz => "overview_1hz.parquet",
+        Resolution::Overview10Hz => "overview_10hz.parquet",
+        Resolution::FullRes => "full_res.parquet",
+    };
+    let parquet_path = part_dir.join(parquet_filename);
+    if !parquet_path.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let sig_clone = signal_id.clone();
+    let series_res = tokio::task::spawn_blocking(move || match resolution {
+        Resolution::Overview1Hz | Resolution::Overview10Hz => {
+            read_single_signal_overview(&parquet_path, &sig_clone)
+        }
+        Resolution::FullRes => read_single_signal_full_res(&parquet_path, &sig_clone),
+    })
+    .await;
+
+    let series = match series_res {
+        Ok(Ok(s)) => Arc::new(s),
+        Ok(Err(err)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read signal tile: {err}"),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Task join error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let encoded = encode_tile_payload(&series);
+    log::info!(
+        "Tile {partition_id} signal={signal_id} res={resolution:?} [decoded from parquet, {:.1} KiB]",
+        encoded.len() as f64 / 1024.0
+    );
+    state.insert_cached_tile(key, series);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    (StatusCode::OK, headers, encoded).into_response()
+}
+
+async fn post_export_handler(
+    State(state): State<AppState>,
+    Json(req): Json<DatasetExportRequest>,
+) -> Response {
+    let store_dir = state.store_dir.clone();
+    let cloud_derived = state
+        .registry
+        .list_derived_signals(true)
+        .unwrap_or_default();
+    let export_res = tokio::task::spawn_blocking(move || {
+        let mut router = daqcore::router::VirtualTimelineRouter::open_store(
+            &store_dir,
+            Time::from_unix_millis(req.end_utc_ms.max(0)),
+            30.0,
+        )
+        .map_err(daqnative::export::ExportError::Router)?;
+        if !cloud_derived.is_empty() {
+            let _ = router
+                .formula_engine_mut()
+                .apply_synced_defs(&cloud_derived);
+        }
+        if !req.custom_formulas.is_empty() {
+            router
+                .formula_engine_mut()
+                .merge_defs(&req.custom_formulas)
+                .map_err(daqnative::export::ExportError::Analysis)?;
+        }
+        daqnative::export::export_dataset_bytes(
+            &router,
+            req.start_utc_ms..=req.end_utc_ms,
+            &req.signal_patterns,
+            req.sampling_mode,
+            req.format,
+        )
+    })
+    .await;
+
+    let (bytes, summary) = match export_res {
+        Ok(Ok(res)) => res,
+        Ok(Err(err)) => {
+            return (StatusCode::BAD_REQUEST, err.to_string()).into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Export task error: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let ext = summary.format.extension();
+    let content_type = match summary.format {
+        ExportFormat::Parquet => "application/octet-stream",
+        ExportFormat::Csv => "text/csv; charset=utf-8",
+        ExportFormat::MatlabMat => "application/octet-stream",
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    if let Ok(cd) = HeaderValue::from_str(&format!("attachment; filename=\"per_daq_export.{ext}\""))
+    {
+        headers.insert(header::CONTENT_DISPOSITION, cd);
+    }
+    (StatusCode::OK, headers, bytes).into_response()
+}
+
 async fn get_partition_file_handler(
     State(state): State<AppState>,
     Path((partition_id, filename)): Path<(String, String)>,
+    Query(tile_query): Query<TileQueryParams>,
     req_headers: HeaderMap,
 ) -> Response {
     if !is_safe_path_segment(&partition_id) || !is_safe_path_segment(&filename) {
         return (StatusCode::BAD_REQUEST, "Invalid partition_id or filename").into_response();
+    }
+
+    if filename == "preload" {
+        return serve_partition_preload(state, partition_id).await;
+    }
+    if filename == "tile" {
+        return serve_partition_tile(state, partition_id, tile_query).await;
     }
 
     let Some(file_path) = resolve_existing_asset_path(&state.store_dir, &partition_id, &filename)
@@ -437,6 +868,7 @@ async fn put_partition_file_handler(
     }
 
     state.insert_cached_sha256(target_path.clone(), final_size, final_sha256.clone());
+    state.invalidate_partition_cache(&partition_id);
 
     if filename == "manifest.json" {
         let manifest_bytes = match fs::read(&target_path) {
@@ -761,6 +1193,7 @@ async fn post_annotations_handler(
         }
         stored_list.push(stored);
     }
+    state.invalidate_catalog_cache();
 
     Ok(Json(stored_list))
 }
@@ -815,6 +1248,7 @@ fn apply_annotation_patch(
         .unwrap_or(updated);
 
     if changed {
+        state.invalidate_catalog_cache();
         if stored.deleted {
             let _ = state.ws_tx.send(CloudWsMessage::AnnotationDeleted {
                 annotation_id: stored.id.clone(),
@@ -883,6 +1317,7 @@ fn soft_delete_and_broadcast(
         .registry
         .soft_delete_annotation(id, effective_updated_at_ms)
         .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
 
     let stored = state
         .registry
@@ -901,6 +1336,178 @@ fn soft_delete_and_broadcast(
     });
     let _ = state.ws_tx.send(CloudWsMessage::AnnotationUpdated {
         annotation: stored.clone(),
+    });
+
+    Ok(Json(stored))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct DerivedSignalsQuery {
+    #[serde(default)]
+    since_utc_ms: Option<i64>,
+    #[serde(default)]
+    include_deleted: Option<bool>,
+}
+
+async fn get_derived_signals_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DerivedSignalsQuery>,
+) -> Result<Json<Vec<DerivedSignalDef>>, (StatusCode, String)> {
+    let include_deleted = query.include_deleted.unwrap_or(false);
+    let list = if let Some(since_ms) = query.since_utc_ms {
+        let mut sigs = state
+            .registry
+            .list_derived_signals_updated_since(since_ms)
+            .map_err(internal_registry_err)?;
+        if !include_deleted && query.include_deleted.is_some() {
+            sigs.retain(|s| !s.deleted);
+        }
+        sigs
+    } else {
+        state
+            .registry
+            .list_derived_signals(include_deleted)
+            .map_err(internal_registry_err)?
+    };
+    Ok(Json(list))
+}
+
+async fn post_derived_signals_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<DerivedSignalUpsertPayload>,
+) -> Result<Json<Vec<DerivedSignalDef>>, (StatusCode, String)> {
+    let incoming = payload.into_vec();
+    let mut stored_list = Vec::with_capacity(incoming.len());
+    let now_ms = Time::now().unix_millis();
+
+    for mut sig in incoming {
+        sig.id = sig.id.trim().to_owned();
+        if sig.id.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Derived signal ID must not be empty".to_owned(),
+            ));
+        }
+        if !sig.deleted {
+            Expr::parse(&sig.expression).map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid expression for '{}': {e}", sig.id),
+                )
+            })?;
+        }
+        if sig.updated_at_ms <= 0 {
+            let prev_ts = state
+                .registry
+                .get_derived_signal(&sig.id)
+                .ok()
+                .flatten()
+                .map_or(0, |s| s.updated_at_ms);
+            sig.updated_at_ms = now_ms.max(prev_ts.saturating_add(1));
+        }
+
+        let changed = state
+            .registry
+            .upsert_derived_signal(&sig)
+            .map_err(internal_registry_err)?;
+        let stored = state
+            .registry
+            .get_derived_signal(&sig.id)
+            .map_err(internal_registry_err)?
+            .unwrap_or(sig);
+        if changed {
+            if stored.deleted {
+                let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+                    id: stored.id.clone(),
+                    updated_at_ms: stored.updated_at_ms,
+                });
+            }
+            let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                signal: stored.clone(),
+            });
+        }
+        stored_list.push(stored);
+    }
+    state.invalidate_catalog_cache();
+
+    Ok(Json(stored_list))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct DeleteDerivedSignalQuery {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    updated_at_ms: Option<i64>,
+}
+
+async fn delete_derived_signal_query_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DeleteDerivedSignalQuery>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    let Some(id) = query.id else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "DELETE /api/v1/derived-signals requires '?id=<signal_id>'".to_owned(),
+        ));
+    };
+    soft_delete_derived_signal_and_broadcast(&state, &id, query.updated_at_ms)
+}
+
+async fn delete_derived_signal_id_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<DeleteDerivedSignalQuery>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    soft_delete_derived_signal_and_broadcast(&state, &id, query.updated_at_ms)
+}
+
+fn soft_delete_derived_signal_and_broadcast(
+    state: &AppState,
+    id: &str,
+    requested_updated_at_ms: Option<i64>,
+) -> Result<Json<DerivedSignalDef>, (StatusCode, String)> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Derived signal ID must not be empty".to_owned(),
+        ));
+    }
+    let prev_ts = state
+        .registry
+        .get_derived_signal(trimmed)
+        .map_err(internal_registry_err)?
+        .map_or(0, |s| s.updated_at_ms);
+
+    let now_ms = Time::now().unix_millis();
+    let effective_updated_at_ms = requested_updated_at_ms
+        .unwrap_or(now_ms)
+        .max(prev_ts.saturating_add(1));
+
+    state
+        .registry
+        .soft_delete_derived_signal(trimmed, effective_updated_at_ms)
+        .map_err(internal_registry_err)?;
+    state.invalidate_catalog_cache();
+
+    let stored = state
+        .registry
+        .get_derived_signal(trimmed)
+        .map_err(internal_registry_err)?
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Deleted derived signal missing from registry".to_owned(),
+            )
+        })?;
+
+    let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+        id: stored.id.clone(),
+        updated_at_ms: stored.updated_at_ms,
+    });
+    let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+        signal: stored.clone(),
     });
 
     Ok(Json(stored))
@@ -946,6 +1553,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                     if state.registry.upsert_annotation(&annotation).unwrap_or(false)
                                         && let Ok(Some(stored)) = state.registry.get_annotation(&annotation.id)
                                     {
+                                        state.invalidate_catalog_cache();
                                         let _ = state.ws_tx.send(CloudWsMessage::AnnotationUpdated {
                                             annotation: stored,
                                         });
@@ -953,6 +1561,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                 }
                                 CloudWsMessage::AnnotationDeleted { annotation_id, updated_at_ms } => {
                                     if state.registry.soft_delete_annotation(&annotation_id, updated_at_ms).unwrap_or(false) {
+                                        state.invalidate_catalog_cache();
                                         let _ = state.ws_tx.send(CloudWsMessage::AnnotationDeleted {
                                             annotation_id: annotation_id.clone(),
                                             updated_at_ms,
@@ -960,6 +1569,30 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
                                         if let Ok(Some(stored)) = state.registry.get_annotation(&annotation_id) {
                                             let _ = state.ws_tx.send(CloudWsMessage::AnnotationUpdated {
                                                 annotation: stored,
+                                            });
+                                        }
+                                    }
+                                }
+                                CloudWsMessage::DerivedSignalUpdated { signal } => {
+                                    if state.registry.upsert_derived_signal(&signal).unwrap_or(false)
+                                        && let Ok(Some(stored)) = state.registry.get_derived_signal(&signal.id)
+                                    {
+                                        state.invalidate_catalog_cache();
+                                        let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                                            signal: stored,
+                                        });
+                                    }
+                                }
+                                CloudWsMessage::DerivedSignalDeleted { id, updated_at_ms } => {
+                                    if state.registry.soft_delete_derived_signal(&id, updated_at_ms).unwrap_or(false) {
+                                        state.invalidate_catalog_cache();
+                                        let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalDeleted {
+                                            id: id.clone(),
+                                            updated_at_ms,
+                                        });
+                                        if let Ok(Some(stored)) = state.registry.get_derived_signal(&id) {
+                                            let _ = state.ws_tx.send(CloudWsMessage::DerivedSignalUpdated {
+                                                signal: stored,
                                             });
                                         }
                                     }
@@ -983,7 +1616,7 @@ async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
     }
 }
 
-fn internal_registry_err(err: daqcore::storage::RegistryError) -> (StatusCode, String) {
+fn internal_registry_err(err: daqnative::storage::RegistryError) -> (StatusCode, String) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("Registry error: {err}"),

@@ -6,7 +6,7 @@ pub struct SendUi {
 
     msg_picker: ui::message_picker::MessagePickerState,
 
-    selected_msg: Option<daqcore::superdbc::message::MessageKey>,
+    selected_msg: Option<daqnative::superdbc::message::MessageKey>,
     signal_values: Vec<SignalValue>,
 
     sending_messages: Vec<SendingMessage>,
@@ -19,7 +19,7 @@ pub struct SendUi {
     error: Option<String>,
 
     // Required to be stored on the struct so Drop can send cancellation messages when the UI closes
-    ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+    ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -38,20 +38,20 @@ struct SignalValue {
 }
 
 struct SendingMessage {
-    pub amount: daqcore::can_thread::tx::SendAmount,
+    pub amount: daqnative::can_thread::tx::SendAmount,
     pub bus_name: String,
     pub msg_name: String,
-    pub key: daqcore::superdbc::message::MessageKey,
+    pub key: daqnative::superdbc::message::MessageKey,
     pub is_extended_id: bool,
     pub msg_bytes: Vec<u8>,
     pub signal_values: Vec<SignalValue>,
     pub adjustable_values_enabled: bool,
-    pub last_sent: daqcore::time::Time,
+    pub last_sent: daqnative::time::Time,
 }
 
 enum SendUiActions {
     DeleteMessage {
-        key: daqcore::superdbc::message::MessageKey,
+        key: daqnative::superdbc::message::MessageKey,
     },
 }
 
@@ -69,7 +69,7 @@ impl Drop for SendUi {
             let key = msg.key;
             if let Err(e) = self
                 .ui_to_can_tx
-                .send(daqcore::can_thread::CanThreadCommand::DeleteSendMessage { key })
+                .send(daqnative::can_thread::CanThreadCommand::DeleteSendMessage { key })
             {
                 // Don't panic in Drop, just log the error
                 log::error!(
@@ -86,7 +86,7 @@ impl Drop for SendUi {
 impl SendUi {
     pub fn new(
         num: usize,
-        ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
     ) -> Self {
         Self {
             title: format!("Send UI {}", num),
@@ -113,7 +113,7 @@ impl SendUi {
         &mut self,
         ui: &mut eframe::egui::Ui,
         database: Option<&app::DatabaseSelection>,
-        formatter: &Option<daqcore::formatter::Formatter>,
+        formatter: &Option<daqnative::formatter::Formatter>,
     ) -> egui_tiles::UiResponse {
         let Some(database) = database else {
             ui::message_picker::no_database_placeholder(ui);
@@ -257,16 +257,16 @@ impl SendUi {
                                 self.error = None;
 
                                 let send_amount = match self.send_mode {
-                                    SendMode::Once => daqcore::can_thread::tx::SendAmount::Once,
+                                    SendMode::Once => daqnative::can_thread::tx::SendAmount::Once,
 
                                     SendMode::Infinite => {
-                                        daqcore::can_thread::tx::SendAmount::Infinite {
+                                        daqnative::can_thread::tx::SendAmount::Infinite {
                                             period: self.period_ms,
                                         }
                                     }
 
                                     SendMode::Finite => {
-                                        daqcore::can_thread::tx::SendAmount::Finite {
+                                        daqnative::can_thread::tx::SendAmount::Finite {
                                             amount: self.finite_amount,
                                             period: self.period_ms,
                                         }
@@ -284,10 +284,10 @@ impl SendUi {
                                     msg_bytes: msg_bytes.clone(),
                                     signal_values: self.signal_values.clone(),
                                     adjustable_values_enabled: self.adjustable_values_enabled,
-                                    last_sent: daqcore::time::Time::now(),
+                                    last_sent: daqnative::time::Time::now(),
                                 });
 
-                                let add_send_msg = daqcore::can_thread::tx::AddSendMessage {
+                                let add_send_msg = daqnative::can_thread::tx::AddSendMessage {
                                     amount: send_amount,
                                     key,
                                     is_extended_id: selected_msg.is_extended_id(),
@@ -299,7 +299,7 @@ impl SendUi {
                                 self.adjustable_values_enabled = false;
 
                                 self.ui_to_can_tx
-                                    .send(daqcore::can_thread::CanThreadCommand::AddSendMessage(
+                                    .send(daqnative::can_thread::CanThreadCommand::AddSendMessage(
                                         add_send_msg,
                                     ))
                                     .unwrap_or_else(|error| {
@@ -353,8 +353,8 @@ impl SendUi {
                             self.error = None;
 
                             self.ui_to_can_tx
-                                .send(daqcore::can_thread::CanThreadCommand::AddSendMessage(
-                                    daqcore::can_thread::tx::AddSendMessage {
+                                .send(daqnative::can_thread::CanThreadCommand::AddSendMessage(
+                                    daqnative::can_thread::tx::AddSendMessage {
                                         amount: self.sending_messages[idx].amount,
                                         key: self.sending_messages[idx].key,
                                         is_extended_id: self.sending_messages[idx].is_extended_id,
@@ -372,7 +372,7 @@ impl SendUi {
                                     self.sending_messages.retain(|msg| msg.key != key);
                                     self.ui_to_can_tx
                                     .send(
-                                        daqcore::can_thread::CanThreadCommand::DeleteSendMessage {
+                                        daqnative::can_thread::CanThreadCommand::DeleteSendMessage {
                                             key,
                                         },
                                     )
@@ -397,8 +397,8 @@ impl SendUi {
         self.error = None;
     }
 
-    pub fn handle_can_message(&mut self, msg: &daqcore::can_thread::CanThreadEvent) {
-        if let daqcore::can_thread::CanThreadEvent::SendFailed {
+    pub fn handle_can_message(&mut self, msg: &daqnative::can_thread::CanThreadEvent) {
+        if let daqnative::can_thread::CanThreadEvent::SendFailed {
             key,
             error,
             retrying,
@@ -414,7 +414,7 @@ impl SendUi {
             );
         }
 
-        if let daqcore::can_thread::CanThreadEvent::MessageSent {
+        if let daqnative::can_thread::CanThreadEvent::MessageSent {
             key,
             timestamp,
             amount_left,
@@ -441,7 +441,7 @@ impl SendingMessage {
     fn ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        formatter: &Option<daqcore::formatter::Formatter>,
+        formatter: &Option<daqnative::formatter::Formatter>,
         msg_idx: usize,
         updates_to_send: &mut Vec<usize>,
     ) -> Option<SendUiActions> {
@@ -473,7 +473,7 @@ impl SendingMessage {
             ui.label(
                 eframe::egui::RichText::new(format!(
                     "~{} ms ago",
-                    (daqcore::time::Time::now().secs(self.last_sent) * 1000.0) as i64
+                    (daqnative::time::Time::now().secs(self.last_sent) * 1000.0) as i64
                 ))
                 .italics()
                 .color(ui.visuals().weak_text_color()),
@@ -542,10 +542,10 @@ impl SendingMessage {
 }
 
 fn encode_msg_from_signals(
-    database: &daqcore::superdbc::database::Database,
-    key: daqcore::superdbc::message::MessageKey,
+    database: &daqnative::superdbc::database::Database,
+    key: daqnative::superdbc::message::MessageKey,
     signals: &[SignalValue],
-) -> Result<Vec<u8>, daqcore::superdbc::error::EncodeError> {
+) -> Result<Vec<u8>, daqnative::superdbc::error::EncodeError> {
     let values = signals
         .iter()
         .map(|signal| (signal.name.as_str(), signal.value))
@@ -553,7 +553,7 @@ fn encode_msg_from_signals(
     database.encode(key.bus_id, key.identity, &values)
 }
 
-fn signal_range(signal: &daqcore::superdbc::message::SignalDefinition) -> (f64, f64) {
+fn signal_range(signal: &daqnative::superdbc::message::SignalDefinition) -> (f64, f64) {
     signal
         .limits()
         .filter(|limits| limits.min < limits.max)

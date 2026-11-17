@@ -66,7 +66,12 @@
                 "rustfmt"
                 "rust-analyzer"
               ];
+              targets = [
+                "wasm32-unknown-unknown"
+              ];
             })
+            wasm-bindgen-cli
+            trunk
 
             (diesel-cli.override {
               sqliteSupport = true;
