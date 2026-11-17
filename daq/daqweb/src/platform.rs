@@ -169,7 +169,7 @@ impl Default for WebSettings {
         Self {
             cloud_url: DEFAULT_CLOUD_URL.to_owned(),
             pixels_per_point: None,
-            theme: ThemeSelection::Default,
+            theme: ThemeSelection::default(),
             collapse_idle_gaps: true,
             daqview_file_path: default_daqview_filename(),
             active_workspace_tab: Some("vd_handling_suspension".to_owned()),

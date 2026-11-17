@@ -15,10 +15,10 @@ const ONEDARK_THEME_SOURCE: &str = include_str!("../../themes/onedark.toml");
 #[derive(Copy, Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub enum ThemeSelection {
     #[default]
-    #[serde(alias = "NominalDark", alias = "nominal_dark", alias = "Dark", alias = "dark")]
-    Default,
     #[serde(alias = "nominal_light", alias = "Light", alias = "light")]
     NominalLight,
+    #[serde(alias = "NominalDark", alias = "nominal_dark", alias = "Dark", alias = "dark")]
+    Default,
     #[serde(alias = "rose_pine_moon", alias = "RosePine")]
     RosePineMoon,
     Nord,
@@ -28,8 +28,8 @@ pub enum ThemeSelection {
 
 impl ThemeSelection {
     pub const ALL: [Self; 6] = [
-        Self::Default,
         Self::NominalLight,
+        Self::Default,
         Self::RosePineMoon,
         Self::Nord,
         Self::Catppuccin,
@@ -132,22 +132,22 @@ pub struct ThemeColors {
 
 impl Default for ThemeColors {
     fn default() -> Self {
-        Self {
-            background: "#0d1017".to_string(),
-            panel_bg: "#131720".to_string(),
-            text: "#e6edf3".to_string(),
-            accent: "#38bdf8".to_string(),
-            button: "#1c2230".to_string(),
-            button_hover: "#283044".to_string(),
-            button_text: "#d8e1eb".to_string(),
-            border: Some("#232a38".to_string()),
-            muted_text: Some("#7d8590".to_string()),
-            error: Some("#f85149".to_string()),
-            warning: Some("#d29922".to_string()),
-            success: Some("#3fb950".to_string()),
-            info: Some("#58a6ff".to_string()),
-            is_light: false,
-        }
+        ThemeColors::from_toml(NOMINAL_LIGHT_THEME_SOURCE).unwrap_or(Self {
+            background: "#f8fafc".to_string(),
+            panel_bg: "#ffffff".to_string(),
+            text: "#0f172a".to_string(),
+            accent: "#0284c7".to_string(),
+            button: "#f1f5f9".to_string(),
+            button_hover: "#e2e8f0".to_string(),
+            button_text: "#1e293b".to_string(),
+            border: Some("#cbd5e1".to_string()),
+            muted_text: Some("#64748b".to_string()),
+            error: Some("#dc2626".to_string()),
+            warning: Some("#d97706".to_string()),
+            success: Some("#16a34a".to_string()),
+            info: Some("#0284c7".to_string()),
+            is_light: true,
+        })
     }
 }
 
@@ -421,6 +421,7 @@ mod tests {
             assert!(!theme.get_name().is_empty());
             let _ = (colors.muted_text_color(), colors.success_color());
         }
+        assert_eq!(ThemeSelection::default(), ThemeSelection::NominalLight);
         assert!(!ThemeSelection::Default.is_light());
         assert!(ThemeSelection::NominalLight.is_light());
         assert!(!ThemeSelection::RosePineMoon.is_light());

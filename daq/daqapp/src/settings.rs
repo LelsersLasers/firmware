@@ -45,7 +45,7 @@ impl Default for Settings {
             selected_source: None,
             selected_speed: DEFAULT_CAN_SPEED,
             udp_port: DEFAULT_UDP_PORT,
-            theme: ui::theme::ThemeSelection::Default,
+            theme: ui::theme::ThemeSelection::default(),
             pixels_per_point: None,
             log_folder: None,
             window_secs: 30.0,
