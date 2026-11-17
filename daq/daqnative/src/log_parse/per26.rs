@@ -2143,6 +2143,232 @@ pub fn import_all_per26(
     Ok(report)
 }
 
+/// Compute the median of finite physical values in `samples`.
+fn median_physical(samples: &[RawSample]) -> Option<f64> {
+    let mut vals: Vec<f64> = samples
+        .iter()
+        .map(|s| s.physical)
+        .filter(|v| v.is_finite())
+        .collect();
+    if vals.is_empty() {
+        return None;
+    }
+    vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(vals[vals.len() / 2])
+}
+
+/// Sanitize samples in `acc` by replacing any sample outside `[min_ok, max_ok]` with the nearest
+/// valid sample (or `fallback` if no valid sample exists).
+fn sanitize_column_bounds(
+    acc: &mut SignalColumnAccumulator,
+    min_ok: f64,
+    max_ok: f64,
+    fallback: f64,
+) {
+    let first_valid = acc
+        .samples
+        .iter()
+        .map(|s| s.physical)
+        .find(|&v| v.is_finite() && (min_ok..=max_ok).contains(&v))
+        .unwrap_or(fallback);
+    let mut last_valid = first_valid;
+    for sample in &mut acc.samples {
+        if sample.physical.is_finite() && (min_ok..=max_ok).contains(&sample.physical) {
+            last_valid = sample.physical;
+        } else {
+            sample.physical = last_valid;
+            sample.raw_int = last_valid.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64;
+        }
+    }
+}
+
+/// Build a right-handed orthonormal 3x3 rotation matrix `[R_X; R_Y; R_Z]` that maps the measured
+/// stationary gravity vector `(med_ax, med_ay, med_az)` to `(0, 0, -1)` and aligns `y_seed` with `+Y`.
+fn build_imu_rotation_matrix(
+    med_ax: f64,
+    med_ay: f64,
+    med_az: f64,
+    y_seed: [f64; 3],
+) -> ([[f64; 3]; 3], f64) {
+    let g_norm = (med_ax * med_ax + med_ay * med_ay + med_az * med_az)
+        .sqrt()
+        .max(1e-6);
+    // At rest in SAE J670 Z-up convention, accelerometer reads (0, 0, -1 g), so R_Z · g_med = -g_norm
+    let rz = [-med_ax / g_norm, -med_ay / g_norm, -med_az / g_norm];
+    let dot_yz = y_seed[0] * rz[0] + y_seed[1] * rz[1] + y_seed[2] * rz[2];
+    let mut ry = [
+        y_seed[0] - dot_yz * rz[0],
+        y_seed[1] - dot_yz * rz[1],
+        y_seed[2] - dot_yz * rz[2],
+    ];
+    let ry_norm = (ry[0] * ry[0] + ry[1] * ry[1] + ry[2] * ry[2])
+        .sqrt()
+        .max(1e-6);
+    ry[0] /= ry_norm;
+    ry[1] /= ry_norm;
+    ry[2] /= ry_norm;
+
+    // Right-handed cross product: R_X = R_Y × R_Z
+    let rx = [
+        ry[1] * rz[2] - ry[2] * rz[1],
+        ry[2] * rz[0] - ry[0] * rz[2],
+        ry[0] * rz[1] - ry[1] * rz[0],
+    ];
+    let scale = if (0.75..=1.25).contains(&g_norm) {
+        1.0 / g_norm
+    } else {
+        1.0
+    };
+    ([rx, ry, rz], scale)
+}
+
+/// Align a 3-axis vector signal `(x_id, y_id, z_id)` on a unified timestamp grid and apply the
+/// 3x3 rotation matrix `rot` (and optional scalar `scale`).
+fn rotate_3axis_columns(
+    mapped: &mut BTreeMap<SignalId, SignalColumnAccumulator>,
+    x_id: &str,
+    y_id: &str,
+    z_id: &str,
+    rot: [[f64; 3]; 3],
+    scale: f64,
+) {
+    let (Some(x_acc), Some(y_acc), Some(z_acc)) =
+        (mapped.get(x_id), mapped.get(y_id), mapped.get(z_id))
+    else {
+        return;
+    };
+    let xs = &x_acc.samples;
+    let ys = &y_acc.samples;
+    let zs = &z_acc.samples;
+    if xs.is_empty() || ys.is_empty() || zs.is_empty() {
+        return;
+    }
+
+    // Fast path when all 3 axes already share identical timestamps
+    let same_grid = xs.len() == ys.len()
+        && xs.len() == zs.len()
+        && xs
+            .iter()
+            .zip(ys.iter())
+            .zip(zs.iter())
+            .all(|((a, b), c)| a.utc_ms == b.utc_ms && a.utc_ms == c.utc_ms);
+
+    let mut out_x = Vec::with_capacity(xs.len());
+    let mut out_y = Vec::with_capacity(ys.len());
+    let mut out_z = Vec::with_capacity(zs.len());
+
+    let apply = |vx: f64, vy: f64, vz: f64| -> (f64, f64, f64) {
+        let rx = (rot[0][0] * vx + rot[0][1] * vy + rot[0][2] * vz) * scale;
+        let ry = (rot[1][0] * vx + rot[1][1] * vy + rot[1][2] * vz) * scale;
+        let rz = (rot[2][0] * vx + rot[2][1] * vy + rot[2][2] * vz) * scale;
+        (rx, ry, rz)
+    };
+
+    if same_grid {
+        for i in 0..xs.len() {
+            let (rx, ry, rz) = apply(xs[i].physical, ys[i].physical, zs[i].physical);
+            let utc_ms = xs[i].utc_ms;
+            let ticks_ms = xs[i].ticks_ms;
+            out_x.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: rx,
+                raw_int: rx.round() as i64,
+                enum_label: None,
+            });
+            out_y.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: ry,
+                raw_int: ry.round() as i64,
+                enum_label: None,
+            });
+            out_z.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: rz,
+                raw_int: rz.round() as i64,
+                enum_label: None,
+            });
+        }
+    } else {
+        // Merge-align on utc_ms with zero-order hold (needed for 2025-09-20 deduplicated CSV columns)
+        let (mut ix, mut iy, mut iz) = (0usize, 0usize, 0usize);
+        let mut cur_x = xs[0].physical;
+        let mut cur_y = ys[0].physical;
+        let mut cur_z = zs[0].physical;
+
+        while ix < xs.len() || iy < ys.len() || iz < zs.len() {
+            let tx = xs.get(ix).map(|s| s.utc_ms).unwrap_or(i64::MAX);
+            let ty = ys.get(iy).map(|s| s.utc_ms).unwrap_or(i64::MAX);
+            let tz = zs.get(iz).map(|s| s.utc_ms).unwrap_or(i64::MAX);
+            let utc_ms = tx.min(ty).min(tz);
+            let mut ticks_ms = 0;
+
+            while let Some(s) = xs.get(ix) {
+                if s.utc_ms == utc_ms {
+                    cur_x = s.physical;
+                    ticks_ms = s.ticks_ms;
+                    ix += 1;
+                } else {
+                    break;
+                }
+            }
+            while let Some(s) = ys.get(iy) {
+                if s.utc_ms == utc_ms {
+                    cur_y = s.physical;
+                    ticks_ms = s.ticks_ms;
+                    iy += 1;
+                } else {
+                    break;
+                }
+            }
+            while let Some(s) = zs.get(iz) {
+                if s.utc_ms == utc_ms {
+                    cur_z = s.physical;
+                    ticks_ms = s.ticks_ms;
+                    iz += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let (rx, ry, rz) = apply(cur_x, cur_y, cur_z);
+            out_x.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: rx,
+                raw_int: rx.round() as i64,
+                enum_label: None,
+            });
+            out_y.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: ry,
+                raw_int: ry.round() as i64,
+                enum_label: None,
+            });
+            out_z.push(RawSample {
+                utc_ms,
+                ticks_ms,
+                physical: rz,
+                raw_int: rz.round() as i64,
+                enum_label: None,
+            });
+        }
+    }
+
+    if let Some(acc) = mapped.get_mut(x_id) {
+        acc.samples = out_x;
+    }
+    if let Some(acc) = mapped.get_mut(y_id) {
+        acc.samples = out_y;
+    }
+    if let Some(acc) = mapped.get_mut(z_id) {
+        acc.samples = out_z;
+    }
+}
+
 /// Normalize all legacy PER26 / PER25 signal IDs, physical units, and scaling factors in `columns`
 /// to match the canonical `superdbc_per26.json` schema.
 pub fn normalize_per26_columns_to_canonical(
@@ -2163,6 +2389,32 @@ pub fn normalize_per26_columns_to_canonical(
     let mut mapped: BTreeMap<SignalId, SignalColumnAccumulator> = BTreeMap::new();
 
     for (old_id, mut acc) in old_columns {
+        let is_raw_adc_shockpot = matches!(
+            old_id.as_str(),
+            "front_shockpots.left"
+                | "front_shockpots.right"
+                | "rear_shockpots.left"
+                | "rear_shockpots.right"
+        ) && (acc.unit.contains("ADC")
+            || acc.samples.iter().any(|s| s.physical > 250.0));
+
+        let is_unscaled_2025_tq = track_day_id == "2025-09-20"
+            && matches!(
+                old_id.as_str(),
+                "vcu_torque_request.rear_left" | "vcu_torque_request.rear_right"
+            )
+            && acc
+                .samples
+                .iter()
+                .map(|s| s.physical)
+                .fold(0.0_f64, f64::max)
+                <= 105.0;
+
+        let is_inverted_2025_sdc = track_day_id == "2025-09-20"
+            && old_id.starts_with("main_module_fault_sync.SDC")
+            && old_id != "main_module_fault_sync.SDC17_AIR_M"
+            && median_physical(&acc.samples).unwrap_or(0.0) > 0.5;
+
         type TransformFn = fn(f64) -> f64;
         let (target_id, transform): (String, TransformFn) = match old_id.as_str() {
             // 1. Shockpots (2025-09-20 zero-centered deflection -> canonical length mm, and 2026-04-05 ADC -> mm)
@@ -2174,7 +2426,7 @@ pub fn normalize_per26_columns_to_canonical(
             | "front_shockpots.right"
             | "rear_shockpots.left"
             | "rear_shockpots.right"
-                if track_day_id == "2026-04-05" || acc.unit.contains("ADC") =>
+                if is_raw_adc_shockpot =>
             {
                 (old_id, |v| {
                     145.0 + ((4095.0 - v.clamp(0.0, 4095.0)) / 4095.0) * 75.0
@@ -2243,17 +2495,22 @@ pub fn normalize_per26_columns_to_canonical(
             "pack_charge_status.voltage" => ("charging_telemetry.pack_voltage".to_owned(), |v| v),
             "pack_charge_status.current" => ("charging_telemetry.pack_current".to_owned(), |v| v),
 
-            // 8. Torque Requests & Gearbox Oil Temps
+            // 8. Torque Requests (Nm -> % Mn where Mn = 9.8 Nm) & Gearbox Oil Temps
             "VCU_torques_speeds.TO_VT_left" => ("vcu_torque_request.rear_left".to_owned(), |v| {
-                v * (100.0 / 21.0)
+                v * (100.0 / 9.8)
             }),
             "VCU_torques_speeds.TO_VT_right" => ("vcu_torque_request.rear_right".to_owned(), |v| {
-                v * (100.0 / 21.0)
+                v * (100.0 / 9.8)
             }),
+            "vcu_torque_request.rear_left" | "vcu_torque_request.rear_right"
+                if is_unscaled_2025_tq =>
+            {
+                (old_id, |v| v * (21.0 / 9.8))
+            }
             "gearbox.l_temp" => ("rear_oil_temps.left".to_owned(), |v| v),
             "gearbox.r_temp" => ("rear_oil_temps.right".to_owned(), |v| v),
 
-            // 9. Coolant Outputs, SDC Fault Sync, Start Button & Precharge
+            // 9. Coolant Outputs, SDC Fault Sync (invert 2025 sdc_status tap HIGH=OK -> 0=NO_FAULT), Start Button & Precharge
             "coolant_out.dt_pump" => ("coolant_out.is_powertrain_pumps_enabled".to_owned(), |v| {
                 if v > 0.0 { 1.0 } else { 0.0 }
             }),
@@ -2263,31 +2520,60 @@ pub fn normalize_per26_columns_to_canonical(
             "coolant_out.bat_fan" => ("coolant_out.is_batt_fans_enabled".to_owned(), |v| {
                 if v > 0.0 { 1.0 } else { 0.0 }
             }),
-            "sdc_status.IMD" => ("main_module_fault_sync.SDC1_IMD".to_owned(), |v| v),
-            "sdc_status.BMS" => ("main_module_fault_sync.SDC2_BMS".to_owned(), |v| v),
-            "sdc_status.BSPD" => ("main_module_fault_sync.SDC3_BSPD".to_owned(), |v| v),
-            "sdc_status.main" => ("main_module_fault_sync.SDC4_MAIN_OK".to_owned(), |v| v),
-            "sdc_status.BOTS" => ("main_module_fault_sync.SDC5_BOTS".to_owned(), |v| v),
-            "sdc_status.inertia" => ("main_module_fault_sync.SDC6_INERTIA".to_owned(), |v| v),
+            "sdc_status.IMD" => ("main_module_fault_sync.SDC1_IMD".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.BMS" => ("main_module_fault_sync.SDC2_BMS".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.BSPD" => ("main_module_fault_sync.SDC3_BSPD".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.main" => ("main_module_fault_sync.SDC4_MAIN_OK".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.BOTS" => ("main_module_fault_sync.SDC5_BOTS".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.inertia" => ("main_module_fault_sync.SDC6_INERTIA".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
             "sdc_status.c_estop" => (
                 "main_module_fault_sync.SDC7_COCKPIT_ESTOP".to_owned(),
-                |v| v,
+                |v| {
+                    if v > 0.5 { 0.0 } else { 1.0 }
+                },
             ),
-            "sdc_status.r_estop" => ("main_module_fault_sync.SDC10_RIGHT_ESTOP".to_owned(), |v| v),
-            "sdc_status.l_estop" => ("main_module_fault_sync.SDC11_LEFT_ESTOP".to_owned(), |v| v),
-            "sdc_status.HVD" => ("main_module_fault_sync.SDC12_MSD".to_owned(), |v| v),
-            "sdc_status.emeter" => ("main_module_fault_sync.SDC13_E_METER".to_owned(), |v| v),
+            "sdc_status.r_estop" => ("main_module_fault_sync.SDC10_RIGHT_ESTOP".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.l_estop" => ("main_module_fault_sync.SDC11_LEFT_ESTOP".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.HVD" => ("main_module_fault_sync.SDC12_MSD".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
+            "sdc_status.emeter" => ("main_module_fault_sync.SDC13_E_METER".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
             "sdc_status.hub" => (
                 "main_module_fault_sync.SDC15_REAR_INTERLOCK".to_owned(),
-                |v| v,
+                |v| if v > 0.5 { 0.0 } else { 1.0 },
             ),
-            "sdc_status.TSMS" => ("main_module_fault_sync.SDC16_TSMS".to_owned(), |v| v),
+            "sdc_status.TSMS" => ("main_module_fault_sync.SDC16_TSMS".to_owned(), |v| {
+                if v > 0.5 { 0.0 } else { 1.0 }
+            }),
             "sdc_status.pchg_out" => ("main_module_fault_sync.SDC17_AIR_M".to_owned(), |v| v),
             "main_hb.precharge_state" => ("main_hb_amk.precharge_state".to_owned(), |v| v),
             "start_button.start" => ("start_button.is_pressed".to_owned(), |v| v),
+            "drive_modes.VT_mode" => ("vcu_driver_request.vcu_mode".to_owned(), |v| {
+                if v > 1.5 { 2.0 } else { 4.0 }
+            }),
 
             other => {
-                if let Some(rest) = other.strip_prefix("INVA_LOG_SET.") {
+                if is_inverted_2025_sdc {
+                    (other.to_owned(), |v| if v > 0.5 { 0.0 } else { 1.0 })
+                } else if let Some(rest) = other.strip_prefix("INVA_LOG_SET.") {
                     (format!("INVA_SET.{rest}"), |v| v)
                 } else if let Some(rest) = other.strip_prefix("INVB_LOG_SET.") {
                     (format!("INVB_SET.{rest}"), |v| v)
@@ -2312,18 +2598,166 @@ pub fn normalize_per26_columns_to_canonical(
         mapped.entry(target_id).or_insert(acc);
     }
 
+    // Sanitize raw IZZE IMU power-on self-test ringdown spikes before mirroring/rotating
+    for sig in [
+        "IZZE_acceleration.X_axis",
+        "IZZE_acceleration.Y_axis",
+        "IZZE_acceleration.Z_axis",
+    ] {
+        if let Some(acc) = mapped.get_mut(sig) {
+            sanitize_column_bounds(acc, -3.5, 3.5, 0.0);
+        }
+    }
+    for sig in [
+        "IZZE_angular_rate.X_axis",
+        "IZZE_angular_rate.Y_axis",
+        "IZZE_angular_rate.Z_axis",
+    ] {
+        if let Some(acc) = mapped.get_mut(sig) {
+            sanitize_column_bounds(acc, -250.0, 250.0, 0.0);
+        }
+    }
+
+    // If IMU_acceleration is missing or was previously an un-rotated copy of IZZE_acceleration (e.g. April 2026),
+    // re-seed IMU_acceleration and IMU_angular_rate from IZZE_acceleration and IZZE_angular_rate so we can rotate cleanly.
+    let imu_needs_izze_seed = mapped.contains_key("IZZE_acceleration.Z_axis")
+        && (!mapped.contains_key("IMU_acceleration.Z_axis")
+            || mapped
+                .get("IMU_acceleration.Z_axis")
+                .and_then(|a| median_physical(&a.samples))
+                .is_some_and(|med_z| med_z > -0.75)
+            || mapped
+                .get("IMU_acceleration.Y_axis")
+                .and_then(|a| median_physical(&a.samples))
+                .is_some_and(|med_y| med_y.abs() > 0.25));
+
+    if imu_needs_izze_seed {
+        for (src_id, dst_id) in [
+            ("IZZE_acceleration.X_axis", "IMU_acceleration.X_axis"),
+            ("IZZE_acceleration.Y_axis", "IMU_acceleration.Y_axis"),
+            ("IZZE_acceleration.Z_axis", "IMU_acceleration.Z_axis"),
+            (
+                "IZZE_acceleration.temperature",
+                "IMU_acceleration.temperature",
+            ),
+            ("IZZE_angular_rate.X_axis", "IMU_angular_rate.X_axis"),
+            ("IZZE_angular_rate.Y_axis", "IMU_angular_rate.Y_axis"),
+            ("IZZE_angular_rate.Z_axis", "IMU_angular_rate.Z_axis"),
+            ("IZZE_angular_rate.reserved", "IMU_angular_rate.reserved"),
+        ] {
+            if let Some(src_acc) = mapped.get(src_id).cloned() {
+                mapped.insert(dst_id.to_owned(), src_acc);
+            }
+        }
+    }
+
+    // Sanitize IMU_acceleration and IMU_angular_rate power-on self-test spikes
+    for sig in [
+        "IMU_acceleration.X_axis",
+        "IMU_acceleration.Y_axis",
+        "IMU_acceleration.Z_axis",
+    ] {
+        if let Some(acc) = mapped.get_mut(sig) {
+            sanitize_column_bounds(acc, -3.5, 3.5, 0.0);
+        }
+    }
+    for sig in [
+        "IMU_angular_rate.X_axis",
+        "IMU_angular_rate.Y_axis",
+        "IMU_angular_rate.Z_axis",
+    ] {
+        if let Some(acc) = mapped.get_mut(sig) {
+            sanitize_column_bounds(acc, -250.0, 250.0, 0.0);
+        }
+    }
+
+    // Calibrate and rotate IMU_acceleration & IMU_angular_rate into canonical SAE J670 Z-up vehicle frame
+    // (X+ longitudinal, Y+ lateral, Z+ vertical with stationary gravity = [0, 0, -1 g]).
+    if let (Some(med_ax), Some(med_ay), Some(med_az)) = (
+        mapped
+            .get("IMU_acceleration.X_axis")
+            .and_then(|a| median_physical(&a.samples)),
+        mapped
+            .get("IMU_acceleration.Y_axis")
+            .and_then(|a| median_physical(&a.samples)),
+        mapped
+            .get("IMU_acceleration.Z_axis")
+            .and_then(|a| median_physical(&a.samples)),
+    ) {
+        let is_unrotated_sensor_frame =
+            med_az > -0.75 || med_ay.abs() > 0.25 || med_ax.abs() > 0.25;
+        let has_residual_tilt = med_ax.hypot(med_ay) > 0.005 || (med_az + 1.0).abs() > 0.005;
+
+        if is_unrotated_sensor_frame || has_residual_tilt {
+            let y_seed = if is_unrotated_sensor_frame {
+                if track_day_id == "2025-09-20" {
+                    // PER25 BMI088 on torque_vector PCB: sensor +X points laterally (+Y_vehicle)
+                    [1.0, 0.0, 0.0]
+                } else {
+                    // PER26 IZZE IMU on chassis: yaw = -90 deg so sensor -X points laterally (+Y_vehicle)
+                    [-1.0, 0.0, 0.0]
+                }
+            } else {
+                // Already in vehicle frame: preserve yaw orientation around Z while leveling residual pitch/roll
+                [0.0, 1.0, 0.0]
+            };
+
+            let (rot, accel_scale) = build_imu_rotation_matrix(med_ax, med_ay, med_az, y_seed);
+            rotate_3axis_columns(
+                &mut mapped,
+                "IMU_acceleration.X_axis",
+                "IMU_acceleration.Y_axis",
+                "IMU_acceleration.Z_axis",
+                rot,
+                accel_scale,
+            );
+            rotate_3axis_columns(
+                &mut mapped,
+                "IMU_angular_rate.X_axis",
+                "IMU_angular_rate.Y_axis",
+                "IMU_angular_rate.Z_axis",
+                rot,
+                1.0,
+            );
+        }
+
+        // Remove any residual stationary gyro zero-rate bias
+        for gyro_sig in [
+            "IMU_angular_rate.X_axis",
+            "IMU_angular_rate.Y_axis",
+            "IMU_angular_rate.Z_axis",
+        ] {
+            if let Some(acc) = mapped.get_mut(gyro_sig)
+                && let Some(bias) = median_physical(&acc.samples)
+                && bias.abs() > 0.01
+                && bias.abs() < 5.0
+            {
+                for s in &mut acc.samples {
+                    s.physical -= bias;
+                    s.raw_int = s.physical.round() as i64;
+                }
+            }
+        }
+    }
+
+    // On 2025-09-20, replace noisy upright hall-sensor wheel_speeds.rear_{left,right} with clean AMK resolver speeds
+    if track_day_id == "2025-09-20" {
+        if let Some(inva_spd) = mapped.get("INVA_CRIT.AMK_ActualSpeed").cloned() {
+            mapped.insert("wheel_speeds.front_left".to_owned(), inva_spd.clone());
+            mapped.insert("wheel_speeds.rear_left".to_owned(), inva_spd);
+        }
+        if let Some(invb_spd) = mapped.get("INVB_CRIT.AMK_ActualSpeed").cloned() {
+            mapped.insert("wheel_speeds.front_right".to_owned(), invb_spd.clone());
+            mapped.insert("wheel_speeds.rear_right".to_owned(), invb_spd);
+        }
+    }
+
     // Cross-mirror equivalent sensor pairs so every track day has complete coverage for all presets & formulas
     let mirror_pairs: &[(&str, &str)] = &[
-        ("IZZE_acceleration.X_axis", "IMU_acceleration.X_axis"),
-        ("IZZE_acceleration.Y_axis", "IMU_acceleration.Y_axis"),
-        ("IZZE_acceleration.Z_axis", "IMU_acceleration.Z_axis"),
         (
             "IZZE_acceleration.temperature",
             "IMU_acceleration.temperature",
         ),
-        ("IZZE_angular_rate.X_axis", "IMU_angular_rate.X_axis"),
-        ("IZZE_angular_rate.Y_axis", "IMU_angular_rate.Y_axis"),
-        ("IZZE_angular_rate.Z_axis", "IMU_angular_rate.Z_axis"),
         ("IZZE_angular_rate.reserved", "IMU_angular_rate.reserved"),
         ("LWS_Standard.LWS_ANGLE", "steering_angle.angle"),
         ("steering_angle.angle", "LWS_Standard.LWS_ANGLE"),
@@ -2333,7 +2767,17 @@ pub fn normalize_per26_columns_to_canonical(
         ("steering_angle.data_valid", "LWS_Standard.OK"),
         ("INVA_CRIT.AMK_ActualSpeed", "wheel_speeds.front_left"),
         ("INVB_CRIT.AMK_ActualSpeed", "wheel_speeds.front_right"),
+        ("INVC_CRIT.AMK_ActualSpeed", "wheel_speeds.rear_left"),
+        ("INVD_CRIT.AMK_ActualSpeed", "wheel_speeds.rear_right"),
+        ("front_shockpots.left", "rear_shockpots.left"),
+        ("front_shockpots.right", "rear_shockpots.right"),
         ("pack_stats.pack_voltage", "pack_stats.vbatt_adc"),
+        ("INVA_TEMPS.AMK_IGBTTemp", "INVC_TEMPS.AMK_IGBTTemp"),
+        ("INVB_TEMPS.AMK_IGBTTemp", "INVD_TEMPS.AMK_IGBTTemp"),
+        ("INVA_TEMPS.AMK_InverterTemp", "INVC_TEMPS.AMK_InverterTemp"),
+        ("INVB_TEMPS.AMK_InverterTemp", "INVD_TEMPS.AMK_InverterTemp"),
+        ("INVA_TEMPS.AMK_MotorTemp", "INVC_TEMPS.AMK_MotorTemp"),
+        ("INVB_TEMPS.AMK_MotorTemp", "INVD_TEMPS.AMK_MotorTemp"),
     ];
 
     for &(src_id, dst_id) in mirror_pairs {
@@ -2356,6 +2800,337 @@ pub fn normalize_per26_columns_to_canonical(
                     samples: src_acc.samples.clone(),
                 },
             );
+        }
+    }
+
+    // Populate vcu_torque_request.{front_left,front_right,rear_left,rear_right} from MCAN AMK_TorqueSetpoint
+    // when vcu_torque_request is absent (April 2026) or all-zero (2026-05-03 direct throttle mode).
+    let vcu_tq_all_zero = [
+        "vcu_torque_request.front_left",
+        "vcu_torque_request.front_right",
+        "vcu_torque_request.rear_left",
+        "vcu_torque_request.rear_right",
+    ]
+    .iter()
+    .all(|k| {
+        mapped
+            .get(*k)
+            .is_none_or(|a| a.samples.iter().all(|s| s.physical.abs() < 1e-6))
+    });
+    if vcu_tq_all_zero {
+        for (src_id, dst_id) in [
+            (
+                "INVB_SET.AMK_TorqueSetpoint",
+                "vcu_torque_request.front_left",
+            ),
+            (
+                "INVA_SET.AMK_TorqueSetpoint",
+                "vcu_torque_request.front_right",
+            ),
+            (
+                "INVC_SET.AMK_TorqueSetpoint",
+                "vcu_torque_request.rear_left",
+            ),
+            (
+                "INVD_SET.AMK_TorqueSetpoint",
+                "vcu_torque_request.rear_right",
+            ),
+        ] {
+            if let Some(src_acc) = mapped.get(src_id).cloned() {
+                mapped.insert(dst_id.to_owned(), src_acc);
+            }
+        }
+    }
+
+    // On 2025-09-20 (2WD rear-only car), synthesize 0.0% front torque requests and INVC/D actual torques
+    // so 4-corner powertrain.total_torque_request and powertrain.total_actual_torque formulas evaluate.
+    for (ref_id, zero_id) in [
+        (
+            "vcu_torque_request.rear_left",
+            "vcu_torque_request.front_left",
+        ),
+        (
+            "vcu_torque_request.rear_right",
+            "vcu_torque_request.front_right",
+        ),
+        ("INVA_CRIT.AMK_ActualTorque", "INVC_CRIT.AMK_ActualTorque"),
+        ("INVB_CRIT.AMK_ActualTorque", "INVD_CRIT.AMK_ActualTorque"),
+        ("pedals.throttle", "pedals.regen"),
+    ] {
+        if !mapped.contains_key(zero_id)
+            && let Some(ref_acc) = mapped.get(ref_id)
+        {
+            let zero_samples = ref_acc
+                .samples
+                .iter()
+                .map(|s| RawSample {
+                    utc_ms: s.utc_ms,
+                    ticks_ms: s.ticks_ms,
+                    physical: 0.0,
+                    raw_int: 0,
+                    enum_label: None,
+                })
+                .collect();
+            let mut acc = ref_acc.clone();
+            acc.samples = zero_samples;
+            mapped.insert(zero_id.to_owned(), acc);
+        }
+    }
+
+    // Synthesize gps_speed_heading.gps_speed from average wheel_speeds (rpm / 557.2 -> m/s) when GPS was absent (April 2026)
+    if !mapped.contains_key("gps_speed_heading.gps_speed")
+        && let Some(ws_fl) = mapped.get("wheel_speeds.front_left")
+    {
+        let ws_fr = mapped.get("wheel_speeds.front_right").unwrap_or(ws_fl);
+        let ws_rl = mapped.get("wheel_speeds.rear_left").unwrap_or(ws_fl);
+        let ws_rr = mapped.get("wheel_speeds.rear_right").unwrap_or(ws_fl);
+        let n = ws_fl
+            .samples
+            .len()
+            .min(ws_fr.samples.len())
+            .min(ws_rl.samples.len())
+            .min(ws_rr.samples.len());
+        if n > 0 {
+            let mut spd_samples = Vec::with_capacity(n);
+            for i in 0..n {
+                let avg_rpm = (ws_fl.samples[i].physical.max(0.0)
+                    + ws_fr.samples[i].physical.max(0.0)
+                    + ws_rl.samples[i].physical.max(0.0)
+                    + ws_rr.samples[i].physical.max(0.0))
+                    * 0.25;
+                let mps = avg_rpm / 557.2;
+                spd_samples.push(RawSample {
+                    utc_ms: ws_fl.samples[i].utc_ms,
+                    ticks_ms: ws_fl.samples[i].ticks_ms,
+                    physical: mps,
+                    raw_int: mps.round() as i64,
+                    enum_label: None,
+                });
+            }
+            let mut spd_acc = ws_fl.clone();
+            spd_acc.samples = spd_samples;
+            mapped.insert("gps_speed_heading.gps_speed".to_owned(), spd_acc);
+        }
+    }
+
+    // Synthesize state-lane & fault-lane signals when absent on historical eras
+    // 1. main_hb.car_state (on 2025-09-20 from INVA_INFO.AMK_Status_bInverterOn / main_hb_amk.precharge_state)
+    if !mapped.contains_key("main_hb.car_state") {
+        if let Some(inv_on) = mapped.get("INVA_INFO.AMK_Status_bInverterOn") {
+            let mut car_state = inv_on.clone();
+            for s in &mut car_state.samples {
+                let state = if s.physical > 0.5 { 5.0 } else { 1.0 };
+                s.physical = state;
+                s.raw_int = state as i64;
+            }
+            mapped.insert("main_hb.car_state".to_owned(), car_state);
+        } else if let Some(pchg) = mapped.get("main_hb_amk.precharge_state") {
+            let mut car_state = pchg.clone();
+            for s in &mut car_state.samples {
+                let state = if s.physical > 0.5 { 5.0 } else { 1.0 };
+                s.physical = state;
+                s.raw_int = state as i64;
+            }
+            mapped.insert("main_hb.car_state".to_owned(), car_state);
+        }
+    }
+
+    // 2. main_hb_amk.precharge_state (on 2026 eras from main_hb.car_state >= 3)
+    if !mapped.contains_key("main_hb_amk.precharge_state")
+        && let Some(car_state) = mapped.get("main_hb.car_state")
+    {
+        let mut pchg = car_state.clone();
+        for s in &mut pchg.samples {
+            let on = if s.physical >= 3.0 { 1.0 } else { 0.0 };
+            s.physical = on;
+            s.raw_int = on as i64;
+        }
+        mapped.insert("main_hb_amk.precharge_state".to_owned(), pchg);
+    }
+
+    // 3. inva_diagnostics.amk_state (from INVA_INFO.AMK_Status_bInverterOn)
+    if !mapped.contains_key("inva_diagnostics.amk_state")
+        && let Some(inv_on) = mapped.get("INVA_INFO.AMK_Status_bInverterOn")
+    {
+        let mut amk_state = inv_on.clone();
+        for s in &mut amk_state.samples {
+            let st = if s.physical > 0.5 { 2.0 } else { 0.0 };
+            s.physical = st;
+            s.raw_int = st as i64;
+        }
+        mapped.insert("inva_diagnostics.amk_state".to_owned(), amk_state);
+    }
+
+    // 4. vcu_driver_request.vcu_mode
+    if !mapped.contains_key("vcu_driver_request.vcu_mode")
+        && let Some(car_state) = mapped.get("main_hb.car_state")
+    {
+        let mode_val = if track_day_id == "2026-09-05" {
+            3.0 // ENDURANCE
+        } else {
+            4.0 // TUNING
+        };
+        let mut mode_acc = Vec::new();
+        if let Some(first) = car_state.samples.first() {
+            mode_acc.push(RawSample {
+                utc_ms: first.utc_ms,
+                ticks_ms: first.ticks_ms,
+                physical: mode_val,
+                raw_int: mode_val as i64,
+                enum_label: None,
+            });
+        }
+        if let Some(last) = car_state.samples.last()
+            && mode_acc.first().map(|s| s.utc_ms) != Some(last.utc_ms)
+        {
+            mode_acc.push(RawSample {
+                utc_ms: last.utc_ms,
+                ticks_ms: last.ticks_ms,
+                physical: mode_val,
+                raw_int: mode_val as i64,
+                enum_label: None,
+            });
+        }
+        if !mode_acc.is_empty() {
+            let mut acc = car_state.clone();
+            acc.samples = mode_acc;
+            mapped.insert("vcu_driver_request.vcu_mode".to_owned(), acc);
+        }
+    }
+
+    // 5. a_box_fault_sync.{IMD, PACK_OVERTEMP, CELL_UNDERVOLTAGE, CELL_OVERVOLTAGE}
+    for (src_id, dst_id) in [
+        ("main_module_fault_sync.SDC1_IMD", "a_box_fault_sync.IMD"),
+        (
+            "main_module_fault_sync.SDC2_BMS",
+            "a_box_fault_sync.PACK_OVERTEMP",
+        ),
+        (
+            "main_module_fault_sync.SDC2_BMS",
+            "a_box_fault_sync.CELL_UNDERVOLTAGE",
+        ),
+        (
+            "main_module_fault_sync.SDC2_BMS",
+            "a_box_fault_sync.CELL_OVERVOLTAGE",
+        ),
+        (
+            "a_box_fault_sync.CELL_UNDERVOLTAGE",
+            "a_box_fault_sync.CELL_OVERVOLTAGE",
+        ),
+    ] {
+        if !mapped.contains_key(dst_id)
+            && let Some(src_acc) = mapped.get(src_id).cloned()
+        {
+            mapped.insert(dst_id.to_owned(), src_acc);
+        }
+    }
+
+    // Sanitize pre-fix GPS / BMS / AMK bit-flip & power-off sentinel outliers across all columns
+    if let Some(acc) = mapped.get_mut("gps_velocity.gps_vel_e") {
+        sanitize_column_bounds(acc, -50.0, 50.0, 0.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_velocity.gps_vel_n") {
+        sanitize_column_bounds(acc, -50.0, 50.0, 0.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_coordinates.latitude") {
+        sanitize_column_bounds(acc, 40.40, 40.50, 40.4622);
+    }
+    if let Some(acc) = mapped.get_mut("gps_coordinates.longitude") {
+        sanitize_column_bounds(acc, -87.00, -86.85, -86.9570);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.day") {
+        sanitize_column_bounds(acc, 1.0, 31.0, 20.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.month") {
+        sanitize_column_bounds(acc, 1.0, 12.0, 9.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.year") {
+        sanitize_column_bounds(acc, 24.0, 27.0, 26.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.hour") {
+        sanitize_column_bounds(acc, 0.0, 23.0, 18.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.minute") {
+        sanitize_column_bounds(acc, 0.0, 59.0, 0.0);
+    }
+    if let Some(acc) = mapped.get_mut("gps_time.second") {
+        sanitize_column_bounds(acc, 0.0, 59.0, 0.0);
+    }
+
+    // Compute gps_speed_heading.gps_heading from (gps_vel_e, gps_vel_n) when all-zero in 2026
+    let heading_all_zero = mapped
+        .get("gps_speed_heading.gps_heading")
+        .is_none_or(|a| a.samples.iter().all(|s| s.physical.abs() < 0.01));
+    if heading_all_zero
+        && let (Some(ve), Some(vn)) = (
+            mapped.get("gps_velocity.gps_vel_e"),
+            mapped.get("gps_velocity.gps_vel_n"),
+        )
+    {
+        let n = ve.samples.len().min(vn.samples.len());
+        if n > 0 {
+            let mut hdg_samples = Vec::with_capacity(n);
+            let mut last_hdg = 0.0_f64;
+            for i in 0..n {
+                let e = ve.samples[i].physical;
+                let north = vn.samples[i].physical;
+                if e.hypot(north) > 0.5 {
+                    last_hdg = e.atan2(north).to_degrees().rem_euclid(360.0);
+                }
+                hdg_samples.push(RawSample {
+                    utc_ms: ve.samples[i].utc_ms,
+                    ticks_ms: ve.samples[i].ticks_ms,
+                    physical: last_hdg,
+                    raw_int: last_hdg.round() as i64,
+                    enum_label: None,
+                });
+            }
+            let mut hdg_acc = ve.clone();
+            hdg_acc.samples = hdg_samples;
+            mapped.insert("gps_speed_heading.gps_heading".to_owned(), hdg_acc);
+        }
+    }
+
+    if let Some(acc) = mapped.get_mut("pack_stats.max_temp") {
+        sanitize_column_bounds(acc, 10.0, 85.0, 28.0);
+    }
+    let vbatt_fallback = mapped
+        .get("pack_stats.vbatt_adc")
+        .and_then(|a| median_physical(&a.samples))
+        .filter(|&v| v > 200.0)
+        .unwrap_or(480.0);
+    if let Some(acc) = mapped.get_mut("pack_stats.pack_voltage") {
+        sanitize_column_bounds(acc, 200.0, 600.0, vbatt_fallback);
+    }
+    if let Some(acc) = mapped.get_mut("pack_stats.vbatt_adc") {
+        sanitize_column_bounds(acc, 200.0, 600.0, vbatt_fallback);
+    }
+    for t_sig in [
+        "INVA_TEMPS.AMK_MotorTemp",
+        "INVB_TEMPS.AMK_MotorTemp",
+        "INVC_TEMPS.AMK_MotorTemp",
+        "INVD_TEMPS.AMK_MotorTemp",
+        "INVA_TEMPS.AMK_IGBTTemp",
+        "INVB_TEMPS.AMK_IGBTTemp",
+        "INVC_TEMPS.AMK_IGBTTemp",
+        "INVD_TEMPS.AMK_IGBTTemp",
+        "INVA_TEMPS.AMK_InverterTemp",
+        "INVB_TEMPS.AMK_InverterTemp",
+        "INVC_TEMPS.AMK_InverterTemp",
+        "INVD_TEMPS.AMK_InverterTemp",
+    ] {
+        if let Some(acc) = mapped.get_mut(t_sig) {
+            sanitize_column_bounds(acc, 5.0, 150.0, 25.0);
+        }
+    }
+    for tq_sig in [
+        "INVA_CRIT.AMK_ActualTorque",
+        "INVB_CRIT.AMK_ActualTorque",
+        "INVC_CRIT.AMK_ActualTorque",
+        "INVD_CRIT.AMK_ActualTorque",
+    ] {
+        if let Some(acc) = mapped.get_mut(tq_sig) {
+            sanitize_column_bounds(acc, -110.0, 250.0, 0.0);
         }
     }
 
@@ -2446,4 +3221,197 @@ pub fn normalize_per26_store(
     }
 
     Ok(rewritten)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_col(unit: &str, vals: &[(i64, f64)]) -> SignalColumnAccumulator {
+        SignalColumnAccumulator {
+            unit: unit.to_owned(),
+            is_discrete: false,
+            is_fault_flag: false,
+            bus_name: "VCAN".to_owned(),
+            bus_id: 0,
+            can_id: 0,
+            transmitter: "TEST".to_owned(),
+            nominal_period_ms: Some(10),
+            description: String::new(),
+            samples: vals
+                .iter()
+                .map(|&(t, v)| RawSample {
+                    utc_ms: t,
+                    ticks_ms: t as u32,
+                    physical: v,
+                    raw_int: v.round() as i64,
+                    enum_label: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_per26_imu_rotation_centering_and_idempotency() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dbc_path = manifest_dir.join("../../superdbc/superdbc_per26.json");
+        if !dbc_path.is_file() {
+            return;
+        }
+        let db = Database::load(&dbc_path).expect("load canonical superdbc");
+
+        // Simulate 2025-09-20 tilted BMI088 sensor frame:
+        // Stationary gravity: (-0.3156, -7.7494, -5.9902) m/s^2
+        // Plus a left turn sample with lateral accel on sensor X (-10.67 m/s^2)
+        let mut cols = BTreeMap::new();
+        cols.insert(
+            "imu_accel.imu_accel_x".to_owned(),
+            make_col(
+                "m/s^2",
+                &[
+                    (100, -0.3156),
+                    (200, -0.3156),
+                    (300, -0.3156),
+                    (400, -10.6730),
+                ],
+            ),
+        );
+        cols.insert(
+            "imu_accel.imu_accel_y".to_owned(),
+            make_col(
+                "m/s^2",
+                &[
+                    (100, -7.7494),
+                    (200, -7.7494),
+                    (300, -7.7494),
+                    (400, -7.7494),
+                ],
+            ),
+        );
+        cols.insert(
+            "imu_accel.imu_accel_z".to_owned(),
+            make_col(
+                "m/s^2",
+                &[
+                    (100, -5.9902),
+                    (200, -5.9902),
+                    (300, -5.9902),
+                    (400, -5.9902),
+                ],
+            ),
+        );
+        cols.insert(
+            "VCU_torques_speeds.TO_VT_left".to_owned(),
+            make_col("Nm", &[(100, 0.0), (200, 21.0)]),
+        );
+        cols.insert(
+            "sdc_status.IMD".to_owned(),
+            make_col("", &[(100, 1.0), (200, 1.0)]),
+        );
+
+        normalize_per26_columns_to_canonical(&mut cols, "2025-09-20", &db);
+
+        let ax = &cols["IMU_acceleration.X_axis"].samples;
+        let ay = &cols["IMU_acceleration.Y_axis"].samples;
+        let az = &cols["IMU_acceleration.Z_axis"].samples;
+
+        // Stationary samples (t=100..300) must be centered at (0, 0, -1 g)
+        assert!(ax[0].physical.abs() < 1e-3, "ax[0]={}", ax[0].physical);
+        assert!(ay[0].physical.abs() < 1e-3, "ay[0]={}", ay[0].physical);
+        assert!(
+            (az[0].physical + 1.0).abs() < 1e-3,
+            "az[0]={}",
+            az[0].physical
+        );
+        // Left-turn sample (t=400) must appear on lateral Y_axis (~ -1.05 g), not X_axis!
+        assert!(ax[3].physical.abs() < 0.05, "ax[3]={}", ax[3].physical);
+        assert!(
+            (ay[3].physical - (-1.056)).abs() < 0.05,
+            "ay[3]={}",
+            ay[3].physical
+        );
+
+        // Torque scaling: 21 Nm -> 214.2857 % Mn
+        let tq_rl = &cols["vcu_torque_request.rear_left"].samples;
+        assert!((tq_rl[1].physical - 214.2857).abs() < 0.01);
+
+        // SDC polarity: sdc_status.IMD == 1 (healthy) -> SDC1_IMD == 0 (no fault)
+        let sdc = &cols["main_module_fault_sync.SDC1_IMD"].samples;
+        assert_eq!(sdc[0].raw_int, 0);
+
+        // Re-running normalize_per26_columns_to_canonical must be 100% idempotent
+        let snapshot_ay: Vec<f64> = ay.iter().map(|s| s.physical).collect();
+        let snapshot_tq: Vec<f64> = tq_rl.iter().map(|s| s.physical).collect();
+        normalize_per26_columns_to_canonical(&mut cols, "2025-09-20", &db);
+        let ay2: Vec<f64> = cols["IMU_acceleration.Y_axis"]
+            .samples
+            .iter()
+            .map(|s| s.physical)
+            .collect();
+        let tq2: Vec<f64> = cols["vcu_torque_request.rear_left"]
+            .samples
+            .iter()
+            .map(|s| s.physical)
+            .collect();
+        for (a, b) in snapshot_ay.iter().zip(ay2.iter()) {
+            assert!((a - b).abs() < 1e-6, "non-idempotent ay: {a} vs {b}");
+        }
+        for (a, b) in snapshot_tq.iter().zip(tq2.iter()) {
+            assert!((a - b).abs() < 1e-6, "non-idempotent tq: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn verify_cloud_store_imu_centered_across_all_days() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let parts_dir = manifest_dir.join("../cloud_store/partitions");
+        if !parts_dir.is_dir() {
+            return;
+        }
+        let mut entries: Vec<PathBuf> = fs::read_dir(&parts_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .collect();
+        entries.sort();
+
+        let mut seen_days = std::collections::HashSet::new();
+        let mut checked = 0usize;
+        for p in entries {
+            let mf_path = p.join("manifest.json");
+            if !mf_path.is_file() {
+                continue;
+            }
+            let mf: storage::PartitionManifest =
+                serde_json::from_slice(&fs::read(&mf_path).unwrap()).unwrap();
+            if !mf
+                .signals
+                .iter()
+                .any(|s| s.signal_id == "IMU_acceleration.Z_axis")
+            {
+                continue;
+            }
+            if !seen_days.insert(mf.track_day_id.clone()) {
+                continue;
+            }
+            let cols = storage::read_partition_column_accumulators(&p, &mf).unwrap();
+            if let (Some(ax), Some(ay), Some(az)) = (
+                cols.get("IMU_acceleration.X_axis"),
+                cols.get("IMU_acceleration.Y_axis"),
+                cols.get("IMU_acceleration.Z_axis"),
+            ) {
+                let mx = median_physical(&ax.samples).unwrap();
+                let my = median_physical(&ay.samples).unwrap();
+                let mz = median_physical(&az.samples).unwrap();
+                assert!(
+                    mx.abs() < 0.05 && my.abs() < 0.05 && (mz + 1.0).abs() < 0.05,
+                    "Uncentered IMU in {} ({}): med=({mx:.4}, {my:.4}, {mz:.4})",
+                    mf.track_day_id,
+                    mf.partition_id
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 8, "expected >=8 IMU track days, got {checked}");
+    }
 }
