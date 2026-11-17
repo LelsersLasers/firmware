@@ -712,10 +712,12 @@ impl walkers::Plugin for CarTrajectoryPlugin {
             );
         }
 
+        let theme = ui::theme::get_theme(ui.ctx());
+
         // Playhead (`setpoint`) vehicle marker
         if let Some(play_pos) = self.playhead_pos {
             let screen_pt = projector.project(play_pos).to_pos2();
-            painter.circle_filled(screen_pt, 5.5, eframe::egui::Color32::YELLOW);
+            painter.circle_filled(screen_pt, 5.5, theme.playhead_color());
             painter.circle_stroke(
                 screen_pt,
                 5.5,
@@ -726,11 +728,7 @@ impl walkers::Plugin for CarTrajectoryPlugin {
         // Synchronized Hover Crosshair vehicle marker
         if let Some(h_pos) = self.hover_pos {
             let screen_pt = projector.project(h_pos).to_pos2();
-            painter.circle_filled(
-                screen_pt,
-                5.0,
-                eframe::egui::Color32::from_rgb(120, 235, 255),
-            );
+            painter.circle_filled(screen_pt, 5.0, theme.hover_cursor_color());
             painter.circle_stroke(
                 screen_pt,
                 6.5,

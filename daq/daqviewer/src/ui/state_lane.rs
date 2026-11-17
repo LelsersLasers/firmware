@@ -312,6 +312,12 @@ impl StateLane {
         let cursor_ms = view.active_cursor_utc_ms();
         let setpoint_ms = view.timeline.setpoint_utc_ms();
         let hover_ms = view.hover_utc_ms();
+        let theme = ui::theme::get_theme(ui.ctx());
+        let strip_bg = if theme.is_light {
+            eframe::egui::Color32::from_rgba_unmultiplied(226, 232, 240, 225)
+        } else {
+            eframe::egui::Color32::from_rgba_unmultiplied(28, 32, 40, 210)
+        };
 
         let mut remove_idx: Option<usize> = None;
         let avail_w = ui.available_width().max(80.0);
@@ -350,8 +356,12 @@ impl StateLane {
                         }
                         let current_badge = active_interval.map(|iv| {
                             let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
-                            let color =
-                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let color = state_color_for_interval_for_signal(
+                                &lane.signal_id,
+                                &resolved,
+                                iv.raw_int,
+                                is_fault_sig,
+                            );
                             (resolved, color)
                         });
                         let title_response = label_ui.add(
@@ -387,11 +397,7 @@ impl StateLane {
                             eframe::egui::Sense::click_and_drag(),
                         );
                         let painter = ui.painter_at(strip_rect);
-                        painter.rect_filled(
-                            strip_rect,
-                            3.0,
-                            eframe::egui::Color32::from_rgba_unmultiplied(28, 32, 40, 210),
-                        );
+                        painter.rect_filled(strip_rect, 3.0, strip_bg);
 
                         let time_to_x = |t_ms: i64| -> f32 {
                             let frac = ((t_ms - start_ms) as f64 / span_ms).clamp(0.0, 1.0) as f32;
@@ -408,8 +414,12 @@ impl StateLane {
                                 eframe::egui::pos2(x1, strip_rect.bottom() - 2.0),
                             );
                             let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
-                            let fill =
-                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let fill = state_color_for_interval_for_signal(
+                                &lane.signal_id,
+                                &resolved,
+                                iv.raw_int,
+                                is_fault_sig,
+                            );
                             painter.rect_filled(bar_rect, 2.5, fill.gamma_multiply(0.82));
                             painter.rect_stroke(
                                 bar_rect,
@@ -437,7 +447,7 @@ impl StateLane {
                             }
                         }
 
-                        // Playhead line (Yellow)
+                        // Playhead line
                         if setpoint_ms >= start_ms && setpoint_ms <= end_ms {
                             let px = time_to_x(setpoint_ms);
                             painter.line_segment(
@@ -445,11 +455,11 @@ impl StateLane {
                                     eframe::egui::pos2(px, strip_rect.top()),
                                     eframe::egui::pos2(px, strip_rect.bottom()),
                                 ],
-                                eframe::egui::Stroke::new(1.6_f32, eframe::egui::Color32::YELLOW),
+                                eframe::egui::Stroke::new(1.8_f32, theme.playhead_color()),
                             );
                         }
 
-                        // Synchronized Hover Crosshair line (Cyan)
+                        // Synchronized Hover Crosshair line
                         if let Some(h_ms) = hover_ms
                             && h_ms >= start_ms
                             && h_ms <= end_ms
@@ -460,10 +470,7 @@ impl StateLane {
                                     eframe::egui::pos2(hx, strip_rect.top()),
                                     eframe::egui::pos2(hx, strip_rect.bottom()),
                                 ],
-                                eframe::egui::Stroke::new(
-                                    1.2_f32,
-                                    eframe::egui::Color32::from_rgb(130, 225, 255),
-                                ),
+                                eframe::egui::Stroke::new(1.3_f32, theme.hover_cursor_color()),
                             );
                         }
 
@@ -618,7 +625,7 @@ pub fn is_likely_fault_signal(signal_id: &str) -> bool {
 }
 
 pub fn resolve_state_label(
-    _signal_id: &str,
+    signal_id: &str,
     interval: &daqcore::router::StateInterval,
     is_fault_sig: bool,
 ) -> String {
@@ -628,6 +635,10 @@ pub fn resolve_state_label(
     if is_fault_sig {
         if interval.raw_int == 0 {
             "OK (0)".to_owned()
+        } else if let Some(sev) =
+            daqcore::storage::FaultSeverity::resolve_for_signal(signal_id, None)
+        {
+            format!("{} ({})", sev.badge_label(), interval.raw_int)
         } else {
             format!("FAULT ({})", interval.raw_int)
         }
@@ -640,6 +651,21 @@ pub fn resolve_state_label(
     }
 }
 
+pub fn state_color_for_interval_for_signal(
+    signal_id: &str,
+    label: &str,
+    raw_int: i64,
+    is_fault_sig: bool,
+) -> eframe::egui::Color32 {
+    if is_fault_sig && raw_int != 0
+        && let Some(sev) = daqcore::storage::FaultSeverity::resolve_for_signal(signal_id, None)
+    {
+        let (r, g, b) = sev.rgb();
+        return eframe::egui::Color32::from_rgb(r, g, b);
+    }
+    state_color_for_interval(label, raw_int, is_fault_sig)
+}
+
 pub fn state_color_for_interval(
     label: &str,
     raw_int: i64,
@@ -649,6 +675,12 @@ pub fn state_color_for_interval(
     if is_fault_sig {
         return if raw_int == 0 {
             eframe::egui::Color32::from_rgb(50, 175, 100)
+        } else if upper.starts_with("FATAL") {
+            eframe::egui::Color32::from_rgb(225, 29, 72)
+        } else if upper.starts_with("WARN") {
+            eframe::egui::Color32::from_rgb(245, 158, 11)
+        } else if upper.starts_with("ERROR") {
+            eframe::egui::Color32::from_rgb(249, 115, 22)
         } else {
             eframe::egui::Color32::from_rgb(225, 65, 65)
         };
@@ -704,9 +736,9 @@ mod tests {
             label: "RAW_1".to_owned(),
         };
         let label = resolve_state_label("a_box_fault_sync.IMD", &fault_iv, true);
-        assert_eq!(label, "FAULT (1)");
+        assert_eq!(label, "ERROR (1)");
         let col = state_color_for_interval(&label, 1, true);
-        assert_eq!(col, eframe::egui::Color32::from_rgb(225, 65, 65));
+        assert_eq!(col, eframe::egui::Color32::from_rgb(249, 115, 22));
 
         let t0 = daqcore::time::Time::from_unix_millis(1_794_500_000_000);
         let router = daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");

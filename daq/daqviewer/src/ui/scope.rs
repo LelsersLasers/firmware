@@ -1230,11 +1230,12 @@ impl Scope {
                 );
             }
 
+            let theme = ui::theme::get_theme(plot_ui.ctx());
             if let Some(px) = playhead_x {
                 plot_ui.vline(
                     egui_plot::VLine::new("", px)
-                        .color(eframe::egui::Color32::YELLOW)
-                        .width(1.5_f32),
+                        .color(theme.playhead_color())
+                        .width(1.6_f32),
                 );
             }
 
@@ -1244,9 +1245,7 @@ impl Scope {
             {
                 plot_ui.vline(
                     egui_plot::VLine::new("", hx)
-                        .color(eframe::egui::Color32::from_rgba_unmultiplied(
-                            180, 235, 255, 210,
-                        ))
+                        .color(theme.hover_cursor_color())
                         .style(egui_plot::LineStyle::dashed_dense()),
                 );
             }
