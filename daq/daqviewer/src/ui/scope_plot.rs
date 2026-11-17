@@ -8,6 +8,7 @@ struct AxisView {
     lane: usize,
     right: bool,
     custom_label: String,
+    unit: String,
     color: Color32,
 }
 
@@ -28,6 +29,9 @@ fn axes(
             let channel = channels
                 .iter()
                 .find(|channel| config.axis_key(channel) == *key);
+            let unit = channel
+                .map(|channel| channel.unit.clone())
+                .unwrap_or_default();
             let color = axis
                 .color
                 .map(|[r, g, b]| Color32::from_rgb(r, g, b))
@@ -44,6 +48,7 @@ fn axes(
                 lane,
                 right,
                 custom_label: axis.label,
+                unit,
                 color,
             }
         })
@@ -57,7 +62,7 @@ fn hints(
     lane_count: usize,
     slots: (usize, usize),
 ) -> Vec<egui_plot::AxisHints<'static>> {
-    let min_thick = if lane_count > 1 { 44.0 } else { 14.0 };
+    let min_thick = if lane_count > 1 { 64.0 } else { 14.0 };
     let mut result = Vec::new();
     for (right, count) in [(false, slots.0), (true, slots.1)] {
         let selected: Vec<_> = axes
@@ -75,6 +80,7 @@ fn hints(
                 .min_thickness(min_thick);
             result.push(if let Some(axis) = selected.get(slot) {
                 let tf = cached.unit_transforms[axis.index];
+                let unit_suffix = axis.unit.clone();
                 if !axis.custom_label.is_empty() {
                     hint = hint.label(
                         RichText::new(axis.custom_label.chars().take(18).collect::<String>())
@@ -83,12 +89,14 @@ fn hints(
                 }
                 hint.formatter(move |mark, _| {
                     let value = tf.plot_to_phys(mark.value);
-                    if value.abs() >= 10_000.0 || (value != 0.0 && value.abs() < 0.001) {
-                        format!("{value:.1e}")
+                    let step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
+                    let decimals = (-step.log10().floor() as isize).clamp(0, 3) as usize;
+                    let num_str =
+                        egui::emath::format_with_decimals_in_range(value, decimals..=decimals);
+                    if unit_suffix.is_empty() {
+                        num_str
                     } else {
-                        let step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
-                        let decimals = (-step.log10().floor() as isize).clamp(0, 3) as usize;
-                        egui::emath::format_with_decimals_in_range(value, decimals..=decimals)
+                        format!("{num_str} {unit_suffix}")
                     }
                 })
             } else {
