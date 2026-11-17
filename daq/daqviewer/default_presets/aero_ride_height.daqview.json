@@ -21,11 +21,11 @@
             "x_mode": "track_distance",
             "speed_signal_id": "gps_speed_heading.gps_speed",
             "channels": [
-              { "signal_id": "vd.front_heave_mm", "unit": "mm" },
-              { "signal_id": "vd.rear_heave_mm", "unit": "mm" },
-              { "signal_id": "vd.front_roll_displacement_mm", "unit": "mm" },
-              { "signal_id": "vd.rear_roll_displacement_mm", "unit": "mm" },
-              { "signal_id": "gps_speed_heading.gps_speed", "unit": "m/s" }
+              { "signal_id": "vd.front_heave_mm" },
+              { "signal_id": "vd.rear_heave_mm" },
+              { "signal_id": "vd.front_roll_displacement_mm" },
+              { "signal_id": "vd.rear_roll_displacement_mm" },
+              { "signal_id": "gps_speed_heading.gps_speed" }
             ]
           },
           {
@@ -34,10 +34,10 @@
             "title": "Damper Velocities vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "vd.fl_damper_vel_mms", "unit": "mm/s" },
-              { "signal_id": "vd.fr_damper_vel_mms", "unit": "mm/s" },
-              { "signal_id": "vd.rl_damper_vel_mms", "unit": "mm/s" },
-              { "signal_id": "vd.rr_damper_vel_mms", "unit": "mm/s" }
+              { "signal_id": "vd.fl_damper_vel_mms" },
+              { "signal_id": "vd.fr_damper_vel_mms" },
+              { "signal_id": "vd.rl_damper_vel_mms" },
+              { "signal_id": "vd.rr_damper_vel_mms" }
             ]
           }
         ]
@@ -62,7 +62,6 @@
             "widget": "gps_plot",
             "title": "GPS Track Colored by Speed",
             "color_signal": "gps_speed_heading.gps_speed",
-            "color_unit": "m/s",
             "max_distance_meters": 500.0
           }
         ]

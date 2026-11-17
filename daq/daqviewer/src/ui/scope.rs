@@ -550,10 +550,11 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        // Resolve units for any channel whose unit was not populated yet or is a derived formula.
+        // Resolve engineering units directly from each channel's `signal_id`.
         for ch in &mut self.channels {
-            if ch.unit.is_empty() || view.router.formula_engine().contains(&ch.signal_id) {
-                ch.unit = view.resolve_signal_unit(&ch.signal_id);
+            let resolved = view.resolve_signal_unit(&ch.signal_id);
+            if !resolved.is_empty() {
+                ch.unit = resolved;
             }
         }
 

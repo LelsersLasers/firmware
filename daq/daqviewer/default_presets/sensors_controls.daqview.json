@@ -20,9 +20,9 @@
             "title": "Vehicle-Axis Accelerometer vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "IMU_acceleration.X_axis", "unit": "g" },
-              { "signal_id": "IMU_acceleration.Y_axis", "unit": "g" },
-              { "signal_id": "IMU_acceleration.Z_axis", "unit": "g" }
+              { "signal_id": "IMU_acceleration.X_axis" },
+              { "signal_id": "IMU_acceleration.Y_axis" },
+              { "signal_id": "IMU_acceleration.Z_axis" }
             ]
           },
           {
@@ -31,9 +31,9 @@
             "title": "Vehicle-Axis Gyroscope vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "IMU_angular_rate.X_axis", "unit": "deg/s" },
-              { "signal_id": "IMU_angular_rate.Y_axis", "unit": "deg/s" },
-              { "signal_id": "IMU_angular_rate.Z_axis", "unit": "deg/s" }
+              { "signal_id": "IMU_angular_rate.X_axis" },
+              { "signal_id": "IMU_angular_rate.Y_axis" },
+              { "signal_id": "IMU_angular_rate.Z_axis" }
             ]
           },
           {
@@ -42,9 +42,9 @@
             "title": "Pedal Commands vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "pedals.throttle", "unit": "%" },
-              { "signal_id": "pedals.regen", "unit": "%" },
-              { "signal_id": "pedals.brake", "unit": "%" }
+              { "signal_id": "pedals.throttle" },
+              { "signal_id": "pedals.regen" },
+              { "signal_id": "pedals.brake" }
             ]
           }
         ]
@@ -60,8 +60,8 @@
             "title": "Steering Sensor vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "LWS_Standard.LWS_ANGLE", "unit": "deg" },
-              { "signal_id": "LWS_Standard.LWS_SPEED", "unit": "deg/s" }
+              { "signal_id": "LWS_Standard.LWS_ANGLE" },
+              { "signal_id": "LWS_Standard.LWS_SPEED" }
             ]
           },
           {
@@ -70,12 +70,12 @@
             "title": "GPS Sensor vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "gps_speed_heading.gps_speed", "unit": "m/s" },
-              { "signal_id": "gps_speed_heading.gps_heading", "unit": "deg" },
-              { "signal_id": "gps_velocity.gps_vel_e", "unit": "m/s" },
-              { "signal_id": "gps_velocity.gps_vel_n", "unit": "m/s" },
-              { "signal_id": "gps_coordinates.latitude", "unit": "deg" },
-              { "signal_id": "gps_coordinates.longitude", "unit": "deg" }
+              { "signal_id": "gps_speed_heading.gps_speed" },
+              { "signal_id": "gps_speed_heading.gps_heading" },
+              { "signal_id": "gps_velocity.gps_vel_e" },
+              { "signal_id": "gps_velocity.gps_vel_n" },
+              { "signal_id": "gps_coordinates.latitude" },
+              { "signal_id": "gps_coordinates.longitude" }
             ]
           },
           {
@@ -84,10 +84,10 @@
             "title": "Shockpot Displacements vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "front_shockpots.left", "unit": "mm" },
-              { "signal_id": "front_shockpots.right", "unit": "mm" },
-              { "signal_id": "rear_shockpots.left", "unit": "mm" },
-              { "signal_id": "rear_shockpots.right", "unit": "mm" }
+              { "signal_id": "front_shockpots.left" },
+              { "signal_id": "front_shockpots.right" },
+              { "signal_id": "rear_shockpots.left" },
+              { "signal_id": "rear_shockpots.right" }
             ]
           }
         ]

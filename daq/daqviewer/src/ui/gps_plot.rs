@@ -259,16 +259,15 @@ impl GpsPlot {
         ui.horizontal_wrapped(|ui| {
             ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
 
-            let (color_badge, color_tip) = if let Some((sig_id, unit)) = &self.overlay_signal {
-                let resolved_unit = if unit.is_empty() {
-                    view.resolve_signal_unit(sig_id)
-                } else {
-                    unit.clone()
-                };
-                let u_str = if resolved_unit.is_empty() {
+            let (color_badge, color_tip) = if let Some((sig_id, unit)) = &mut self.overlay_signal {
+                let resolved = view.resolve_signal_unit(sig_id);
+                if !resolved.is_empty() {
+                    *unit = resolved;
+                }
+                let u_str = if unit.is_empty() {
                     String::new()
                 } else {
-                    format!(" {resolved_unit}")
+                    format!(" {unit}")
                 };
                 let val_str = cursor_overlay_val
                     .map(|v| format!(" = {v:.1}{u_str}"))

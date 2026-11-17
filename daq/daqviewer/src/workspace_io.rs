@@ -123,7 +123,7 @@ pub struct ScopeChannelSpec {
     pub signal_id: String,
     #[serde(default, skip_serializing)]
     pub label: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub unit: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_rgb: Option<[u8; 3]>,
@@ -210,7 +210,7 @@ pub enum PaneSpec {
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color_signal: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing)]
         color_unit: String,
         #[serde(default = "default_gps_max_dist")]
         max_distance_meters: f64,
@@ -763,7 +763,7 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                     ScopeChannelSpec {
                         signal_id: ch.signal_id.clone(),
                         label: String::new(),
-                        unit: ch.unit.clone(),
+                        unit: String::new(),
                         color_rgb: Some([r, g, b]),
                     }
                 })
@@ -807,14 +807,11 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
             show_g_rings: scatter.show_g_rings,
         },
         widgets::Widget::GpsPlot(gps) => {
-            let (color_signal, color_unit) = match gps.overlay_signal() {
-                Some((sig, unit)) => (Some(sig.clone()), unit.clone()),
-                None => (None, String::new()),
-            };
+            let color_signal = gps.overlay_signal().map(|(sig, _)| sig.clone());
             PaneSpec::GpsPlot {
                 title: gps.title.clone(),
                 color_signal,
-                color_unit,
+                color_unit: String::new(),
                 max_distance_meters: gps.max_distance_meters(),
             }
         }
@@ -945,7 +942,7 @@ fn instantiate_pane_spec(
                             || sig_id.starts_with("thermals."),
                         signal_id: sig_id,
                         label,
-                        unit: ch.unit.clone(),
+                        unit: String::new(),
                         color,
                         key: None,
                     });
@@ -1080,7 +1077,7 @@ fn instantiate_pane_spec(
         PaneSpec::GpsPlot {
             title,
             color_signal,
-            color_unit,
+            color_unit: _,
             max_distance_meters,
         } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::GpsPlot);
@@ -1092,7 +1089,7 @@ fn instantiate_pane_spec(
                 Some(sig) if !sig.trim().is_empty() => {
                     gps.set_overlay_signal(
                         daqcore::analysis::canonicalize_signal_ref(sig),
-                        color_unit.clone(),
+                        String::new(),
                     );
                 }
                 _ => gps.clear_overlay_signal(),

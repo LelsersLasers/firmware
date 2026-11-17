@@ -45,8 +45,8 @@
             "title": "Live Power & Speed",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "battery.power_kw", "unit": "kW" },
-              { "signal_id": "gps_speed_heading.gps_speed", "unit": "m/s" }
+              { "signal_id": "battery.power_kw" },
+              { "signal_id": "gps_speed_heading.gps_speed" }
             ]
           },
           {
