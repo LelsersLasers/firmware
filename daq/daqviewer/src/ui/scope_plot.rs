@@ -62,8 +62,10 @@ fn hints(
     cached: &CachedScopeData,
     axes: &[AxisView],
     lane: usize,
+    lane_count: usize,
     slots: (usize, usize),
 ) -> Vec<egui_plot::AxisHints<'static>> {
+    let min_thick = if lane_count > 1 { 60.0 } else { 36.0 };
     let mut result = Vec::new();
     for (right, count) in [(false, slots.0), (true, slots.1)] {
         let selected: Vec<_> = axes
@@ -78,7 +80,7 @@ fn hints(
             };
             let hint = egui_plot::AxisHints::new_y()
                 .placement(placement)
-                .min_thickness(64.0);
+                .min_thickness(min_thick);
             result.push(if let Some(axis) = selected.get(slot) {
                 let tf = cached.unit_transforms[axis.index];
                 hint.label(
@@ -104,35 +106,24 @@ fn hints(
 }
 
 impl Scope {
-    pub(super) fn render_plots(
-        &mut self,
-        ui: &mut egui::Ui,
+    pub(super) fn build_legend_entries(
+        &self,
         view: &workspace_view::WorkspaceDataView<'_>,
         comparison: &[daqcore::storage::Annotation],
         channel_stats: &[Option<ChannelStats>],
-    ) -> egui_tiles::UiResponse {
+    ) -> Vec<ui::scope_legend::Entry> {
         let Some(cached) = self.cached_data.as_ref() else {
-            return egui_tiles::UiResponse::None;
+            return Vec::new();
         };
         let is_comparison = comparison.len() >= 2;
         let x_mode = self.x_axis_mode;
         let start_ms = view.timeline.start_utc_ms();
-        let end_ms = view.timeline.end_utc_ms();
         let reference_ms = if is_comparison {
             comparison[0].start_utc_ms
         } else {
             start_ms
         };
         let max_x = cached.max_x_bound;
-        let to_ms =
-            |x: f64| match x_mode {
-                ScopeXAxisMode::TrackDistance => cached.primary_distance_lookup.as_ref().and_then(
-                    |(_, timestamps, distances)| {
-                        interpolate_ms_at_distance(timestamps, distances, x)
-                    },
-                ),
-                _ => Some(reference_ms.saturating_add((x * 1000.0).round() as i64)),
-            };
         let to_x =
             |time: i64| match x_mode {
                 ScopeXAxisMode::TrackDistance => cached.primary_distance_lookup.as_ref().and_then(
@@ -163,7 +154,7 @@ impl Scope {
                 tf.plot_to_phys(ui::scope_interaction::sample(&trace.mean_points, bx, step)?),
             ))
         };
-        let entries: Vec<_> = cached
+        cached
             .mapped_traces
             .iter()
             .enumerate()
@@ -209,11 +200,63 @@ impl Scope {
                     style: style.mode.line_style(trace.style),
                     stats: if is_comparison { None } else { stats },
                     visible: !self.hidden_channels.contains(&channel.signal_id),
-
                     measurements: pair,
                 })
             })
-            .collect();
+            .collect()
+    }
+
+    pub(super) fn apply_legend_action(&mut self, action: ui::scope_legend::Action) {
+        match action {
+            ui::scope_legend::Action::Remove(index) => self.remove_channel(index),
+            ui::scope_legend::Action::Toggle(index) => self.toggle_channel_visibility(index),
+            ui::scope_legend::Action::Inspect(index, tab) => {
+                if let Some(channel) = self.channels.get(index) {
+                    self.inspector = Some((channel.signal_id.clone(), tab));
+                }
+            }
+        }
+    }
+
+    pub(super) fn render_plots(
+        &mut self,
+        ui: &mut egui::Ui,
+        view: &workspace_view::WorkspaceDataView<'_>,
+        comparison: &[daqcore::storage::Annotation],
+        entries: &[ui::scope_legend::Entry],
+    ) -> egui_tiles::UiResponse {
+        let Some(cached) = self.cached_data.as_ref() else {
+            return egui_tiles::UiResponse::None;
+        };
+        let is_comparison = comparison.len() >= 2;
+        let x_mode = self.x_axis_mode;
+        let start_ms = view.timeline.start_utc_ms();
+        let end_ms = view.timeline.end_utc_ms();
+        let reference_ms = if is_comparison {
+            comparison[0].start_utc_ms
+        } else {
+            start_ms
+        };
+        let max_x = cached.max_x_bound;
+        let to_ms =
+            |x: f64| match x_mode {
+                ScopeXAxisMode::TrackDistance => cached.primary_distance_lookup.as_ref().and_then(
+                    |(_, timestamps, distances)| {
+                        interpolate_ms_at_distance(timestamps, distances, x)
+                    },
+                ),
+                _ => Some(reference_ms.saturating_add((x * 1000.0).round() as i64)),
+            };
+        let to_x =
+            |time: i64| match x_mode {
+                ScopeXAxisMode::TrackDistance => cached.primary_distance_lookup.as_ref().and_then(
+                    |(_, timestamps, distances)| {
+                        interpolate_distance_at_ms(timestamps, distances, time)
+                    },
+                ),
+                _ => Some((time - reference_ms) as f64 / 1000.0),
+            };
+        let traces_per_channel = if is_comparison { comparison.len() } else { 1 };
         let lane_count = if self.config.stacked {
             self.config.lanes
         } else {
@@ -274,7 +317,7 @@ impl Scope {
                 self.lane_y_overrides.get(&lane).copied()
             };
             let plot = egui_plot::Plot::new(plot_id)
-                .custom_y_axes(hints(cached, &axis_views, lane, slots))
+                .custom_y_axes(hints(cached, &axis_views, lane, lane_count, slots))
                 .width(plot_width)
                 .height(height)
                 .min_size(egui::vec2(1.0, 1.0))
@@ -558,15 +601,7 @@ impl Scope {
             self.cached_data = None;
         }
         for action in actions {
-            match action {
-                ui::scope_legend::Action::Remove(index) => self.remove_channel(index),
-                ui::scope_legend::Action::Toggle(index) => self.toggle_channel_visibility(index),
-                ui::scope_legend::Action::Inspect(index, tab) => {
-                    if let Some(channel) = self.channels.get(index) {
-                        self.inspector = Some((channel.signal_id.clone(), tab));
-                    }
-                }
-            }
+            self.apply_legend_action(action);
         }
         self.show_inspector(ui.ctx());
         egui_tiles::UiResponse::None
@@ -614,7 +649,6 @@ impl Scope {
         {
             channel.color =
                 Color32::from_rgb(update.color[0], update.color[1], update.color[2]);
-            channel.label = update.label;
             if update.style.lane > 0 {
                 self.config.stacked = true;
             }

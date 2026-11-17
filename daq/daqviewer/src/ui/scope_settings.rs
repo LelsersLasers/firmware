@@ -167,7 +167,6 @@ pub(super) struct SignalUpdate {
     pub index: usize,
     pub style: SignalStyle,
     pub color: [u8; 3],
-    pub label: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,7 +195,6 @@ pub(super) fn inspector(
     let mut style = original.clone();
     let original_color = [channel.color.r(), channel.color.g(), channel.color.b()];
     let mut color = original_color;
-    let mut label = channel.label.clone();
     let key = config.axis_key(channel);
     let mut axis_update = None;
     if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
@@ -249,10 +247,6 @@ pub(super) fn inspector(
                         });
                     ui.checkbox(&mut style.points, "Show points");
                     ui.checkbox(&mut style.envelope, "Show envelope");
-                    ui.horizontal(|ui| {
-                        ui.label("Name");
-                        ui.text_edit_singleline(&mut label);
-                    });
                 }
                 InspectorTab::Assignment => {
                     ui.horizontal(|ui| {
@@ -304,13 +298,11 @@ pub(super) fn inspector(
                 }
             }
         });
-    let update = (style != original || color != original_color || label != channel.label)
-        .then_some(SignalUpdate {
-            index,
-            style,
-            color,
-            label,
-        });
+    let update = (style != original || color != original_color).then_some(SignalUpdate {
+        index,
+        style,
+        color,
+    });
     (update, axis_update)
 }
 

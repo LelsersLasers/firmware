@@ -24,12 +24,12 @@
             "widget": "state_lane",
             "title": "Vehicle State & Fault Lanes",
             "lanes": [
-              { "signal_id": "main_hb.car_state", "label": "Car State" },
-              { "signal_id": "main_hb_amk.precharge_state", "label": "Precharge State" },
-              { "signal_id": "vcu_driver_request.vcu_mode", "label": "VCU Mode" },
-              { "signal_id": "inva_diagnostics.amk_state", "label": "Inverter A State" },
-              { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" },
-              { "signal_id": "a_box_fault_sync.PACK_OVERTEMP", "label": "Fault: Pack Overtemp" }
+              { "signal_id": "main_hb.car_state" },
+              { "signal_id": "main_hb_amk.precharge_state" },
+              { "signal_id": "vcu_driver_request.vcu_mode" },
+              { "signal_id": "inva_diagnostics.amk_state" },
+              { "signal_id": "a_box_fault_sync.IMD" },
+              { "signal_id": "a_box_fault_sync.PACK_OVERTEMP" }
             ]
           }
         ]
@@ -45,8 +45,8 @@
             "title": "Live Power & Speed",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "battery.power_kw", "label": "Pack Power", "unit": "kW" },
-              { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" }
+              { "signal_id": "battery.power_kw", "unit": "kW" },
+              { "signal_id": "gps_speed_heading.gps_speed", "unit": "m/s" }
             ]
           },
           {

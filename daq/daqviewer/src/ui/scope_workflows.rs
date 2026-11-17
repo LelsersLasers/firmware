@@ -457,7 +457,11 @@ fn distance_selection_maps_back_to_shared_timestamps() {
 #[test]
 fn legend_appearance_axis_menus_and_lane_drag_work() {
     let mut h = Harness::new(true);
-    let speed = h.find("Speed");
+    h.scope.show_legend = true;
+    for _ in 0..2 {
+        h.frame(vec![]);
+    }
+    let speed = h.find(SPEED);
     h.click(speed);
     let appearance = h.find("Appearance");
     h.click(appearance);
@@ -479,7 +483,7 @@ fn legend_appearance_axis_menus_and_lane_drag_work() {
     }]);
     egui::Popup::close_all(&h.ctx);
     h.frame(vec![]);
-    let speed = h.find("Speed");
+    let speed = h.find(SPEED);
     h.click(speed);
     let axis = h.find("Axis");
     h.click(axis);
@@ -492,7 +496,7 @@ fn legend_appearance_axis_menus_and_lane_drag_work() {
     }
     let first = h.scope.plot_frames[0];
     // Speed is the first row of the two-row upper legend.
-    let source = first.left_bottom() + egui::vec2(24.0, -47.0);
+    let source = first.left_bottom() + egui::vec2(20.0, -38.0);
     let target = h.scope.plot_frames[1].center();
     let colors: Vec<_> = h
         .scope

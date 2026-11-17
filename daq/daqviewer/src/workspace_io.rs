@@ -121,7 +121,7 @@ pub enum LinearSplitDir {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScopeChannelSpec {
     pub signal_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub label: String,
     #[serde(default)]
     pub unit: String,
@@ -146,7 +146,7 @@ pub struct ScopeAxisSpec {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StateLaneSpec {
     pub signal_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub label: String,
 }
 
@@ -163,7 +163,7 @@ pub enum PaneSpec {
         x_mode: ui::scope::ScopeXAxisMode,
         #[serde(default = "default_speed_signal")]
         speed_signal_id: String,
-        #[serde(default = "default_true")]
+        #[serde(default, rename = "floating_legend")]
         show_legend: bool,
         #[serde(default)]
         plot: ui::scope_settings::ScopeConfig,
@@ -762,7 +762,7 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                     let [r, g, b, _] = ch.color.to_srgba_unmultiplied();
                     ScopeChannelSpec {
                         signal_id: ch.signal_id.clone(),
-                        label: ch.label.clone(),
+                        label: String::new(),
                         unit: ch.unit.clone(),
                         color_rgb: Some([r, g, b]),
                     }
@@ -787,7 +787,7 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                 .iter()
                 .map(|l| StateLaneSpec {
                     signal_id: l.signal_id.clone(),
-                    label: l.label.clone(),
+                    label: String::new(),
                 })
                 .collect();
             PaneSpec::StateLane {
@@ -937,11 +937,7 @@ fn instantiate_pane_spec(
                         Some([r, g, b]) => eframe::egui::Color32::from_rgb(r, g, b),
                         None => ui::scope::CHANNEL_PALETTE[idx % ui::scope::CHANNEL_PALETTE.len()],
                     };
-                    let label = if ch.label.is_empty() {
-                        sig_id.clone()
-                    } else {
-                        ch.label.clone()
-                    };
+                    let label = sig_id.clone();
                     resolved_channels.push(ui::scope::ScopeChannel {
                         is_derived: !sig_id.contains('.')
                             || sig_id.starts_with("battery.")
@@ -1030,12 +1026,7 @@ fn instantiate_pane_spec(
             if !lanes.is_empty() {
                 for l in lanes {
                     let sig_id = daqcore::analysis::canonicalize_signal_ref(&l.signal_id);
-                    let lbl = if l.label.is_empty() {
-                        sig_id.clone()
-                    } else {
-                        l.label.clone()
-                    };
-                    pairs.push((sig_id, lbl));
+                    pairs.push((sig_id.clone(), sig_id));
                 }
             } else {
                 for raw_sig in signals {

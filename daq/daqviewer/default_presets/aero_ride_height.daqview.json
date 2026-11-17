@@ -21,11 +21,11 @@
             "x_mode": "track_distance",
             "speed_signal_id": "gps_speed_heading.gps_speed",
             "channels": [
-              { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
-              { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
-              { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
-              { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" },
-              { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" }
+              { "signal_id": "vd.front_heave_mm", "unit": "mm" },
+              { "signal_id": "vd.rear_heave_mm", "unit": "mm" },
+              { "signal_id": "vd.front_roll_displacement_mm", "unit": "mm" },
+              { "signal_id": "vd.rear_roll_displacement_mm", "unit": "mm" },
+              { "signal_id": "gps_speed_heading.gps_speed", "unit": "m/s" }
             ]
           },
           {
@@ -34,10 +34,10 @@
             "title": "Damper Velocities vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "vd.fl_damper_vel_mms", "label": "FL Damper Vel", "unit": "mm/s" },
-              { "signal_id": "vd.fr_damper_vel_mms", "label": "FR Damper Vel", "unit": "mm/s" },
-              { "signal_id": "vd.rl_damper_vel_mms", "label": "RL Damper Vel", "unit": "mm/s" },
-              { "signal_id": "vd.rr_damper_vel_mms", "label": "RR Damper Vel", "unit": "mm/s" }
+              { "signal_id": "vd.fl_damper_vel_mms", "unit": "mm/s" },
+              { "signal_id": "vd.fr_damper_vel_mms", "unit": "mm/s" },
+              { "signal_id": "vd.rl_damper_vel_mms", "unit": "mm/s" },
+              { "signal_id": "vd.rr_damper_vel_mms", "unit": "mm/s" }
             ]
           }
         ]

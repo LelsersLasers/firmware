@@ -20,11 +20,11 @@
             "title": "Battery Power and Current",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "battery.power_w", "label": "Battery power (vbatt source)", "unit": "W" },
-              { "signal_id": "pack_stats.pack_current", "label": "Pack current", "unit": "A" },
-              { "signal_id": "battery.voltage_v", "label": "Pack voltage", "unit": "V" },
-              { "signal_id": "pack_stats.pack_voltage", "label": "Pack voltage (BMS)", "unit": "V" },
-              { "signal_id": "battery.energy_wh", "label": "Cumulative Energy", "unit": "Wh" }
+              { "signal_id": "battery.power_w", "unit": "W" },
+              { "signal_id": "pack_stats.pack_current", "unit": "A" },
+              { "signal_id": "battery.voltage_v", "unit": "V" },
+              { "signal_id": "pack_stats.pack_voltage", "unit": "V" },
+              { "signal_id": "battery.energy_wh", "unit": "Wh" }
             ]
           },
           {
@@ -37,14 +37,14 @@
                 "title": "Requested and Actual Torque",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "vcu_torque_request.front_left", "label": "Req Torque FL", "unit": "%" },
-                  { "signal_id": "vcu_torque_request.front_right", "label": "Req Torque FR", "unit": "%" },
-                  { "signal_id": "vcu_torque_request.rear_left", "label": "Req Torque RL", "unit": "%" },
-                  { "signal_id": "vcu_torque_request.rear_right", "label": "Req Torque RR", "unit": "%" },
-                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "Actual Torque INVA", "unit": "Nm" },
-                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "Actual Torque INVB", "unit": "Nm" },
-                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "Actual Torque INVC", "unit": "Nm" },
-                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "Actual Torque INVD", "unit": "Nm" }
+                  { "signal_id": "vcu_torque_request.front_left", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.front_right", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.rear_left", "unit": "%" },
+                  { "signal_id": "vcu_torque_request.rear_right", "unit": "%" },
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "unit": "Nm" }
                 ]
               },
               {
@@ -53,11 +53,11 @@
                 "title": "Throttle and AMK Actual Torque vs Time",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "pedals.throttle", "label": "Throttle", "unit": "%" },
-                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "INVA Actual Torque", "unit": "Nm" },
-                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "INVB Actual Torque", "unit": "Nm" },
-                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "INVC Actual Torque", "unit": "Nm" },
-                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "INVD Actual Torque", "unit": "Nm" }
+                  { "signal_id": "pedals.throttle", "unit": "%" },
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "unit": "Nm" }
                 ]
               },
               {
@@ -66,10 +66,10 @@
                 "title": "Wheel / Motor Speeds",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "wheel_speeds.front_left", "label": "Motor Speed FL", "unit": "rpm" },
-                  { "signal_id": "wheel_speeds.front_right", "label": "Motor Speed FR", "unit": "rpm" },
-                  { "signal_id": "wheel_speeds.rear_left", "label": "Motor Speed RL", "unit": "rpm" },
-                  { "signal_id": "wheel_speeds.rear_right", "label": "Motor Speed RR", "unit": "rpm" }
+                  { "signal_id": "wheel_speeds.front_left", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.front_right", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.rear_left", "unit": "rpm" },
+                  { "signal_id": "wheel_speeds.rear_right", "unit": "rpm" }
                 ]
               }
             ]
@@ -79,12 +79,12 @@
             "widget": "state_lane",
             "title": "BMS & Precharge Fault Lanes",
             "lanes": [
-              { "signal_id": "main_hb_amk.precharge_state", "label": "Precharge State" },
-              { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" },
-              { "signal_id": "a_box_fault_sync.PACK_OVERTEMP", "label": "Fault: Pack Overtemp" },
-              { "signal_id": "a_box_fault_sync.CELL_UNDERVOLTAGE", "label": "Fault: Cell Undervoltage" },
-              { "signal_id": "a_box_fault_sync.CELL_OVERVOLTAGE", "label": "Fault: Cell Overvoltage" },
-              { "signal_id": "main_module_fault_sync.SDC1_IMD", "label": "SDC1 IMD" }
+              { "signal_id": "main_hb_amk.precharge_state" },
+              { "signal_id": "a_box_fault_sync.IMD" },
+              { "signal_id": "a_box_fault_sync.PACK_OVERTEMP" },
+              { "signal_id": "a_box_fault_sync.CELL_UNDERVOLTAGE" },
+              { "signal_id": "a_box_fault_sync.CELL_OVERVOLTAGE" },
+              { "signal_id": "main_module_fault_sync.SDC1_IMD" }
             ]
           }
         ]

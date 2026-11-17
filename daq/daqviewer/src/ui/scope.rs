@@ -215,7 +215,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
-            show_legend: true,
+            show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
@@ -239,7 +239,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
-            show_legend: true,
+            show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
@@ -277,7 +277,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
-            show_legend: true,
+            show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
@@ -316,7 +316,7 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
-            show_legend: true,
+            show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
@@ -348,7 +348,7 @@ impl Scope {
             x_axis_mode,
             speed_signal_id,
             show_inline_stats: false,
-            show_legend: true,
+            show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
@@ -959,10 +959,13 @@ impl Scope {
             }
         }
 
-        // One small toolbar. Signal readouts live in the floating legend.
+        // One small toolbar. Signal keys live inline in the toolbar by default (0% plot coverage),
+        // or in the compact floating overlay when toggled on via the legend button.
+        let entries = self.build_legend_entries(view, &comparison_annotations, &channel_stats);
         let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
+        let mut toolbar_action: Option<ui::scope_legend::Action> = None;
 
         ui.horizontal(|ui| {
             if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
@@ -1126,7 +1129,20 @@ impl Scope {
                         ui.close();
                     }
                 });
+
+            if !self.show_legend {
+                toolbar_action = ui::scope_legend::show_toolbar_strip(
+                    ui,
+                    self.instance_num,
+                    &entries,
+                    self.show_inline_stats,
+                );
+            }
         });
+
+        if let Some(action) = toolbar_action {
+            self.apply_legend_action(action);
+        }
 
         if export_csv {
             view.request_open_export_modal();
@@ -1148,7 +1164,7 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        self.render_plots(ui, view, &comparison_annotations, &channel_stats)
+        self.render_plots(ui, view, &comparison_annotations, &entries)
     }
 }
 
@@ -1540,30 +1556,36 @@ mod tests {
                 })
                 .collect(),
         );
+        assert!(
+            !scope.show_legend,
+            "Floating legend is off by default so keys live in the top toolbar strip"
+        );
         frame(&ctx, &mut scope, &router, vec![]);
-        let output = frame(&ctx, &mut scope, &router, vec![]);
         let toggle = egui::pos2(20.0, 17.0);
+        // Click toggle to open the floating legend overlay
+        let output = click(&ctx, &mut scope, &router, toggle);
+        assert!(scope.show_legend);
         assert!(find(&output, "Legend").is_none(), "The toggle is icon only");
-        let entry = find(&output, "Channel 0").expect("Floating legend is visible");
+        let entry = find(&output, "message.signal_0").expect("Floating legend is visible");
         assert!(
             entry.x < 450.0 && entry.y > 250.0,
-            "Legend belongs at the bottom left"
+            "Floating legend belongs at the bottom left"
         );
         let panel = output
             .shapes
             .iter()
             .find_map(|shape| match &shape.shape {
                 egui::Shape::Rect(rect)
-                    if rect.rect.width() >= 150.0
-                        && rect.rect.width() <= 330.0
-                        && rect.rect.height() <= 190.0 =>
+                    if rect.rect.width() >= 140.0
+                        && rect.rect.width() <= 300.0
+                        && rect.rect.height() <= 150.0 =>
                 {
                     Some(rect.rect)
                 }
                 _ => None,
             })
             .expect("Legend panel");
-        let eye = egui::pos2(panel.right() - 17.0, entry.y);
+        let eye = egui::pos2(panel.right() - 15.0, entry.y);
         let key = scope.cached_data.as_ref().unwrap().key.clone();
         let colors: Vec<_> = scope.channels.iter().map(|channel| channel.color).collect();
         click(&ctx, &mut scope, &router, eye);
@@ -1589,7 +1611,7 @@ mod tests {
             colors
         );
         assert!(
-            find(&output, "Channel 19").is_none(),
+            find(&output, "message.signal_19").is_none(),
             "Long legends scroll instead of growing"
         );
         frame(
@@ -1634,14 +1656,13 @@ mod tests {
                 modifiers: Modifiers::NONE,
             }],
         );
-        // Toggling the overlay must not change the plot or lose its scroll position.
-        let output = click(&ctx, &mut scope, &router, toggle);
+        // Toggling the overlay switches back to the inline toolbar strip and back to floating without losing scroll position.
+        let _output = click(&ctx, &mut scope, &router, toggle);
         assert!(!scope.show_legend);
-        assert!(find(&output, "Channel 0").is_none());
         let output = click(&ctx, &mut scope, &router, toggle);
         assert!(scope.show_legend);
-        let entry = find(&output, "Channel 0")
-            .or_else(|| find(&output, "Channel 1"))
+        let entry = find(&output, "message.signal_0")
+            .or_else(|| find(&output, "message.signal_1"))
             .expect("Visible legend row");
         let output = click(&ctx, &mut scope, &router, entry);
         let remove = find(&output, "Remove signal").expect("Channel details popup");

@@ -20,11 +20,11 @@
             "title": "IGBT Temperatures",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "INVA_TEMPS.AMK_IGBTTemp", "label": "INVA IGBT Temp", "unit": "C" },
-              { "signal_id": "INVB_TEMPS.AMK_IGBTTemp", "label": "INVB IGBT Temp", "unit": "C" },
-              { "signal_id": "INVC_TEMPS.AMK_IGBTTemp", "label": "INVC IGBT Temp", "unit": "C" },
-              { "signal_id": "INVD_TEMPS.AMK_IGBTTemp", "label": "INVD IGBT Temp", "unit": "C" },
-              { "signal_id": "thermals.max_igbt_temp_c", "label": "Max IGBT Temp", "unit": "C" }
+              { "signal_id": "INVA_TEMPS.AMK_IGBTTemp", "unit": "C" },
+              { "signal_id": "INVB_TEMPS.AMK_IGBTTemp", "unit": "C" },
+              { "signal_id": "INVC_TEMPS.AMK_IGBTTemp", "unit": "C" },
+              { "signal_id": "INVD_TEMPS.AMK_IGBTTemp", "unit": "C" },
+              { "signal_id": "thermals.max_igbt_temp_c", "unit": "C" }
             ]
           },
           {
@@ -37,11 +37,11 @@
                 "title": "Inverter Temperatures",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "label": "INVA Cold Plate Temp", "unit": "C" },
-                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "label": "INVB Cold Plate Temp", "unit": "C" },
-                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "label": "INVC Cold Plate Temp", "unit": "C" },
-                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "label": "INVD Cold Plate Temp", "unit": "C" },
-                  { "signal_id": "thermals.max_inverter_temp_c", "label": "Max Inverter Temp", "unit": "C" }
+                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "thermals.max_inverter_temp_c", "unit": "C" }
                 ]
               },
               {
@@ -50,14 +50,14 @@
                 "title": "Actual Torque and Cold Plate Temperature vs Time",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "label": "INVA Torque", "unit": "Nm" },
-                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "label": "INVB Torque", "unit": "Nm" },
-                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "label": "INVC Torque", "unit": "Nm" },
-                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "label": "INVD Torque", "unit": "Nm" },
-                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "label": "INVA Cold Plate", "unit": "C" },
-                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "label": "INVB Cold Plate", "unit": "C" },
-                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "label": "INVC Cold Plate", "unit": "C" },
-                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "label": "INVD Cold Plate", "unit": "C" }
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque", "unit": "Nm" },
+                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp", "unit": "C" },
+                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp", "unit": "C" }
                 ]
               }
             ]
@@ -68,11 +68,11 @@
             "title": "Motor Temperatures",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "INVA_TEMPS.AMK_MotorTemp", "label": "INVA Motor Temp", "unit": "C" },
-              { "signal_id": "INVB_TEMPS.AMK_MotorTemp", "label": "INVB Motor Temp", "unit": "C" },
-              { "signal_id": "INVC_TEMPS.AMK_MotorTemp", "label": "INVC Motor Temp", "unit": "C" },
-              { "signal_id": "INVD_TEMPS.AMK_MotorTemp", "label": "INVD Motor Temp", "unit": "C" },
-              { "signal_id": "thermals.max_motor_temp_c", "label": "Max Motor Temp", "unit": "C" }
+              { "signal_id": "INVA_TEMPS.AMK_MotorTemp", "unit": "C" },
+              { "signal_id": "INVB_TEMPS.AMK_MotorTemp", "unit": "C" },
+              { "signal_id": "INVC_TEMPS.AMK_MotorTemp", "unit": "C" },
+              { "signal_id": "INVD_TEMPS.AMK_MotorTemp", "unit": "C" },
+              { "signal_id": "thermals.max_motor_temp_c", "unit": "C" }
             ]
           }
         ]
