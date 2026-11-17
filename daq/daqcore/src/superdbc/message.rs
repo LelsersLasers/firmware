@@ -68,6 +68,127 @@ pub enum DisplayFormat {
     Decimal(u8),
 }
 
+/// Fault severity tier defined in node configuration (`warning`, `error`, `fatal`).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FaultSeverity {
+    Warning,
+    Error,
+    Fatal,
+}
+
+impl FaultSeverity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Error => "error",
+            Self::Fatal => "fatal",
+        }
+    }
+
+    pub fn badge_label(self) -> &'static str {
+        match self {
+            Self::Warning => "WARN",
+            Self::Error => "ERROR",
+            Self::Fatal => "FATAL",
+        }
+    }
+
+    pub fn badge(self) -> &'static str {
+        self.badge_label()
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Warning => "Warning",
+            Self::Error => "Error",
+            Self::Fatal => "Fatal",
+        }
+    }
+
+    pub fn default_color_hex(self) -> &'static str {
+        match self {
+            Self::Warning => "#f59e0b",
+            Self::Error => "#f97316",
+            Self::Fatal => "#e11d48",
+        }
+    }
+
+    pub fn rgb(self) -> (u8, u8, u8) {
+        match self {
+            Self::Warning => (245, 158, 11),
+            Self::Error => (249, 115, 22),
+            Self::Fatal => (225, 29, 72),
+        }
+    }
+
+    /// Resolve the fault severity for a signal (`msg.sig` or `sig`), preferring an explicit
+    /// `FaultSeverity` from SuperDBC and falling back to the node configuration mapping.
+    pub fn resolve_for_signal(signal_id: &str, explicit: Option<Self>) -> Option<Self> {
+        if let Some(sev) = explicit {
+            return Some(sev);
+        }
+        let (msg_name, sig_name) = signal_id
+            .split_once('.')
+            .unwrap_or(("", signal_id));
+        let sig_upper = sig_name.to_ascii_uppercase();
+        if sig_upper.starts_with("SDC") && !sig_upper.ends_with("_SWITCH_FAULT") {
+            return Some(Self::Fatal);
+        }
+        match sig_name {
+            "PACK_WARM"
+            | "PACK_FULL"
+            | "PACK_EMPTY"
+            | "APPS_BRAKE"
+            | "v_noncrit"
+            | "front_driveline_rail"
+            | "rear_driveline_rail"
+            | "bullet_rail"
+            | "lv_critical_low"
+            | "lv_getting_low"
+            | "lv_batt_fifty"
+            | "GPS_INVALID_FIX"
+            | "GPS_WEAK_FIX"
+            | "GPS_INVALID_UTC"
+            | "No_GPS_Fix"
+            | "Yes_GPS_Fix" => return Some(Self::Warning),
+            "PACK_OVERTEMP"
+            | "PACK_COLD"
+            | "IMD"
+            | "BMS_DISCONNECTED"
+            | "CELL_UNDERVOLTAGE"
+            | "CELL_OVERVOLTAGE"
+            | "APPS_wiring_t1"
+            | "APPS_wiring_t2"
+            | "APPS_IMPLAUSIBLE"
+            | "BSE"
+            | "bspd"
+            | "PRECHARGE_INCOMPLETE"
+            | "dash_rail"
+            | "abox_rail"
+            | "main_rail"
+            | "v_crit" => return Some(Self::Error),
+            _ if sig_upper.ends_with("_SWITCH_FAULT") => return Some(Self::Error),
+            _ => {}
+        }
+        if !msg_name.is_empty() && crate::log_parse::auto_annotate::is_fault_flag_signal(msg_name, sig_name) {
+            return Some(Self::Error);
+        }
+        None
+    }
+}
+
 /// Message metadata and compiled signal codecs, validated during loading.
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -288,6 +409,7 @@ pub struct SignalDefinition {
     limits: Option<SignalLimits>,
     unit: String,
     display_format: Option<DisplayFormat>,
+    fault_priority: Option<FaultSeverity>,
     choices: BTreeMap<i128, String>,
     /// Compiled layout used for extraction, insertion, and integer range checks.
     pub codec: superdbc::extract::Codec,
@@ -392,6 +514,12 @@ impl SignalDefinition {
             }
         };
 
+        let fault_priority = model.fault_priority.map(|prio| match prio {
+            superdbc::model::SignalExportFaultPriority::Warning => FaultSeverity::Warning,
+            superdbc::model::SignalExportFaultPriority::Error => FaultSeverity::Error,
+            superdbc::model::SignalExportFaultPriority::Fatal => FaultSeverity::Fatal,
+        });
+
         Ok(Self {
             name: model.signal_name.into(),
             description: model.description,
@@ -405,6 +533,7 @@ impl SignalDefinition {
             limits,
             unit: model.unit,
             display_format,
+            fault_priority,
             choices,
             codec,
         })
@@ -478,6 +607,11 @@ impl SignalDefinition {
     /// The codec does not format values or change their numeric interpretation.
     pub fn display_format(&self) -> Option<DisplayFormat> {
         self.display_format
+    }
+
+    /// Return the optional fault severity tier (`warning`, `error`, `fatal`) from node config.
+    pub fn fault_priority(&self) -> Option<FaultSeverity> {
+        self.fault_priority
     }
 
     /// Iterate over raw integer values and their labels in ascending numeric order.

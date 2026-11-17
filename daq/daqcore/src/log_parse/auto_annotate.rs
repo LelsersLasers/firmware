@@ -1,4 +1,5 @@
 use crate::storage;
+pub use crate::superdbc::message::FaultSeverity;
 
 pub const SPEED_THRESHOLD_MPS: f64 = 1.0;
 pub const MIN_STINT_DURATION_MS: i64 = 5_000;
@@ -22,6 +23,69 @@ pub struct Annotation {
     pub notes: String,
     pub updated_at_ms: i64,
     pub deleted: bool,
+}
+
+impl Annotation {
+    /// If this annotation is a `"fault"`, returns its canonical signal identifier (`msg.sig`).
+    pub fn fault_signal_id(&self) -> Option<&str> {
+        if self.category != "fault" {
+            return None;
+        }
+        Some(
+            self.name
+                .strip_prefix("Fault: ")
+                .unwrap_or(self.name.as_str())
+                .trim(),
+        )
+    }
+
+    /// Resolve the [`FaultSeverity`] (`Warning`, `Error`, `Fatal`) of a fault annotation.
+    pub fn fault_severity(&self) -> Option<FaultSeverity> {
+        if self.category != "fault" {
+            return None;
+        }
+        let notes_trimmed = self.notes.trim_start();
+        if notes_trimmed.starts_with("[FATAL]") {
+            return Some(FaultSeverity::Fatal);
+        }
+        if notes_trimmed.starts_with("[ERROR]") {
+            return Some(FaultSeverity::Error);
+        }
+        if notes_trimmed.starts_with("[WARN]") || notes_trimmed.starts_with("[WARNING]") {
+            return Some(FaultSeverity::Warning);
+        }
+        match self.color.trim().to_ascii_lowercase().as_str() {
+            "#e11d48" => return Some(FaultSeverity::Fatal),
+            "#f97316" => return Some(FaultSeverity::Error),
+            "#f59e0b" => return Some(FaultSeverity::Warning),
+            _ => {}
+        }
+        self.fault_signal_id()
+            .and_then(|sig| FaultSeverity::resolve_for_signal(sig, None))
+            .or(Some(FaultSeverity::Error))
+    }
+
+    /// Extract the human-readable fault LCD message / description from `notes` if present.
+    pub fn fault_lcd_message(&self) -> Option<&str> {
+        if self.category != "fault" {
+            return None;
+        }
+        let mut s = self.notes.trim();
+        if let Some(after_bracket) = s.strip_prefix('[')
+            && let Some((_, rest)) = after_bracket.split_once(']')
+        {
+            s = rest.trim();
+        }
+        if let Some((desc, _)) = s.split_once(" — Auto-detected") {
+            let d = desc.trim();
+            if !d.is_empty() {
+                return Some(d);
+            }
+        } else if !s.is_empty() && !s.starts_with("Auto-detected") {
+            return Some(s);
+        }
+        None
+    }
 }
 
 /// Detect driving stints from a time-sorted slice of `(utc_ms, speed_mps)` samples.
@@ -110,6 +174,8 @@ pub fn is_fault_flag_signal(msg_name: &str, sig_name: &str) -> bool {
     if msg_lower.ends_with("_fault_event")
         || msg_lower.starts_with("fault_sync_")
         || matches!(sig_lower.as_str(), "idx" | "latched" | "val" | "state")
+        || sig_lower.contains("errorreset")
+        || sig_lower.contains("error_reset")
     {
         return false;
     }
@@ -134,6 +200,28 @@ pub fn detect_signal_fault_transitions(
     track_day_id: &str,
     updated_at_ms: i64,
 ) -> Vec<Annotation> {
+    detect_signal_fault_transitions_with_meta(
+        signal_id,
+        samples,
+        track_day_id,
+        updated_at_ms,
+        FaultSeverity::resolve_for_signal(signal_id, None),
+        "",
+    )
+}
+
+/// Detect `0 -> non-zero` fault transitions for a single fault flag signal with explicit
+/// [`FaultSeverity`] and optional LCD description metadata.
+pub fn detect_signal_fault_transitions_with_meta(
+    signal_id: &str,
+    samples: &[(i64, i64)],
+    track_day_id: &str,
+    updated_at_ms: i64,
+    severity: Option<FaultSeverity>,
+    description: &str,
+) -> Vec<Annotation> {
+    let resolved_severity =
+        severity.or_else(|| FaultSeverity::resolve_for_signal(signal_id, None));
     let mut annotations = Vec::new();
     let mut prev_val: i64 = 0;
     let mut active_start_ms: Option<i64> = None;
@@ -146,13 +234,15 @@ pub fn detect_signal_fault_transitions(
                 active_start_ms = Some(utc_ms);
             }
             (_, Some(start_ms)) if raw_int == 0 => {
-                annotations.push(build_fault_annotation(
+                annotations.push(build_fault_annotation_with_meta(
                     signal_id,
                     signal_id,
                     start_ms,
                     Some(utc_ms),
                     track_day_id,
                     updated_at_ms,
+                    resolved_severity,
+                    description,
                 ));
                 active_start_ms = None;
             }
@@ -167,13 +257,15 @@ pub fn detect_signal_fault_transitions(
         } else {
             Some(start_ms)
         };
-        annotations.push(build_fault_annotation(
+        annotations.push(build_fault_annotation_with_meta(
             signal_id,
             signal_id,
             start_ms,
             end_ms,
             track_day_id,
             updated_at_ms,
+            resolved_severity,
+            description,
         ));
     }
 
@@ -188,17 +280,50 @@ pub fn build_fault_annotation(
     track_day_id: &str,
     updated_at_ms: i64,
 ) -> Annotation {
+    build_fault_annotation_with_meta(
+        id_key,
+        display_label,
+        start_utc_ms,
+        end_utc_ms,
+        track_day_id,
+        updated_at_ms,
+        FaultSeverity::resolve_for_signal(id_key, None),
+        "",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_fault_annotation_with_meta(
+    id_key: &str,
+    display_label: &str,
+    start_utc_ms: i64,
+    end_utc_ms: Option<i64>,
+    track_day_id: &str,
+    updated_at_ms: i64,
+    severity: Option<FaultSeverity>,
+    description: &str,
+) -> Annotation {
+    let sev = severity
+        .or_else(|| FaultSeverity::resolve_for_signal(id_key, None))
+        .unwrap_or(FaultSeverity::Error);
+    let badge = sev.badge();
+    let desc_trimmed = description.trim();
+    let notes = if !desc_trimmed.is_empty() && desc_trimmed != display_label {
+        format!("[{badge}] {desc_trimmed} — Auto-detected fault transition on {display_label}")
+    } else {
+        format!("[{badge}] Auto-detected fault transition on {display_label}")
+    };
     Annotation {
         id: format!("auto_fault_{id_key}_{start_utc_ms}"),
         track_day_id: track_day_id.to_owned(),
         name: format!("Fault: {display_label}"),
         category: "fault".to_owned(),
-        color: "#ef4444".to_owned(),
+        color: sev.default_color_hex().to_owned(),
         start_utc_ms,
         end_utc_ms,
         author: "daqcore".to_owned(),
         source: "auto".to_owned(),
-        notes: format!("Auto-detected fault transition on {display_label}"),
+        notes,
         updated_at_ms,
         deleted: false,
     }
@@ -379,7 +504,30 @@ mod tests {
         assert_eq!(faults[0].category, "fault");
         assert_eq!(faults[0].start_utc_ms, 3_000);
         assert_eq!(faults[0].end_utc_ms, Some(5_000));
+        assert_eq!(faults[0].fault_severity(), Some(FaultSeverity::Fatal));
+        assert_eq!(faults[0].color, "#e11d48");
         assert_eq!(faults[1].start_utc_ms, 7_000);
         assert_eq!(faults[1].end_utc_ms, Some(8_000));
+
+        assert!(!is_fault_flag_signal(
+            "INVA_SET",
+            "AMK_Control_bErrorReset"
+        ));
+        assert!(is_fault_flag_signal("INVA_INFO", "AMK_Status_bError"));
+
+        let warn_faults = detect_signal_fault_transitions_with_meta(
+            "a_box_fault_sync.PACK_WARM",
+            &samples,
+            "2026-11-12",
+            100,
+            Some(FaultSeverity::Warning),
+            "Pack warm (>50C)",
+        );
+        assert_eq!(warn_faults[0].fault_severity(), Some(FaultSeverity::Warning));
+        assert_eq!(warn_faults[0].color, "#f59e0b");
+        assert_eq!(
+            warn_faults[0].fault_lcd_message(),
+            Some("Pack warm (>50C)")
+        );
     }
 }

@@ -80,6 +80,7 @@ pub struct SignalColumnAccumulator {
     pub unit: String,
     pub is_discrete: bool,
     pub is_fault_flag: bool,
+    pub fault_severity: Option<auto_annotate::FaultSeverity>,
     pub bus_name: String,
     pub bus_id: u8,
     pub can_id: u32,
@@ -409,7 +410,7 @@ fn write_single_partition(
 
         for (sig_name, sig_value) in msg.decoded.iter() {
             let signal_id = storage::format_signal_id(msg_name, sig_name);
-            let acc = columns.entry(signal_id).or_insert_with(|| {
+            let acc = columns.entry(signal_id.clone()).or_insert_with(|| {
                 let sig_def = msg_def.and_then(|m| m.signal(sig_name));
                 let unit = sig_def
                     .map(|s| s.unit().to_owned())
@@ -418,6 +419,14 @@ fn write_single_partition(
                     .map(|s| s.description().to_owned())
                     .unwrap_or_else(|| sig_value.description().to_owned());
                 let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+                let explicit_priority = sig_def
+                    .and_then(|s| s.fault_priority())
+                    .or_else(|| sig_value.fault_priority());
+                let fault_severity = if is_fault_flag {
+                    auto_annotate::FaultSeverity::resolve_for_signal(&signal_id, explicit_priority)
+                } else {
+                    None
+                };
                 let is_discrete = is_fault_flag
                     || sig_value.is_discrete()
                     || sig_def.is_some_and(|s| {
@@ -442,6 +451,7 @@ fn write_single_partition(
                     unit,
                     is_discrete,
                     is_fault_flag,
+                    fault_severity,
                     bus_name,
                     bus_id: key.bus_id,
                     can_id: key.identity,
@@ -530,11 +540,13 @@ fn write_single_partition(
         if acc.is_fault_flag {
             let raw_pairs: Vec<(i64, i64)> =
                 acc.samples.iter().map(|s| (s.utc_ms, s.raw_int)).collect();
-            annotations.extend(auto_annotate::detect_signal_fault_transitions(
+            annotations.extend(auto_annotate::detect_signal_fault_transitions_with_meta(
                 signal_id,
                 &raw_pairs,
                 &track_day_id,
                 updated_at_ms,
+                acc.fault_severity,
+                &acc.description,
             ));
         }
 
@@ -662,6 +674,7 @@ pub fn write_column_accumulators_to_store(
                         unit: acc.unit.clone(),
                         is_discrete: acc.is_discrete,
                         is_fault_flag: acc.is_fault_flag,
+                        fault_severity: acc.fault_severity,
                         bus_name: acc.bus_name.clone(),
                         bus_id: acc.bus_id,
                         can_id: acc.can_id,
@@ -766,11 +779,13 @@ pub fn write_column_accumulators_to_store(
             if acc.is_fault_flag {
                 let raw_pairs: Vec<(i64, i64)> =
                     acc.samples.iter().map(|s| (s.utc_ms, s.raw_int)).collect();
-                annotations.extend(auto_annotate::detect_signal_fault_transitions(
+                annotations.extend(auto_annotate::detect_signal_fault_transitions_with_meta(
                     signal_id,
                     &raw_pairs,
                     track_day_id,
                     updated_at_ms,
+                    acc.fault_severity,
+                    &acc.description,
                 ));
             }
 
@@ -1199,12 +1214,18 @@ pub fn read_partition_column_accumulators(
             .split_once('.')
             .unwrap_or(("", entry.signal_id.as_str()));
         let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+        let fault_severity = if is_fault_flag {
+            auto_annotate::FaultSeverity::resolve_for_signal(&entry.signal_id, None)
+        } else {
+            None
+        };
         columns.insert(
             entry.signal_id.clone(),
             SignalColumnAccumulator {
                 unit: entry.unit.clone(),
                 is_discrete: entry.is_discrete,
                 is_fault_flag,
+                fault_severity,
                 bus_name: entry.bus_name.clone(),
                 bus_id: entry.bus_id,
                 can_id: entry.can_id,
@@ -1270,12 +1291,18 @@ pub fn read_partition_column_accumulators(
                 if !columns.contains_key(sig_id) {
                     let (msg_name, sig_name) = sig_id.split_once('.').unwrap_or(("", sig_id));
                     let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+                    let fault_severity = if is_fault_flag {
+                        auto_annotate::FaultSeverity::resolve_for_signal(sig_id, None)
+                    } else {
+                        None
+                    };
                     columns.insert(
                         sig_id.to_owned(),
                         SignalColumnAccumulator {
                             unit: String::new(),
                             is_discrete: is_fault_flag,
                             is_fault_flag,
+                            fault_severity,
                             bus_name: "VCAN".to_owned(),
                             bus_id: 0,
                             can_id: 0,
@@ -1359,11 +1386,13 @@ pub fn rewrite_partition_in_place(
         if acc.is_fault_flag {
             let raw_pairs: Vec<(i64, i64)> =
                 acc.samples.iter().map(|s| (s.utc_ms, s.raw_int)).collect();
-            annotations.extend(auto_annotate::detect_signal_fault_transitions(
+            annotations.extend(auto_annotate::detect_signal_fault_transitions_with_meta(
                 signal_id,
                 &raw_pairs,
                 &manifest.track_day_id,
                 updated_at_ms,
+                acc.fault_severity,
+                &acc.description,
             ));
         }
 

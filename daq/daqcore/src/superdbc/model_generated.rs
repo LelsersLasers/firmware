@@ -496,6 +496,8 @@ pub struct SignalExport {
     pub description: ::std::string::String,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub display_format: ::std::option::Option<SignalExportDisplayFormat>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub fault_priority: ::std::option::Option<SignalExportFaultPriority>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub limits: ::std::option::Option<LimitsExport>,
     pub offset: f64,
@@ -589,6 +591,65 @@ impl ::std::convert::TryFrom<&str> for SignalExportDisplayFormat {
     }
 }
 impl ::std::convert::TryFrom<::std::string::String> for SignalExportDisplayFormat {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`SignalExportFaultPriority`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum SignalExportFaultPriority {
+    #[serde(rename = "warning")]
+    Warning,
+    #[serde(rename = "error")]
+    Error,
+    #[serde(rename = "fatal")]
+    Fatal,
+}
+impl ::std::fmt::Display for SignalExportFaultPriority {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Warning => f.write_str("warning"),
+            Self::Error => f.write_str("error"),
+            Self::Fatal => f.write_str("fatal"),
+        }
+    }
+}
+impl ::std::str::FromStr for SignalExportFaultPriority {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "warning" => Ok(Self::Warning),
+            "error" => Ok(Self::Error),
+            "fatal" => Ok(Self::Fatal),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SignalExportFaultPriority {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SignalExportFaultPriority {
     type Error = self::error::ConversionError;
     fn try_from(
         value: ::std::string::String,

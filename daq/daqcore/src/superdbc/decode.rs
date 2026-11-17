@@ -75,6 +75,7 @@ pub struct DecodedSignalValue {
     unit: String,
     description: String,
     is_discrete: bool,
+    fault_priority: Option<superdbc::message::FaultSeverity>,
 }
 
 impl DecodedSignalValue {
@@ -116,6 +117,11 @@ impl DecodedSignalValue {
     /// Return whether the signal is discrete (has enum choices or is a 1-bit boolean flag).
     pub fn is_discrete(&self) -> bool {
         self.is_discrete
+    }
+
+    /// Return the optional fault severity tier copied from the definition when decoding.
+    pub fn fault_priority(&self) -> Option<superdbc::message::FaultSeverity> {
+        self.fault_priority
     }
 
     /// Return an integer suitable for integer, hexadecimal, or binary presentation.
@@ -201,6 +207,7 @@ impl superdbc::message::Message {
                     unit: signal.unit().to_owned(),
                     description: signal.description().to_owned(),
                     is_discrete,
+                    fault_priority: signal.fault_priority(),
                 },
             );
         }
