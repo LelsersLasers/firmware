@@ -112,7 +112,9 @@ pub fn time_correlate_chunk(
                 (millisecond, second, minute, hour, day, month, year)
             {
                 let full_year = if y < 100 { 2000 + y as i32 } else { y as i32 };
-                if !(2020..=2100).contains(&full_year) {
+                if !(log_parse::parse::MIN_VALID_LOG_YEAR..=log_parse::parse::MAX_VALID_LOG_YEAR)
+                    .contains(&full_year)
+                {
                     log::debug!(
                         "GPS message at {} ms has uninitialized or out-of-range year {}, skipping",
                         msg.timestamp,
@@ -316,29 +318,27 @@ fn linear_regression(points: &[Point]) -> Option<(f64, f64)> {
     }
 
     let n = points.len() as f64;
+    let mean_x = points.iter().map(|p| p.x).sum::<f64>() / n;
+    let mean_y = points.iter().map(|p| p.y).sum::<f64>() / n;
 
-    let mut sum_x = 0.0;
-    let mut sum_y = 0.0;
-    let mut sum_xy = 0.0;
-    let mut sum_x2 = 0.0;
+    let mut sum_dx_dy = 0.0;
+    let mut sum_dx2 = 0.0;
 
     for p in points {
-        sum_x += p.x;
-        sum_y += p.y;
-        sum_xy += p.x * p.y;
-        sum_x2 += p.x * p.x;
+        let dx = p.x - mean_x;
+        let dy = p.y - mean_y;
+        sum_dx_dy += dx * dy;
+        sum_dx2 += dx * dx;
     }
 
-    let denom = n * sum_x2 - sum_x * sum_x;
-
-    if denom.abs() < 1e-9 {
+    if sum_dx2.abs() < 1e-9 {
         let slope = REGRESSION_FALLBACK_SLOPE;
-        let intercept = (sum_y - slope * sum_x) / n;
+        let intercept = mean_y - slope * mean_x;
         return Some((slope, intercept));
     }
 
-    let slope = (n * sum_xy - sum_x * sum_y) / denom;
-    let intercept = (sum_y - slope * sum_x) / n;
+    let slope = sum_dx_dy / sum_dx2;
+    let intercept = mean_y - slope * mean_x;
 
     Some((slope, intercept))
 }

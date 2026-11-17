@@ -135,14 +135,14 @@ pub fn detect_signal_fault_transitions(
     updated_at_ms: i64,
 ) -> Vec<Annotation> {
     let mut annotations = Vec::new();
-    let mut prev_val: Option<i64> = None;
+    let mut prev_val: i64 = 0;
     let mut active_start_ms: Option<i64> = None;
     let mut last_ts_ms: i64 = 0;
 
     for &(utc_ms, raw_int) in samples {
         last_ts_ms = utc_ms;
         match (prev_val, active_start_ms) {
-            (Some(0), None) if raw_int != 0 => {
+            (0, None) if raw_int != 0 => {
                 active_start_ms = Some(utc_ms);
             }
             (_, Some(start_ms)) if raw_int == 0 => {
@@ -158,7 +158,7 @@ pub fn detect_signal_fault_transitions(
             }
             _ => {}
         }
-        prev_val = Some(raw_int);
+        prev_val = raw_int;
     }
 
     if let Some(start_ms) = active_start_ms {
@@ -244,7 +244,19 @@ pub fn extract_speed_samples(
         } else if msg_name.contains("speed") {
             for (sig_name, sig) in msg.decoded.iter() {
                 if sig_name.contains("speed") || sig_name.contains("mps") {
-                    direct_mps.push((utc_ms, sig.physical()));
+                    let v = sig.physical();
+                    if !v.is_finite() {
+                        continue;
+                    }
+                    let unit = sig.unit();
+                    if unit.eq_ignore_ascii_case("rpm") {
+                        fallback_rpm.push((utc_ms, v.abs() / MOTOR_RPM_PER_MPS));
+                    } else if unit.eq_ignore_ascii_case("km/h") || unit.eq_ignore_ascii_case("kph")
+                    {
+                        direct_mps.push((utc_ms, v / 3.6));
+                    } else {
+                        direct_mps.push((utc_ms, v));
+                    }
                 }
             }
         }

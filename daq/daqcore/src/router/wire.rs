@@ -318,11 +318,17 @@ fn read_series_body(bytes: &[u8], cursor: &mut usize) -> Result<SignalSeries, St
                     .as_chunks::<32>()
                     .0
                     .iter()
-                    .map(|c| EnvelopePoint {
-                        utc_ms: i64::from_le_bytes(c[0..8].try_into().unwrap()),
-                        min: f64::from_le_bytes(c[8..16].try_into().unwrap()),
-                        max: f64::from_le_bytes(c[16..24].try_into().unwrap()),
-                        mean: f64::from_le_bytes(c[24..32].try_into().unwrap()),
+                    .map(|c| {
+                        let (utc_b, rest) = c.split_first_chunk::<8>().unwrap_or((&[0; 8], &[]));
+                        let (min_b, rest) = rest.split_first_chunk::<8>().unwrap_or((&[0; 8], &[]));
+                        let (max_b, rest) = rest.split_first_chunk::<8>().unwrap_or((&[0; 8], &[]));
+                        let (mean_b, _) = rest.split_first_chunk::<8>().unwrap_or((&[0; 8], &[]));
+                        EnvelopePoint {
+                            utc_ms: i64::from_le_bytes(*utc_b),
+                            min: f64::from_le_bytes(*min_b),
+                            max: f64::from_le_bytes(*max_b),
+                            mean: f64::from_le_bytes(*mean_b),
+                        }
                     })
                     .collect()
             };

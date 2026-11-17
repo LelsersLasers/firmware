@@ -191,7 +191,13 @@ impl LiveColumnBuffer {
                         }
                         Some(_) => {}
                     }
+                    if state_col.len() > self.max_samples_per_signal {
+                        state_col.pop_front();
+                    }
                 }
+            }
+            if self.activity_1hz.len() > self.max_samples_per_signal {
+                self.activity_1hz.pop_first();
             }
         }
 
@@ -469,8 +475,10 @@ impl LiveColumnBuffer {
     ) -> Option<(i64, f64)> {
         let col = self.signal_columns.get(signal_id)?;
         let idx = col.partition_point(|&(t, _)| t <= target_utc_ms);
-        let idx = idx.checked_sub(1)?;
-        col.get(idx).copied()
+        col.range(..idx)
+            .rev()
+            .find(|&&(_, v)| v.is_finite())
+            .copied()
     }
 }
 
@@ -537,13 +545,13 @@ mod tests {
             }
           }
         }"#;
-        Database::from_json(json).unwrap()
+        Database::from_json(json).expect("valid sample SuperDBC JSON")
     }
 
     fn make_frame(db: &Database, utc_ms: i64, accel_g: f64, mode: f64) -> ParsedFrame {
         let payload = db
             .encode(0, 100, &[("accel_y_g", accel_g), ("mode", mode)])
-            .unwrap();
+            .expect("encode sample frame");
         let decoded = db.decode(0, 100, &payload).ok();
         ParsedFrame {
             timestamp: Time::from_unix_millis(utc_ms),

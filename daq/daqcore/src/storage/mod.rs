@@ -94,7 +94,7 @@ pub struct RegisteredPartition {
 
 impl RegisteredPartition {
     pub fn from_manifest(manifest: PartitionManifest, is_local: bool) -> Self {
-        let relative_path = format!("partitions/{}", manifest.partition_id);
+        let relative_path = format!("partitions/{}/", manifest.partition_id);
         Self {
             partition_id: manifest.partition_id.clone(),
             track_day_id: manifest.track_day_id.clone(),
@@ -488,8 +488,15 @@ impl InMemoryCatalog {
                 } else {
                     day.location.clone()
                 };
-                let start_utc_ms = prev.start_utc_ms.min(day.start_utc_ms);
-                let end_utc_ms = prev.end_utc_ms.max(day.end_utc_ms).max(start_utc_ms);
+                let (start_utc_ms, end_utc_ms) = if prev.start_utc_ms == 0 && prev.end_utc_ms == 0 {
+                    (day.start_utc_ms, day.end_utc_ms.max(day.start_utc_ms))
+                } else if day.start_utc_ms == 0 && day.end_utc_ms == 0 {
+                    (prev.start_utc_ms, prev.end_utc_ms.max(prev.start_utc_ms))
+                } else {
+                    let lo = prev.start_utc_ms.min(day.start_utc_ms);
+                    let hi = prev.end_utc_ms.max(day.end_utc_ms).max(lo);
+                    (lo, hi)
+                };
                 TrackDay {
                     id: day.id.clone(),
                     title,
@@ -570,7 +577,7 @@ impl InMemoryCatalog {
         let reg = RegisteredPartition::from_manifest(manifest.clone(), is_local);
         self.partitions.insert(manifest.partition_id.clone(), reg);
         for ann in &manifest.annotations {
-            self.upsert_annotation_no_renumber(ann);
+            self.upsert_annotation_inner(ann, true);
         }
         self.renumber_auto_stints(&manifest.track_day_id);
         !existed
@@ -590,7 +597,7 @@ impl InMemoryCatalog {
         list
     }
 
-    fn upsert_annotation_no_renumber(&mut self, ann: &Annotation) -> bool {
+    fn upsert_annotation_inner(&mut self, ann: &Annotation, from_manifest: bool) -> bool {
         if !self.track_days.contains_key(&ann.track_day_id) {
             self.upsert_track_day(&TrackDay {
                 id: ann.track_day_id.clone(),
@@ -600,17 +607,36 @@ impl InMemoryCatalog {
                 end_utc_ms: ann.end_utc_ms.unwrap_or(ann.start_utc_ms),
             });
         }
-        if let Some(prev) = self.annotations.get(&ann.id)
-            && ann.updated_at_ms < prev.updated_at_ms
-        {
-            return false;
+        let mut candidate = ann.clone();
+        if let Some(prev) = self.annotations.get(&ann.id) {
+            // Auto-generated manifest annotations never overwrite an existing row.
+            if from_manifest && ann.source == "auto" {
+                return false;
+            }
+            if ann.updated_at_ms < prev.updated_at_ms {
+                return false;
+            }
+            if !from_manifest && prev.source == "auto" {
+                let user_modified = ann.name != prev.name
+                    || ann.notes != prev.notes
+                    || ann.category != prev.category
+                    || ann.color != prev.color
+                    || ann.start_utc_ms != prev.start_utc_ms
+                    || ann.end_utc_ms != prev.end_utc_ms;
+                if user_modified {
+                    candidate.source = "manual".to_owned();
+                    if candidate.author == "daqcore" || candidate.author.is_empty() {
+                        candidate.author = "user".to_owned();
+                    }
+                }
+            }
         }
-        self.annotations.insert(ann.id.clone(), ann.clone());
+        self.annotations.insert(candidate.id.clone(), candidate);
         true
     }
 
     pub fn upsert_annotation(&mut self, ann: &Annotation) -> bool {
-        let changed = self.upsert_annotation_no_renumber(ann);
+        let changed = self.upsert_annotation_inner(ann, false);
         if changed && ann.category == "driving_stint" {
             self.renumber_auto_stints(&ann.track_day_id);
         }
@@ -714,7 +740,7 @@ impl InMemoryCatalog {
             self.register_manifest(manifest, is_local);
         }
         for ann in &catalog.annotations {
-            self.upsert_annotation_no_renumber(ann);
+            self.upsert_annotation_inner(ann, false);
         }
         for sig in &catalog.derived_signals {
             self.upsert_derived_signal(sig);
@@ -741,10 +767,17 @@ impl InMemoryCatalog {
         for (idx, (_, id)) in auto_ids.into_iter().enumerate() {
             let expected = format!("Driving Stint #{}", idx + 1);
             if let Some(ann) = self.annotations.get_mut(&id)
+                && is_default_auto_stint_name(&ann.name)
                 && ann.name != expected
             {
                 ann.name = expected;
             }
         }
     }
+}
+
+/// Returns `true` if `name` matches the default auto-numbered stint pattern `"Driving Stint #<N>"`.
+pub fn is_default_auto_stint_name(name: &str) -> bool {
+    name.strip_prefix("Driving Stint #")
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
 }

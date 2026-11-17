@@ -628,6 +628,8 @@ impl VirtualTimelineRouter {
     }
 
     pub fn backend_mut(&mut self) -> &mut dyn RouterBackend {
+        self.invalidate_metadata_cache();
+        self.router_revision = self.router_revision.wrapping_add(1);
         self.backend.as_mut()
     }
 
@@ -844,16 +846,22 @@ impl VirtualTimelineRouter {
             .max()
     }
 
-    /// Query a raw CAN `signal_id` directly from `TileCache` and `LiveColumnBuffer`.
-    pub fn query_raw_signal(
+    fn live_cutoff_start_ms(&self, start_ms: i64, end_ms: i64) -> i64 {
+        match self.max_canonical_end_ms(end_ms) {
+            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
+            None => start_ms,
+        }
+    }
+
+    fn query_raw_signal_with_status(
         &self,
         signal_id: &str,
         range: ops::RangeInclusive<i64>,
         resolution: Resolution,
-    ) -> SignalSeries {
+    ) -> (SignalSeries, bool) {
         self.tile_cache.poll_completed();
         if range.is_empty() {
-            return SignalSeries::empty_for(resolution);
+            return (SignalSeries::empty_for(resolution), false);
         }
 
         let canonical_id = canonicalize_signal_ref(signal_id);
@@ -871,11 +879,15 @@ impl VirtualTimelineRouter {
         }
 
         let mut chunks = Vec::new();
+        let mut any_fallback = false;
         for part_id in &overlapping_ids {
             if let Some(lookup) = self
                 .tile_cache
                 .query_signal(part_id, &canonical_id, resolution)
             {
+                if lookup.is_fallback() {
+                    any_fallback = true;
+                }
                 let sliced = lookup.series().slice_range(range.clone());
                 if !sliced.is_empty() {
                     chunks.push(sliced);
@@ -883,10 +895,7 @@ impl VirtualTimelineRouter {
             }
         }
 
-        let live_start_ms = match self.max_canonical_end_ms(end_ms) {
-            Some(max_end) => start_ms.max(max_end.saturating_add(1)),
-            None => start_ms,
-        };
+        let live_start_ms = self.live_cutoff_start_ms(start_ms, end_ms);
         if live_start_ms <= end_ms
             && let Some(live_series) =
                 self.live_buffer
@@ -896,7 +905,18 @@ impl VirtualTimelineRouter {
             chunks.push(live_series);
         }
 
-        SignalSeries::stitch(chunks, resolution)
+        (SignalSeries::stitch(chunks, resolution), any_fallback)
+    }
+
+    /// Query a raw CAN `signal_id` directly from `TileCache` and `LiveColumnBuffer`.
+    pub fn query_raw_signal(
+        &self,
+        signal_id: &str,
+        range: ops::RangeInclusive<i64>,
+        resolution: Resolution,
+    ) -> SignalSeries {
+        self.query_raw_signal_with_status(signal_id, range, resolution)
+            .0
     }
 
     /// Query `signal_id` (raw CAN signal or derived formula channel) across `range`
@@ -928,21 +948,27 @@ impl VirtualTimelineRouter {
             }
         }
 
-        let series = if let Some(compiled) = self.formula_engine.get(signal_id) {
+        let (series, is_fallback) = if let Some(compiled) = self.formula_engine.get(signal_id) {
             let ast = compiled.ast.clone();
-            self.evaluate_expression(&ast, range, resolution)
-                .unwrap_or_else(|_| SignalSeries::empty_for(resolution))
+            let s = self
+                .evaluate_expression(&ast, range, resolution)
+                .unwrap_or_else(|_| SignalSeries::empty_for(resolution));
+            let fb = resolution == Resolution::FullRes && matches!(s, SignalSeries::Envelope(_));
+            (s, fb)
         } else {
-            self.query_raw_signal(signal_id, range, resolution)
+            self.query_raw_signal_with_status(signal_id, range, resolution)
         };
 
-        let rev_after = self.data_revision();
-        if let Ok(mut guard) = self.query_cache.lock() {
-            if guard.revision != rev_after || guard.entries.len() >= 128 {
-                guard.entries.clear();
-                guard.revision = rev_after;
+        // Never cache a lower-resolution fallback under the requested resolution key.
+        if !is_fallback {
+            let rev_after = self.data_revision();
+            if let Ok(mut guard) = self.query_cache.lock() {
+                if guard.revision != rev_after || guard.entries.len() >= 128 {
+                    guard.entries.clear();
+                    guard.revision = rev_after;
+                }
+                guard.entries.insert(cache_key, series.clone());
             }
-            guard.entries.insert(cache_key, series.clone());
         }
 
         series

@@ -485,8 +485,14 @@ impl TileCache {
 
     fn poll_completed_locked(dyn_guard: &mut TileCacheDynamic, revision: &AtomicU64) -> usize {
         let mut completed = 0usize;
+        let mut any_settled = false;
         while let Ok(msg) = dyn_guard.res_rx.try_recv() {
-            dyn_guard.in_flight.remove(&msg.key);
+            // Only accept tiles that are still registered as in-flight so stale loads
+            // from before `clear()` cannot repopulate the cache.
+            if !dyn_guard.in_flight.remove(&msg.key) {
+                continue;
+            }
+            any_settled = true;
             match msg.result {
                 Ok(series) => {
                     dyn_guard.lru.insert(msg.key, series);
@@ -502,7 +508,7 @@ impl TileCache {
                 }
             }
         }
-        if completed > 0 {
+        if any_settled {
             revision.fetch_add(1, Ordering::Relaxed);
         }
         completed
@@ -510,36 +516,61 @@ impl TileCache {
 
     /// Block until all currently in-flight background requests complete (or `timeout` elapses).
     pub fn wait_for_in_flight(&self, timeout: time::Duration) -> usize {
-        let Ok(mut dyn_guard) = self.dynamic.lock() else {
-            return 0;
-        };
-        let start = crate::time::Time::now();
-        let timeout_ms = timeout.as_millis().min(i64::MAX as u128) as i64;
-        let mut total = Self::poll_completed_locked(&mut dyn_guard, &self.revision);
-        while !dyn_guard.in_flight.is_empty() {
-            let elapsed_ms = crate::time::Time::now()
-                .unix_millis()
-                .saturating_sub(start.unix_millis());
-            if elapsed_ms >= timeout_ms {
-                break;
-            }
-            let remaining = time::Duration::from_millis((timeout_ms - elapsed_ms).max(1) as u64);
-            match dyn_guard.res_rx.recv_timeout(remaining) {
-                Ok(msg) => {
-                    dyn_guard.in_flight.remove(&msg.key);
-                    if let Ok(series) = msg.result {
-                        dyn_guard.lru.insert(msg.key, series);
-                        total += 1;
-                        self.revision.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-                Err(_) => break,
-            }
-            total += Self::poll_completed_locked(&mut dyn_guard, &self.revision);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = timeout;
+            self.poll_completed()
         }
-        drop(dyn_guard);
-        drop(self.repaint_cb.lock());
-        total
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let start = crate::time::Time::now();
+            let timeout_ms = timeout.as_millis().min(i64::MAX as u128) as i64;
+            let mut total = self.poll_completed();
+            loop {
+                let elapsed_ms = crate::time::Time::now()
+                    .unix_millis()
+                    .saturating_sub(start.unix_millis());
+                if elapsed_ms >= timeout_ms {
+                    break;
+                }
+                let Ok(mut dyn_guard) = self.dynamic.lock() else {
+                    break;
+                };
+                total += Self::poll_completed_locked(&mut dyn_guard, &self.revision);
+                if dyn_guard.in_flight.is_empty() {
+                    break;
+                }
+                let remaining_ms = (timeout_ms - elapsed_ms).max(1) as u64;
+                let slice = time::Duration::from_millis(remaining_ms.min(5));
+                match dyn_guard.res_rx.recv_timeout(slice) {
+                    Ok(msg) => {
+                        if dyn_guard.in_flight.remove(&msg.key) {
+                            match msg.result {
+                                Ok(series) => {
+                                    dyn_guard.lru.insert(msg.key, series);
+                                    total += 1;
+                                }
+                                Err(err) => {
+                                    log::warn!(
+                                        "Failed to load tile ({}, {}, {:?}): {err}",
+                                        msg.key.partition_id,
+                                        msg.key.signal_id,
+                                        msg.key.resolution
+                                    );
+                                }
+                            }
+                            self.revision.fetch_add(1, Ordering::Relaxed);
+                        }
+                        total += Self::poll_completed_locked(&mut dyn_guard, &self.revision);
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            // Synchronize with any worker thread currently invoking `repaint_cb` under lock.
+            drop(self.repaint_cb.lock());
+            total
+        }
     }
 
     /// Query a signal from a partition at `resolution` without blocking the calling thread.

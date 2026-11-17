@@ -692,6 +692,9 @@ fn resample_sparse_exact(src_ts: &[i64], src_vals: &[f64], target_grid_ms: &[i64
 }
 
 /// Resolve an annotation name or ID against the router's annotations and return `(annotation_name, start_utc_ms..=end_utc_ms)`.
+///
+/// Prefers annotations belonging to the router's currently selected `active_track_day_id` before
+/// falling back to annotations on other track days.
 pub fn resolve_annotation_time_range(
     router: &VirtualTimelineRouter,
     event_query: &str,
@@ -702,17 +705,33 @@ pub fn resolve_annotation_time_range(
     }
     let query_lower = query_trimmed.to_ascii_lowercase();
     let all_annotations = router.query_annotations_in_range(i64::MIN..=i64::MAX)?;
+    let active_day_id = router.timeline().active_track_day_id();
 
-    let matched = all_annotations
-        .iter()
-        .find(|a| {
-            a.id.eq_ignore_ascii_case(query_trimmed) || a.name.eq_ignore_ascii_case(query_trimmed)
-        })
-        .or_else(|| {
-            all_annotations
-                .iter()
-                .find(|a| a.name.to_ascii_lowercase().contains(&query_lower))
-        })
+    let find_in = |filter_active_day: bool| -> Option<&crate::log_parse::auto_annotate::Annotation> {
+        let day_pred = |a: &&crate::log_parse::auto_annotate::Annotation| -> bool {
+            if filter_active_day {
+                active_day_id.is_some_and(|day_id| a.track_day_id == day_id)
+            } else {
+                true
+            }
+        };
+        all_annotations
+            .iter()
+            .filter(day_pred)
+            .find(|a| {
+                a.id.eq_ignore_ascii_case(query_trimmed)
+                    || a.name.eq_ignore_ascii_case(query_trimmed)
+            })
+            .or_else(|| {
+                all_annotations
+                    .iter()
+                    .filter(day_pred)
+                    .find(|a| a.name.to_ascii_lowercase().contains(&query_lower))
+            })
+    };
+
+    let matched = find_in(true)
+        .or_else(|| find_in(false))
         .ok_or_else(|| ExportError::UnknownAnnotation(query_trimmed.to_owned()))?;
 
     let start_ms = matched.start_utc_ms;

@@ -1,6 +1,13 @@
-use crate::{frame, log_parse, superdbc};
-use sha2::Digest as _;
+use crate::{frame, log_parse, storage, superdbc};
 use std::mem;
+
+/// Maximum valid calendar year for RTC / GPS log timestamps.
+pub const MAX_VALID_LOG_YEAR: i32 = 2100;
+/// Minimum valid calendar year for RTC / GPS log timestamps.
+pub const MIN_VALID_LOG_YEAR: i32 = 2020;
+/// Maximum plausible MCU uptime tick counter (`7 days` in milliseconds) used to filter out
+/// uninitialized flash words (`0xFFFF_FFFF`) in corrupted raw `.log` sectors.
+pub const MAX_PLAUSIBLE_MCU_TICKS_MS: u32 = 7 * 86_400_000;
 
 /// Metadata and provenance captured from a single raw `.log` file on disk.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -98,7 +105,7 @@ pub fn parse_rtc_filename_ms(file_name: &str) -> Option<i64> {
     let second: u32 = ss_str.parse().ok()?;
 
     let full_year = 2000 + yy;
-    if !(2020..=2100).contains(&full_year) {
+    if !(MIN_VALID_LOG_YEAR..=MAX_VALID_LOG_YEAR).contains(&full_year) {
         return None;
     }
 
@@ -108,17 +115,11 @@ pub fn parse_rtc_filename_ms(file_name: &str) -> Option<i64> {
 }
 
 pub fn sha256_hex_bytes(bytes: &[u8]) -> String {
-    let digest = sha2::Sha256::digest(bytes);
-    let mut out = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(&mut out, "{byte:02x}");
-    }
-    out
+    storage::compute_sha256_hex(bytes)
 }
 
-/// Decode a raw 16-byte frame buffer (`content`) on an explicit target bus (`explicit_bus_name`),
-/// filtering out corrupted tick values (`ticks_ms > 86_400_000`).
+/// Decode a raw 16-byte frame buffer (`content`) on an explicit target bus (`explicit_bus_name`)
+/// or using the frame's embedded bus ID bits, filtering out uninitialized flash tick values.
 pub fn parse_log_bytes_on_bus(
     content: &[u8],
     file_name: &str,
@@ -147,24 +148,33 @@ pub fn parse_log_bytes_on_bus(
     let mut parsed = Vec::with_capacity(frames.len());
 
     for frame in &frames {
-        if frame.ticks_ms > 86_400_000 {
+        if frame.ticks_ms > MAX_PLAUSIBLE_MCU_TICKS_MS {
             continue;
         }
         let identity = frame.can_identity();
-        let std_id = frame.identity & 0x7FF;
+        let bus_id = frame.bus_id();
+        let legacy_1bit_bus = ((frame.identity >> 31) & 0x1) as u8;
+        let legacy_2bit_bus = ((frame.identity >> 30) & 0x3) as u8;
 
         let decoded_on_bus = target_bus
             .and_then(|bus| {
                 bus.decode(identity, &frame.data)
                     .ok()
-                    .or_else(|| bus.decode(std_id, &frame.data).ok())
                     .map(|d| (bus.name().to_owned(), d))
+            })
+            .or_else(|| {
+                [bus_id, legacy_2bit_bus, legacy_1bit_bus]
+                    .into_iter()
+                    .find_map(|cand_id| {
+                        let bus = database.bus_by_id(cand_id)?;
+                        let decoded = bus.decode(identity, &frame.data).ok()?;
+                        Some((bus.name().to_owned(), decoded))
+                    })
             })
             .or_else(|| {
                 database.buses().iter().find_map(|bus| {
                     bus.decode(identity, &frame.data)
                         .ok()
-                        .or_else(|| bus.decode(std_id, &frame.data).ok())
                         .map(|d| (bus.name().to_owned(), d))
                 })
             });
@@ -349,9 +359,9 @@ mod tests {
     fn test_parse_rtc_filename_ms() {
         let ts = parse_rtc_filename_ms("log-2026-11-12--14-05-30.log").expect("valid RTC filename");
         let expected = chrono::NaiveDate::from_ymd_opt(2026, 11, 12)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(14, 5, 30)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(ts, expected);

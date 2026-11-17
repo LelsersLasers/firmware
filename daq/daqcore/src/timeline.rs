@@ -91,9 +91,14 @@ impl GapFoldedProjection {
         clamped.sort_by_key(|&(s, e)| (s, e));
 
         let mut merged_active: Vec<(i64, i64)> = Vec::new();
+        let merge_threshold_ms = if collapse_idle_gaps {
+            MIN_FOLDABLE_GAP_MS
+        } else {
+            1_000
+        };
         for (s, e) in clamped {
             if let Some(last) = merged_active.last_mut() {
-                if s.saturating_sub(last.1) < MIN_FOLDABLE_GAP_MS {
+                if s.saturating_sub(last.1) < merge_threshold_ms {
                     last.1 = last.1.max(e);
                 } else {
                     merged_active.push((s, e));
@@ -118,12 +123,12 @@ impl GapFoldedProjection {
             };
         }
 
-        // Absorb leading/trailing gaps smaller than MIN_FOLDABLE_GAP_MS into adjacent active spans
-        if merged_active[0].0.saturating_sub(day_start_ms) < MIN_FOLDABLE_GAP_MS {
+        // Absorb leading/trailing gaps smaller than merge_threshold_ms into adjacent active spans
+        if merged_active[0].0.saturating_sub(day_start_ms) < merge_threshold_ms {
             merged_active[0].0 = day_start_ms;
         }
         if let Some(last) = merged_active.last_mut()
-            && day_end_ms.saturating_sub(last.1) < MIN_FOLDABLE_GAP_MS
+            && day_end_ms.saturating_sub(last.1) < merge_threshold_ms
         {
             last.1 = day_end_ms;
         }
@@ -525,12 +530,19 @@ impl MasterTimeline {
         let delta_ms = ((real_dt_secs * self.playback_speed * 1000.0).round() as i64).max(1);
         let cur_setpoint_ms = self.setpoint.unix_millis();
         let cur_end_ms = self.end.unix_millis();
-        let next_ms = cur_setpoint_ms.saturating_add(delta_ms);
+        let mut next_ms = cur_setpoint_ms.saturating_add(delta_ms);
+        if let Some((_, day_max)) = self.day_bounds_ms
+            && cur_setpoint_ms <= day_max
+            && next_ms >= day_max
+        {
+            next_ms = day_max;
+            self.is_playing = false;
+        }
 
         if next_ms <= cur_end_ms {
             self.setpoint = time::Time::from_unix_millis(next_ms);
             self.setpoint_track = Track::Frozen;
-            return true;
+            return next_ms != cur_setpoint_ms;
         }
 
         // Playhead reached or passed the end of the active viewport: extend `end` along with
@@ -542,11 +554,6 @@ impl MasterTimeline {
         self.window_ms = next_ms
             .saturating_sub(self.start.unix_millis())
             .max(MIN_WINDOW_MS);
-        if let Some((day_min, day_max)) = self.day_bounds_ms
-            && next_ms > day_max
-        {
-            self.day_bounds_ms = Some((day_min, next_ms));
-        }
         true
     }
 
@@ -569,11 +576,19 @@ impl MasterTimeline {
         }
 
         if target_ms < self.start.unix_millis() {
+            let mut new_end = target_ms.saturating_add(span_ms);
+            if let Some((_, day_max)) = self.day_bounds_ms {
+                new_end = new_end.min(day_max).max(target_ms);
+            }
             self.start = time::Time::from_unix_millis(target_ms);
-            self.end = time::Time::from_unix_millis(target_ms.saturating_add(span_ms));
+            self.end = time::Time::from_unix_millis(new_end);
         } else if target_ms > self.end.unix_millis() {
+            let mut new_start = target_ms.saturating_sub(span_ms);
+            if let Some((day_min, _)) = self.day_bounds_ms {
+                new_start = new_start.max(day_min).min(target_ms);
+            }
             self.end = time::Time::from_unix_millis(target_ms);
-            self.start = time::Time::from_unix_millis(target_ms.saturating_sub(span_ms));
+            self.start = time::Time::from_unix_millis(new_start);
         }
         self.setpoint = time::Time::from_unix_millis(target_ms);
     }
@@ -808,6 +823,13 @@ impl MasterTimeline {
         self.start = time.min(upper_bound);
         self.start_track = Track::Frozen;
         self.recompute();
+        if self.end_track == Track::Frozen {
+            self.window_ms = self
+                .end
+                .unix_millis()
+                .saturating_sub(self.start.unix_millis())
+                .max(MIN_WINDOW_MS);
+        }
     }
 
     pub fn set_end(&mut self, time: time::Time) {
@@ -824,6 +846,13 @@ impl MasterTimeline {
         self.end = end;
         self.end_track = Track::Frozen;
         self.recompute();
+        if self.start_track == Track::Frozen {
+            self.window_ms = self
+                .end
+                .unix_millis()
+                .saturating_sub(self.start.unix_millis())
+                .max(MIN_WINDOW_MS);
+        }
     }
 
     pub fn set_setpoint(&mut self, time: time::Time) {
@@ -919,7 +948,7 @@ mod tests {
     #[test]
     fn master_timeline_playback_zoom_and_annotation_comparison() {
         let t0 = time::Time::from_unix_millis(1_700_000_000_000);
-        let mut tl = MasterTimeline::live(t0, 30.0).unwrap();
+        let mut tl = MasterTimeline::live(t0, 30.0).expect("valid live timeline");
         tl.snap_to_range_ms(1_000_000, 1_060_000);
         assert_eq!(tl.setpoint_utc_ms(), 1_000_000);
         tl.set_day_bounds_ms(Some((1_000_000, 1_120_000)));

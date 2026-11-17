@@ -1,16 +1,12 @@
 use std::ops;
 
+pub use crate::log_parse::consts::{BUCKET_1HZ_MS, BUCKET_10HZ_MS};
+
 /// Window span threshold above which `Overview1Hz` (1,000 ms buckets) is selected (15 minutes).
-pub const OVERVIEW_1HZ_THRESHOLD_MS: i64 = 15 * 60 * 1_000;
+pub const OVERVIEW_1HZ_THRESHOLD_MS: i64 = crate::log_parse::consts::MAX_PARTITION_SPAN_MS;
 
 /// Window span threshold above which `Overview10Hz` (100 ms buckets) is selected (60 seconds).
 pub const OVERVIEW_10HZ_THRESHOLD_MS: i64 = 60 * 1_000;
-
-/// Bucket width in milliseconds for `Overview1Hz`.
-pub const BUCKET_1HZ_MS: i64 = 1_000;
-
-/// Bucket width in milliseconds for `Overview10Hz`.
-pub const BUCKET_10HZ_MS: i64 = 100;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
@@ -229,13 +225,16 @@ impl SignalSeries {
 
     /// Stitch multiple chronological [`SignalSeries`] chunks into a single series.
     pub fn stitch(chunks: Vec<Self>, requested_resolution: Resolution) -> Self {
-        let non_empty: Vec<Self> = chunks.into_iter().filter(|c| !c.is_empty()).collect();
-        if non_empty.is_empty() {
+        let mut non_empty = chunks.into_iter().filter(|c| !c.is_empty());
+        let Some(first) = non_empty.next() else {
             return Self::empty_for(requested_resolution);
-        }
-        if non_empty.len() == 1 {
-            return non_empty.into_iter().next().unwrap();
-        }
+        };
+        let Some(second) = non_empty.next() else {
+            return first;
+        };
+        let mut all_chunks = vec![first, second];
+        all_chunks.extend(non_empty);
+        let non_empty = all_chunks;
 
         let all_exact = non_empty.iter().all(|c| matches!(c, Self::Exact { .. }));
         let all_envelope = non_empty.iter().all(|c| matches!(c, Self::Envelope(_)));
