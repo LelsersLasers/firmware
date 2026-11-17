@@ -414,7 +414,7 @@ impl MessageCard<'_> {
                             ui.horizontal(|ui| {
                                 if ui
                                     .small_button("📊")
-                                    .on_hover_text("Open in Scope")
+                                    .on_hover_text("Open in YT Plot")
                                     .clicked()
                                 {
                                     open_scope = true;
@@ -437,7 +437,7 @@ impl MessageCard<'_> {
                             ui.horizontal_wrapped(|ui| {
                                 if ui
                                     .small_button("📊")
-                                    .on_hover_text("Open in Scope")
+                                    .on_hover_text("Open in YT Plot")
                                     .clicked()
                                 {
                                     open_scope = true;

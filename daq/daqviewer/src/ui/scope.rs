@@ -206,7 +206,7 @@ impl Scope {
             is_derived: false,
         };
         Self {
-            title: format!("Scope: {signal_id}"),
+            title: format!("YT Plot: {signal_id}"),
             instance_num,
             custom_title: false,
             channels: vec![channel],
@@ -230,7 +230,7 @@ impl Scope {
 
     pub fn new_empty(instance_num: usize) -> Self {
         Self {
-            title: format!("Scope #{instance_num}"),
+            title: format!("YT Plot #{instance_num}"),
             instance_num,
             custom_title: false,
             channels: Vec::new(),
@@ -268,7 +268,7 @@ impl Scope {
             is_derived,
         };
         Self {
-            title: format!("Scope: {signal_id}"),
+            title: format!("YT Plot: {signal_id}"),
             instance_num,
             custom_title: false,
             channels: vec![channel],
@@ -443,13 +443,13 @@ impl Scope {
         }
         match self.channels.as_slice() {
             [] => {
-                self.title = format!("Scope #{}", self.instance_num);
+                self.title = format!("YT Plot #{}", self.instance_num);
             }
             [only] => {
-                self.title = format!("Scope: {}", only.title_label());
+                self.title = format!("YT Plot: {}", only.title_label());
             }
             [first, rest @ ..] => {
-                self.title = format!("Scope: {} +{}", first.title_label(), rest.len());
+                self.title = format!("YT Plot: {} +{}", first.title_label(), rest.len());
             }
         }
     }

@@ -154,6 +154,7 @@ pub struct StateLaneSpec {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "widget", rename_all = "snake_case")]
 pub enum PaneSpec {
+    #[serde(alias = "yt_plot", alias = "ytplot")]
     Scope {
         #[serde(default)]
         title: String,
@@ -970,7 +971,7 @@ fn instantiate_pane_spec(
                 }
             }
             let effective_title = if title.is_empty() {
-                format!("Scope #{id}")
+                format!("YT Plot #{id}")
             } else {
                 title.clone()
             };

@@ -2,7 +2,7 @@
   "id": "trackside_live_debug",
   "schema_version": 1,
   "name": "Trackside Live Debug — CAN Table, Bus Load & States",
-  "description": "Live trackside diagnostic layout with CAN Viewer Table, State & Fault Lanes, Bus Load monitor, Jitter histogram, and live Power/Speed Scope.",
+  "description": "Live trackside diagnostic layout with CAN Viewer Table, State & Fault Lanes, Bus Load monitor, Jitter histogram, and live Power/Speed YT Plot.",
   "custom_formulas": [],
   "layout": {
     "type": "linear",

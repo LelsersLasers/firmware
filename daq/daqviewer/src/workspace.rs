@@ -116,7 +116,7 @@ fn show_workspace_tabs_bar(
                         );
                         for (label, ctor) in [
                             (
-                                "Scope (Time / Distance)",
+                                "YT Plot (Time / Distance)",
                                 widget_constructor::WidgetConstructor::ScopeEmpty,
                             ),
                             (

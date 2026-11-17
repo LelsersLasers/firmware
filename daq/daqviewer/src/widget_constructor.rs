@@ -163,7 +163,7 @@ impl WidgetConstructor {
                 let scope_id = widget_ids.next(WidgetKind::Scope);
                 let scope = widgets::Widget::Scope(ui::scope::Scope::new_multi(
                     scope_id,
-                    format!("Scope: Handling & Understeer #{scope_id}"),
+                    format!("YT Plot: Handling & Understeer #{scope_id}"),
                     vec![
                         (
                             "LWS_Standard.LWS_ANGLE".to_owned(),
@@ -187,7 +187,7 @@ impl WidgetConstructor {
             WidgetConstructor::PresetBatteryOverview => {
                 let scope = widgets::Widget::Scope(ui::scope::Scope::new_multi(
                     id,
-                    format!("Scope: Battery Pack Overview #{id}"),
+                    format!("YT Plot: Battery Pack Overview #{id}"),
                     vec![
                         (
                             "pack_stats.pack_voltage".to_owned(),

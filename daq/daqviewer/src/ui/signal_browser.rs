@@ -366,7 +366,7 @@ fn show_clean_channel_row(
         ));
     }
     row_resp.context_menu(|ui| {
-        if ui.button("Plot in new Scope").clicked() {
+        if ui.button("Plot in new YT Plot").clicked() {
             action_queue.push(action::AppAction::SpawnWidget(
                 drag_payload.to_widget_constructor(),
             ));
@@ -779,7 +779,7 @@ pub fn show_signal_browser(
                     unit: def.unit.clone(),
                 };
                 let tooltip = format!(
-                    "Formula: {} ({})\nExpression: {}\nDependencies: {}\n\nDrag onto a plot, double-click to open in Scope, or right-click to edit",
+                    "Formula: {} ({})\nExpression: {}\nDependencies: {}\n\nDrag onto a plot, double-click to open in YT Plot, or right-click to edit",
                     def.id,
                     def.label,
                     def.expression,
@@ -819,7 +819,7 @@ pub fn show_signal_browser(
                         unit: sig.unit.clone(),
                     };
                     let tooltip = format!(
-                        "Channel: {}\nBus / Node: {} · {}\nUnit: {}\n{}\n\nDrag onto a plot, double-click to open in Scope, or right-click for options",
+                        "Channel: {}\nBus / Node: {} · {}\nUnit: {}\n{}\n\nDrag onto a plot, double-click to open in YT Plot, or right-click for options",
                         canonical_id,
                         group.bus_name,
                         group.transmitter,
@@ -1075,7 +1075,7 @@ pub fn show_formula_editor_modal(
                 if ui
                     .add_enabled(
                         is_valid,
-                        eframe::egui::Button::new("Save & Open in Scope"),
+                        eframe::egui::Button::new("Save & Open in YT Plot"),
                     )
                     .clicked()
                 {
@@ -1240,7 +1240,7 @@ mod tests {
 
         let mut scope = crate::ui::scope::Scope::new_empty(1);
         scope.apply_dragged_signal(dragged);
-        assert_eq!(scope.title, "Scope: dc_bus_power_kw");
+        assert_eq!(scope.title, "YT Plot: dc_bus_power_kw");
 
         let mut gps = crate::ui::gps_plot::GpsPlot::new(1);
         gps.set_overlay_signal("dc_bus_power_kw".to_owned(), "kW".to_owned());

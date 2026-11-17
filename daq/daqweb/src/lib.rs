@@ -149,7 +149,7 @@ mod tests {
                 children: vec![
                     WorkspaceLayoutNode::Pane {
                         spec: PaneSpec::Scope {
-                            title: "Restored Web Scope".to_owned(),
+                            title: "Restored Web YT Plot".to_owned(),
                             custom_title: true,
                             x_mode: ScopeXAxisMode::default(),
                             speed_signal_id: "wheel_speeds.front_left".to_owned(),

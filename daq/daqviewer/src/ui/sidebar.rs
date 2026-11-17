@@ -634,7 +634,7 @@ fn show_widgets_tab(
         &mut app.action_queue,
         &[
             (
-                "Scope (Time / Dist)",
+                "YT Plot (Time / Dist)",
                 widget_constructor::WidgetConstructor::ScopeEmpty,
             ),
             (

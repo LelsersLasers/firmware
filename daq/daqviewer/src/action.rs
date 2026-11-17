@@ -119,7 +119,7 @@ impl AppAction {
             ),
             ("Clear Workspace (Close All Views)", Self::ClearWorkspace),
             (
-                "Spawn Scope",
+                "Spawn YT Plot",
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::ScopeEmpty),
             ),
             (

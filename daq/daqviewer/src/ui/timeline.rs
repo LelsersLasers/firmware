@@ -1066,7 +1066,7 @@ fn show_transport_bar(
                                                             ui.close();
                                                         }
                                                         if ui
-                                                            .small_button("Plot in Scope")
+                                                            .small_button("Plot in YT Plot")
                                                             .clicked()
                                                         {
                                                             timeline_ui.pending_actions.push(
@@ -2106,7 +2106,7 @@ fn show_day_overview_lane(
                                     ));
                                 ui.close();
                             }
-                            if ui.small_button("Plot in Scope").clicked() {
+                            if ui.small_button("Plot in YT Plot").clicked() {
                                 timeline_ui
                                     .pending_actions
                                     .push(action::AppAction::SpawnWidget(
@@ -3096,7 +3096,7 @@ pub fn show_chunk_navigator_contents(
                                 );
                                 ui.close();
                             }
-                            if ui.button("Plot in Scope").clicked() {
+                            if ui.button("Plot in YT Plot").clicked() {
                                 timeline_ui.pending_actions.push(
                                     action::AppAction::SpawnWidget(
                                         widget_constructor::WidgetConstructor::ScopeChannel {
