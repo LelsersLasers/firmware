@@ -12,81 +12,6 @@
       {
         "type": "linear",
         "dir": "vertical",
-        "shares": [0.38, 0.34, 0.28],
-        "children": [
-          {
-            "type": "tabs",
-            "active": 0,
-            "children": [
-              {
-                "type": "pane",
-                "widget": "scope",
-                "title": "Handling Response",
-                "x_mode": "utc_time",
-                "channels": [
-                  { "signal_id": "LWS_Standard.LWS_ANGLE" },
-                  { "signal_id": "IMU_angular_rate.Z_axis" },
-                  { "signal_id": "IMU_acceleration.Y_axis" },
-                  { "signal_id": "vd.understeer_gradient" }
-                ]
-              },
-              {
-                "type": "pane",
-                "widget": "scope",
-                "title": "GPS Ground Speed",
-                "x_mode": "utc_time",
-                "channels": [
-                  { "signal_id": "gps_speed_heading.gps_speed" },
-                  { "signal_id": "vd.wheel_speed_avg_rpm" }
-                ]
-              }
-            ]
-          },
-          {
-            "type": "tabs",
-            "active": 0,
-            "children": [
-              {
-                "type": "pane",
-                "widget": "scope",
-                "title": "Shockpot Displacements vs Time",
-                "x_mode": "utc_time",
-                "channels": [
-                  { "signal_id": "front_shockpots.left" },
-                  { "signal_id": "front_shockpots.right" },
-                  { "signal_id": "rear_shockpots.left" },
-                  { "signal_id": "rear_shockpots.right" }
-                ]
-              },
-              {
-                "type": "pane",
-                "widget": "scope",
-                "title": "Roll Displacement (Distance Mode)",
-                "x_mode": "track_distance",
-                "speed_signal_id": "gps_speed_heading.gps_speed",
-                "channels": [
-                  { "signal_id": "vd.front_roll_displacement_mm" },
-                  { "signal_id": "vd.rear_roll_displacement_mm" }
-                ]
-              }
-            ]
-          },
-          {
-            "type": "pane",
-            "widget": "state_lane",
-            "title": "Vehicle State & Fault Lanes",
-            "lanes": [
-              { "signal_id": "main_hb.car_state" },
-              { "signal_id": "vcu_driver_request.vcu_mode" },
-              { "signal_id": "inva_diagnostics.amk_state" },
-              { "signal_id": "a_box_fault_sync.IMD" }
-            ]
-          }
-        ]
-      },
-      {
-        "type": "linear",
-        "dir": "vertical",
         "shares": [0.52, 0.48],
         "children": [
           {
@@ -146,12 +71,76 @@
               {
                 "type": "pane",
                 "widget": "xy_scatter",
-                "title": "Shockpot Displacement vs Lateral Acceleration",
+                "title": "Roll Displacement vs Lateral Acceleration",
                 "x_signal": "IMU_acceleration.Y_axis",
-                "y_signal": "front_shockpots.left",
-                "z_color_signal": "front_shockpots.right",
+                "y_signal": "vd.front_roll_displacement_mm",
+                "z_color_signal": "vd.rear_roll_displacement_mm",
                 "equal_aspect": false,
                 "show_g_rings": false
+              }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Shockpot Displacements vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "front_shockpots.left" },
+                  { "signal_id": "front_shockpots.right" },
+                  { "signal_id": "rear_shockpots.left" },
+                  { "signal_id": "rear_shockpots.right" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Roll Displacement (Distance Mode)",
+                "x_mode": "track_distance",
+                "speed_signal_id": "gps_speed_heading.gps_speed",
+                "channels": [
+                  { "signal_id": "vd.front_roll_displacement_mm" },
+                  { "signal_id": "vd.rear_roll_displacement_mm" }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.52, 0.48],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Handling Response",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "LWS_Standard.LWS_ANGLE" },
+                  { "signal_id": "IMU_angular_rate.Z_axis" },
+                  { "signal_id": "IMU_acceleration.Y_axis" },
+                  { "signal_id": "vd.understeer_gradient" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "GPS Ground Speed",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "gps_speed_heading.gps_speed" },
+                  { "signal_id": "vd.wheel_speed_avg_rpm" }
+                ]
               }
             ]
           },
