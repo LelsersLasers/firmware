@@ -20,9 +20,9 @@
             "title": "Vehicle-Axis Accelerometer vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "IMU_acceleration.X_axis", "label": "Accel X", "unit": "g" },
-              { "signal_id": "IMU_acceleration.Y_axis", "label": "Accel Y", "unit": "g" },
-              { "signal_id": "IMU_acceleration.Z_axis", "label": "Accel Z", "unit": "g" }
+              { "signal_id": "IMU_acceleration.X_axis" },
+              { "signal_id": "IMU_acceleration.Y_axis" },
+              { "signal_id": "IMU_acceleration.Z_axis" }
             ]
           },
           {
@@ -31,9 +31,9 @@
             "title": "Vehicle-Axis Gyroscope vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "IMU_angular_rate.X_axis", "label": "Gyro X (Roll)", "unit": "deg/s" },
-              { "signal_id": "IMU_angular_rate.Y_axis", "label": "Gyro Y (Pitch)", "unit": "deg/s" },
-              { "signal_id": "IMU_angular_rate.Z_axis", "label": "Gyro Z (Yaw)", "unit": "deg/s" }
+              { "signal_id": "IMU_angular_rate.X_axis" },
+              { "signal_id": "IMU_angular_rate.Y_axis" },
+              { "signal_id": "IMU_angular_rate.Z_axis" }
             ]
           },
           {
@@ -42,9 +42,9 @@
             "title": "Pedal Commands vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "pedals.throttle", "label": "Throttle", "unit": "%" },
-              { "signal_id": "pedals.regen", "label": "Regen", "unit": "%" },
-              { "signal_id": "pedals.brake", "label": "Brake", "unit": "%" }
+              { "signal_id": "pedals.throttle" },
+              { "signal_id": "pedals.regen" },
+              { "signal_id": "pedals.brake" }
             ]
           }
         ]
@@ -60,8 +60,8 @@
             "title": "Steering Sensor vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "LWS_Standard.LWS_ANGLE", "label": "Steering Angle", "unit": "deg" },
-              { "signal_id": "LWS_Standard.LWS_SPEED", "label": "Steering Speed", "unit": "deg/s" }
+              { "signal_id": "LWS_Standard.LWS_ANGLE" },
+              { "signal_id": "LWS_Standard.LWS_SPEED" }
             ]
           },
           {
@@ -70,12 +70,12 @@
             "title": "GPS Sensor vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Speed", "unit": "m/s" },
-              { "signal_id": "gps_speed_heading.gps_heading", "label": "GPS Heading", "unit": "deg" },
-              { "signal_id": "gps_velocity.gps_vel_e", "label": "GPS Vel East", "unit": "m/s" },
-              { "signal_id": "gps_velocity.gps_vel_n", "label": "GPS Vel North", "unit": "m/s" },
-              { "signal_id": "gps_coordinates.latitude", "label": "Latitude", "unit": "deg" },
-              { "signal_id": "gps_coordinates.longitude", "label": "Longitude", "unit": "deg" }
+              { "signal_id": "gps_speed_heading.gps_speed" },
+              { "signal_id": "gps_speed_heading.gps_heading" },
+              { "signal_id": "gps_velocity.gps_vel_e" },
+              { "signal_id": "gps_velocity.gps_vel_n" },
+              { "signal_id": "gps_coordinates.latitude" },
+              { "signal_id": "gps_coordinates.longitude" }
             ]
           },
           {
@@ -84,10 +84,10 @@
             "title": "Shockpot Displacements vs Time",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "front_shockpots.left", "label": "FL Shockpot", "unit": "mm" },
-              { "signal_id": "front_shockpots.right", "label": "FR Shockpot", "unit": "mm" },
-              { "signal_id": "rear_shockpots.left", "label": "RL Shockpot", "unit": "mm" },
-              { "signal_id": "rear_shockpots.right", "label": "RR Shockpot", "unit": "mm" }
+              { "signal_id": "front_shockpots.left" },
+              { "signal_id": "front_shockpots.right" },
+              { "signal_id": "rear_shockpots.left" },
+              { "signal_id": "rear_shockpots.right" }
             ]
           }
         ]

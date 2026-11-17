@@ -121,9 +121,9 @@ pub enum LinearSplitDir {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScopeChannelSpec {
     pub signal_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub label: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub unit: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_rgb: Option<[u8; 3]>,
@@ -146,7 +146,7 @@ pub struct ScopeAxisSpec {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StateLaneSpec {
     pub signal_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub label: String,
 }
 
@@ -163,6 +163,10 @@ pub enum PaneSpec {
         x_mode: ui::scope::ScopeXAxisMode,
         #[serde(default = "default_speed_signal")]
         speed_signal_id: String,
+        #[serde(default, rename = "floating_legend")]
+        show_legend: bool,
+        #[serde(default)]
+        plot: ui::scope_settings::ScopeConfig,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         y_bounds: Option<[f64; 2]>,
         #[serde(default)]
@@ -206,7 +210,7 @@ pub enum PaneSpec {
         title: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color_signal: Option<String>,
-        #[serde(default)]
+        #[serde(default, skip_serializing)]
         color_unit: String,
         #[serde(default = "default_gps_max_dist")]
         max_distance_meters: f64,
@@ -758,8 +762,8 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                     let [r, g, b, _] = ch.color.to_srgba_unmultiplied();
                     ScopeChannelSpec {
                         signal_id: ch.signal_id.clone(),
-                        label: ch.label.clone(),
-                        unit: ch.unit.clone(),
+                        label: String::new(),
+                        unit: String::new(),
                         color_rgb: Some([r, g, b]),
                     }
                 })
@@ -770,6 +774,8 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                 custom_title: scope.is_custom_title(),
                 x_mode: scope.x_axis_mode,
                 speed_signal_id: scope.speed_signal_id.clone(),
+                show_legend: scope.show_legend,
+                plot: scope.config.clone(),
                 y_bounds,
                 channels,
                 axes: Vec::new(),
@@ -781,7 +787,7 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
                 .iter()
                 .map(|l| StateLaneSpec {
                     signal_id: l.signal_id.clone(),
-                    label: l.label.clone(),
+                    label: String::new(),
                 })
                 .collect();
             PaneSpec::StateLane {
@@ -801,14 +807,11 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
             show_g_rings: scatter.show_g_rings,
         },
         widgets::Widget::GpsPlot(gps) => {
-            let (color_signal, color_unit) = match gps.overlay_signal() {
-                Some((sig, unit)) => (Some(sig.clone()), unit.clone()),
-                None => (None, String::new()),
-            };
+            let color_signal = gps.overlay_signal().map(|(sig, _)| sig.clone());
             PaneSpec::GpsPlot {
                 title: gps.title.clone(),
                 color_signal,
-                color_unit,
+                color_unit: String::new(),
                 max_distance_meters: gps.max_distance_meters(),
             }
         }
@@ -916,6 +919,8 @@ fn instantiate_pane_spec(
             custom_title,
             x_mode,
             speed_signal_id,
+            show_legend,
+            plot,
             y_bounds,
             channels,
             axes,
@@ -929,11 +934,7 @@ fn instantiate_pane_spec(
                         Some([r, g, b]) => eframe::egui::Color32::from_rgb(r, g, b),
                         None => ui::scope::CHANNEL_PALETTE[idx % ui::scope::CHANNEL_PALETTE.len()],
                     };
-                    let label = if ch.label.is_empty() {
-                        sig_id.clone()
-                    } else {
-                        ch.label.clone()
-                    };
+                    let label = sig_id.clone();
                     resolved_channels.push(ui::scope::ScopeChannel {
                         is_derived: !sig_id.contains('.')
                             || sig_id.starts_with("battery.")
@@ -941,7 +942,7 @@ fn instantiate_pane_spec(
                             || sig_id.starts_with("thermals."),
                         signal_id: sig_id,
                         label,
-                        unit: ch.unit.clone(),
+                        unit: String::new(),
                         color,
                         key: None,
                     });
@@ -979,7 +980,7 @@ fn instantiate_pane_spec(
             } else {
                 daqcore::analysis::canonicalize_signal_ref(speed_signal_id)
             };
-            Some(widgets::Widget::Scope(ui::scope::Scope::new_configured(
+            let mut scope = ui::scope::Scope::new_configured(
                 id,
                 effective_title,
                 *custom_title && !title.is_empty(),
@@ -987,7 +988,29 @@ fn instantiate_pane_spec(
                 *x_mode,
                 speed_sig,
                 y_bounds_override,
-            )))
+            );
+            scope.show_legend = *show_legend;
+            scope.config = plot.clone();
+            // Honor existing shorthand axis assignments as well as new plot settings.
+            for axis in axes {
+                let base = if axis.id.is_empty() {
+                    &axis.unit
+                } else {
+                    &axis.id
+                };
+                for signal in &axis.signals {
+                    let signal = daqcore::analysis::canonicalize_signal_ref(signal);
+                    scope.config.channels.entry(signal).or_default().axis = base.clone();
+                }
+                let settings = scope.config.axes.entry(format!("0|{base}")).or_default();
+                settings.side = match axis.position.as_str() {
+                    "left" => ui::scope_settings::AxisSide::Left,
+                    "right" => ui::scope_settings::AxisSide::Right,
+                    _ => settings.side,
+                };
+            }
+            scope.config.sanitize();
+            Some(widgets::Widget::Scope(scope))
         }
         PaneSpec::StateLane {
             title,
@@ -1000,12 +1023,7 @@ fn instantiate_pane_spec(
             if !lanes.is_empty() {
                 for l in lanes {
                     let sig_id = daqcore::analysis::canonicalize_signal_ref(&l.signal_id);
-                    let lbl = if l.label.is_empty() {
-                        sig_id.clone()
-                    } else {
-                        l.label.clone()
-                    };
-                    pairs.push((sig_id, lbl));
+                    pairs.push((sig_id.clone(), sig_id));
                 }
             } else {
                 for raw_sig in signals {
@@ -1059,7 +1077,7 @@ fn instantiate_pane_spec(
         PaneSpec::GpsPlot {
             title,
             color_signal,
-            color_unit,
+            color_unit: _,
             max_distance_meters,
         } => {
             let id = widget_ids.next(widget_constructor::WidgetKind::GpsPlot);
@@ -1071,7 +1089,7 @@ fn instantiate_pane_spec(
                 Some(sig) if !sig.trim().is_empty() => {
                     gps.set_overlay_signal(
                         daqcore::analysis::canonicalize_signal_ref(sig),
-                        color_unit.clone(),
+                        String::new(),
                     );
                 }
                 _ => gps.clear_overlay_signal(),
@@ -1697,5 +1715,66 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn scope_styles_axes_and_stacked_layout_survive_workspace_reload() {
+        use ui::scope_settings::{AxisConfig, AxisSide, SignalStyle, TraceMode};
+        let mut scope = ui::scope::Scope::new_multi(
+            1,
+            "Styled",
+            vec![(
+                "message.signal".to_owned(),
+                "Signal".to_owned(),
+                "V".to_owned(),
+            )],
+        );
+        scope.config.stacked = true;
+        scope.config.lanes = 3;
+        scope.config.channels.insert(
+            "message.signal".to_owned(),
+            SignalStyle {
+                width: 3.5,
+                opacity: 0.4,
+                mode: TraceMode::Steps,
+                points: true,
+                lane: 2,
+                axis: "Independent".to_owned(),
+                ..Default::default()
+            },
+        );
+        scope.config.axes.insert(
+            "2|Independent".to_owned(),
+            AxisConfig {
+                range: Some([100.0, 600.0]),
+                side: AxisSide::Right,
+                color: Some([220, 30, 90]),
+                label: "Voltage".to_owned(),
+            },
+        );
+        let expected = scope.config.clone();
+        let spec = capture_widget_spec(&widgets::Widget::Scope(scope));
+        let json = serde_json::to_string(&spec).unwrap();
+        let restored: PaneSpec = serde_json::from_str(&json).unwrap();
+        let mut platform = NoopViewerPlatform;
+        let widget =
+            instantiate_pane_spec(&restored, &mut widget_ids::WidgetIds::new(), &mut platform)
+                .expect("instantiate scope");
+        let widgets::Widget::Scope(scope) = widget else {
+            panic!("Expected scope");
+        };
+        assert_eq!(scope.config, expected);
+        let mut legacy = serde_json::to_value(restored).unwrap();
+        legacy.as_object_mut().unwrap().remove("plot");
+        let widget = instantiate_pane_spec(
+            &serde_json::from_value(legacy).unwrap(),
+            &mut widget_ids::WidgetIds::new(),
+            &mut platform,
+        )
+        .expect("instantiate legacy scope");
+        let widgets::Widget::Scope(scope) = widget else {
+            panic!("Expected scope");
+        };
+        assert_eq!(scope.config, ui::scope_settings::ScopeConfig::default());
     }
 }

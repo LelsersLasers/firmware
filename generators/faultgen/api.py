@@ -138,7 +138,9 @@ class FaultGenerator:
                                 SignalDeclaration(
                                     signal_name=fault.name,
                                     data_type="bool",
+                                    description=fault.lcd_message,
                                     length=1,
+                                    fault_priority=fault.priority,
                                 )
                                 for fault in module.faults
                             ],

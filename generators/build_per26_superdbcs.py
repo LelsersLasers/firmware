@@ -154,6 +154,7 @@ def parse_dbc_file(dbc_path: Path, bus_id: int, baud_rate: int = 500000, period_
                 "unit": unit,
                 "choices": choices,
                 "display_format": None,
+                "fault_priority": None,
             })
 
     for m_cm in cm_bo_re.finditer(text):
@@ -233,6 +234,16 @@ from mapper import map_hardware
 nodes = parse_all()
 bus_configs = load_bus_configs()
 custom_types = load_custom_types()
+fault_meta = {}
+for n in nodes.values() if isinstance(nodes, dict) else nodes:
+    for f in getattr(n, "faults", []) or []:
+        f_name = getattr(f, "name", None) or (f.get("fault_name") if isinstance(f, dict) else None)
+        f_prio = getattr(f, "priority", None) or (f.get("priority") if isinstance(f, dict) else None)
+        f_lcd = getattr(f, "lcd_message", None) or (f.get("lcd_message") if isinstance(f, dict) else "")
+        if f_name and f_prio:
+            p_lower = str(f_prio).strip().lower()
+            if p_lower in ("warning", "error", "fatal"):
+                fault_meta[str(f_name)] = {"priority": p_lower, "lcd_message": str(f_lcd or "")}
 augment_system_with_faults(nodes, bus_configs, custom_types)
 link_all(nodes)
 mappings = map_hardware(nodes, bus_configs)
@@ -281,9 +292,10 @@ for bus_name, view in context.busses.items():
             bit_len = int(sig.length)
             if byte_order == "big_endian" and (start_bit % 8 == 0) and bit_len >= 8:
                 start_bit += 7
+            f_info = fault_meta.get(sig.name) if msg.name.endswith("_fault_sync") else None
             sigs.append({
                 "signal_name": sig.name,
-                "description": sig.desc or "",
+                "description": (sig.desc or (f_info["lcd_message"] if f_info else "")),
                 "data_type": sig.datatype,
                 "raw_type": raw_t,
                 "start_bit": start_bit,
@@ -295,6 +307,7 @@ for bus_name, view in context.busses.items():
                 "unit": sig.unit or "",
                 "choices": choices,
                 "display_format": None,
+                "fault_priority": f_info["priority"] if f_info else None,
             })
         if not sigs:
             continue
@@ -410,6 +423,7 @@ def build_2025_09_20_superdbc() -> dict:
                             "unit": sig.get("unit", ""),
                             "choices": choices,
                             "display_format": None,
+                            "fault_priority": None,
                         })
                         bit_pos += bit_len
                     if not sigs:
@@ -440,22 +454,102 @@ def build_2025_09_20_superdbc() -> dict:
     }
 
 
+def load_canonical_fault_metadata() -> dict[str, tuple[str, str]]:
+    """Collect (fault_priority, lcd_message) from late-PER26 (28d6bfa2) and current node configs."""
+    meta: dict[str, tuple[str, str]] = {}
+    try:
+        files_28d = subprocess.check_output(
+            ["git", "ls-tree", "-r", "--name-only", "28d6bfa2", "can_library/configs/nodes"]
+        ).decode().splitlines()
+        for f in sorted(files_28d):
+            if not f.endswith(".json"):
+                continue
+            data = json.loads(subprocess.check_output(["git", "show", f"28d6bfa2:{f}"]).decode())
+            for item in data.get("faults", []):
+                fname = item.get("fault_name")
+                prio = str(item.get("priority", "")).strip().lower()
+                lcd = str(item.get("lcd_message", "")).strip()
+                if fname and prio in ("warning", "error", "fatal"):
+                    meta[fname] = (prio, lcd)
+    except Exception:
+        pass
+
+    nodes_dir = REPO_ROOT / "generators" / "configs" / "nodes"
+    if nodes_dir.is_dir():
+        for p in sorted(nodes_dir.glob("*.json")):
+            data = json.loads(p.read_text(encoding="utf-8"))
+            for item in data.get("faults", []):
+                fname = item.get("fault_name")
+                prio = str(item.get("priority", "")).strip().lower()
+                lcd = str(item.get("lcd_message", "")).strip()
+                if fname and prio in ("warning", "error", "fatal"):
+                    meta.setdefault(fname, (prio, lcd))
+    return meta
+
+
+def enrich_buses_fault_metadata(buses: dict, fault_meta: dict[str, tuple[str, str]]) -> None:
+    for bus in buses.values():
+        for msg in bus.get("messages", []):
+            m_name = msg.get("message_name", "")
+            is_fault_sync = m_name.endswith("_fault_sync")
+            for sig in msg.get("signals", []):
+                sig.setdefault("fault_priority", None)
+                s_name = sig.get("signal_name", "")
+                if is_fault_sync and s_name in fault_meta:
+                    prio, lcd = fault_meta[s_name]
+                    sig["fault_priority"] = prio
+                    if not sig.get("description") and lcd:
+                        sig["description"] = lcd
+                elif is_fault_sync and s_name.startswith("SDC"):
+                    sig["fault_priority"] = sig.get("fault_priority") or "fatal"
+
+
 def merge_dbc_with_periods(dbc_bus: dict, canpiler_bus: dict | None) -> dict:
     if not canpiler_bus:
         return dbc_bus
     period_by_name = {m["message_name"]: m["nominal_period_ms"] for m in canpiler_bus["messages"]}
     prio_by_name = {m["message_name"]: m["priority"] for m in canpiler_bus["messages"]}
+    sig_meta_by_msg = {
+        m["message_name"]: {s["signal_name"]: s for s in m.get("signals", [])}
+        for m in canpiler_bus["messages"]
+    }
     for m in dbc_bus["messages"]:
-        if m["message_name"] in period_by_name and period_by_name[m["message_name"]] is not None:
-            m["nominal_period_ms"] = period_by_name[m["message_name"]]
-        if m["message_name"] in prio_by_name:
-            m["priority"] = prio_by_name[m["message_name"]]
+        m_name = m["message_name"]
+        if m_name in period_by_name and period_by_name[m_name] is not None:
+            m["nominal_period_ms"] = period_by_name[m_name]
+        if m_name in prio_by_name:
+            m["priority"] = prio_by_name[m_name]
+        if m_name in sig_meta_by_msg:
+            for s in m.get("signals", []):
+                cp_sig = sig_meta_by_msg[m_name].get(s["signal_name"])
+                if cp_sig:
+                    if cp_sig.get("fault_priority"):
+                        s["fault_priority"] = cp_sig["fault_priority"]
+                    if not s.get("description") and cp_sig.get("description"):
+                        s["description"] = cp_sig["description"]
     return dbc_bus
 
 
 def main() -> None:
+    fault_meta = load_canonical_fault_metadata()
+
+    # Load base superdbc_per26.json before any overwrites (or from archived store if cleared by generate.py)
+    per26_path = SUPERDBC_DIR / "superdbc_per26.json"
+    archived_per26 = (
+        REPO_ROOT
+        / "daq/cloud_store/superdbcs/55be8b194b82ef2a7f994ab1383128e94060c706780989bc28dfc70b2c158155.json"
+    )
+    if per26_path.is_file():
+        base_0906 = json.loads(per26_path.read_text(encoding="utf-8"))
+    elif archived_per26.is_file():
+        base_0906 = json.loads(archived_per26.read_text(encoding="utf-8"))
+    else:
+        raw_head = subprocess.check_output(["git", "show", "HEAD:superdbc/superdbc_per26.json"]).decode()
+        base_0906 = json.loads(raw_head)
+
     # 1. 2025-09-20
     buses_2025_09_20 = build_2025_09_20_superdbc()
+    enrich_buses_fault_metadata(buses_2025_09_20, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2025_09_20.json", "per25_2025_09_20_6a1e891d", buses_2025_09_20)
 
     # 2. 2026-04-05 (0b66af8c + MCAN_9e40af6.dbc + VCAN_9e40af6.dbc)
@@ -466,6 +560,7 @@ def main() -> None:
         "VCAN": merge_dbc_with_periods(vcan_0405, buses_0405_cp.get("VCAN")),
         "MCAN": merge_dbc_with_periods(mcan_0405, buses_0405_cp.get("MCAN")),
     }
+    enrich_buses_fault_metadata(buses_2026_04_05, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_04_05.json", "per26_2026_04_05_9e40af6", buses_2026_04_05)
 
     # 3. 2026-04-11 (422778b3 + MCAN_a66e8ea.dbc + VCAN_4f24069.dbc + CT3.dbc + CT3_2.dbc)
@@ -483,6 +578,7 @@ def main() -> None:
         "MCAN": merge_dbc_with_periods(mcan_0411, buses_0412_cp.get("MCAN")),
         "TCAN": copy.deepcopy(tcan_combined),
     }
+    enrich_buses_fault_metadata(buses_2026_04_11, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_04_11.json", "per26_2026_04_11_4f24069_ct3", buses_2026_04_11)
 
     # 4. 2026-04-12 (422778b3 + MCAN_4f24069.dbc + VCAN_4f24069.dbc + CT3 + CT3_2)
@@ -492,22 +588,25 @@ def main() -> None:
         "MCAN": merge_dbc_with_periods(mcan_0412, buses_0412_cp.get("MCAN")),
         "TCAN": copy.deepcopy(tcan_combined),
     }
+    enrich_buses_fault_metadata(buses_2026_04_12, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_04_12.json", "per26_2026_04_12_4f24069_ct3", buses_2026_04_12)
 
     # 5. 2026-05-03 (efb4ec9f)
     buses_0503, _ = build_from_canpiler_commit("efb4ec9f", "can_library")
+    enrich_buses_fault_metadata(buses_0503, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_05_03.json", "per26_2026_05_03_efb4ec9f", buses_0503)
 
     # 6. 2026-05-10 (15b74a63)
     buses_0510, _ = build_from_canpiler_commit("15b74a63", "can_library")
+    enrich_buses_fault_metadata(buses_0510, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_05_10.json", "per26_2026_05_10_15b74a63", buses_0510)
 
     # 7. 2026-06-14 (28d6bfa2)
     buses_0614, _ = build_from_canpiler_commit("28d6bfa2", "can_library")
+    enrich_buses_fault_metadata(buses_0614, fault_meta)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_06_14.json", "per26_2026_06_14_28d6bfa2", buses_0614)
 
     # 8. Canonical superdbc_per26.json & 2026-09-06 (calibrated vbatt_adc Volts + TCAN CT3 WFT)
-    base_0906 = json.loads((SUPERDBC_DIR / "superdbc_per26.json").read_text(encoding="utf-8"))
     buses_0906 = copy.deepcopy(base_0906["buses"])
     buses_0906["TCAN"] = copy.deepcopy(tcan_combined)
     for b in buses_0906.values():
@@ -519,6 +618,7 @@ def main() -> None:
                         s["scale"] = 300.0 * 0.5 * (5.7 / 4.7) * (3.3 / 4095.0)
                         s["unit"] = "V"
                         s["description"] = "VBATT analog pack voltage reading"
+    enrich_buses_fault_metadata(buses_0906, fault_meta)
     version_hash_0906 = base_0906.get("versions", {}).get("hash") or base_0906.get("source_hash", "per26_canonical")
     write_superdbc(SUPERDBC_DIR / "superdbc_per26.json", version_hash_0906, buses_0906)
     write_superdbc(SUPERDBC_DIR / "superdbc_2026_09_06.json", "per26_2026_09_06_vbatt_fixed", buses_0906)

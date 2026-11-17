@@ -645,6 +645,8 @@ async fn daqweb_routes_preload_tile_and_export_e2e() {
                     custom_title: true,
                     x_mode: daqviewer::ui::scope::ScopeXAxisMode::default(),
                     speed_signal_id: "IMU_acceleration.X_axis".to_owned(),
+                    show_legend: true,
+                    plot: Default::default(),
                     y_bounds: None,
                     channels: vec![daqviewer::workspace_io::ScopeChannelSpec {
                         signal_id: "custom.double_accel_x".to_owned(),

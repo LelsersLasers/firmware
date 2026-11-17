@@ -16,6 +16,7 @@ from core.declarations import (
     CustomTypeDeclaration,
     EnumChoiceDeclaration,
     DisplayFormat,
+    FaultPriority,
 )
 from core.contributions import RxDeclaration, TxDeclaration
 
@@ -68,6 +69,7 @@ class CompiledSignal:
     is_signed: bool
     mask: int
     display_format: DisplayFormat | None = None
+    fault_priority: FaultPriority | None = None
 
     @property
     def macro_name(self) -> str:

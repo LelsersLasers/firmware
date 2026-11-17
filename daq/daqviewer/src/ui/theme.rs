@@ -1,11 +1,13 @@
 const NOMINAL_DARK_THEME_PATH: &str = "themes/nominal_dark.toml";
 const NOMINAL_LIGHT_THEME_PATH: &str = "themes/nominal_light.toml";
+const ROSE_PINE_MOON_THEME_PATH: &str = "themes/rose_pine_moon.toml";
 const NORD_THEME_PATH: &str = "themes/nord.toml";
 const CATPPUCCIN_THEME_PATH: &str = "themes/catppuccin.toml";
 const ONEDARK_THEME_PATH: &str = "themes/onedark.toml";
 
 const NOMINAL_DARK_THEME_SOURCE: &str = include_str!("../../themes/nominal_dark.toml");
 const NOMINAL_LIGHT_THEME_SOURCE: &str = include_str!("../../themes/nominal_light.toml");
+const ROSE_PINE_MOON_THEME_SOURCE: &str = include_str!("../../themes/rose_pine_moon.toml");
 const NORD_THEME_SOURCE: &str = include_str!("../../themes/nord.toml");
 const CATPPUCCIN_THEME_SOURCE: &str = include_str!("../../themes/catppuccin.toml");
 const ONEDARK_THEME_SOURCE: &str = include_str!("../../themes/onedark.toml");
@@ -13,19 +15,27 @@ const ONEDARK_THEME_SOURCE: &str = include_str!("../../themes/onedark.toml");
 #[derive(Copy, Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub enum ThemeSelection {
     #[default]
-    #[serde(alias = "NominalDark", alias = "nominal_dark")]
-    Default,
-    #[serde(alias = "nominal_light", alias = "Light")]
+    #[serde(alias = "nominal_light", alias = "Light", alias = "light")]
     NominalLight,
+    #[serde(
+        alias = "NominalDark",
+        alias = "nominal_dark",
+        alias = "Dark",
+        alias = "dark"
+    )]
+    Default,
+    #[serde(alias = "rose_pine_moon", alias = "RosePine")]
+    RosePineMoon,
     Nord,
     Catppuccin,
     OneDark,
 }
 
 impl ThemeSelection {
-    pub const ALL: [Self; 5] = [
-        Self::Default,
+    pub const ALL: [Self; 6] = [
         Self::NominalLight,
+        Self::Default,
+        Self::RosePineMoon,
         Self::Nord,
         Self::Catppuccin,
         Self::OneDark,
@@ -33,8 +43,9 @@ impl ThemeSelection {
 
     pub fn get_name(&self) -> &'static str {
         match self {
-            Self::Default => "Nominal Dark",
-            Self::NominalLight => "Nominal Light",
+            Self::Default => "Dark",
+            Self::NominalLight => "Light",
+            Self::RosePineMoon => "Rosé Pine Moon",
             Self::Nord => "Nord",
             Self::Catppuccin => "Catppuccin",
             Self::OneDark => "One Dark",
@@ -57,6 +68,9 @@ impl ThemeSelection {
             Self::NominalLight => {
                 load_builtin_theme(NOMINAL_LIGHT_THEME_PATH, NOMINAL_LIGHT_THEME_SOURCE)
             }
+            Self::RosePineMoon => {
+                load_builtin_theme(ROSE_PINE_MOON_THEME_PATH, ROSE_PINE_MOON_THEME_SOURCE)
+            }
             Self::Nord => load_builtin_theme(NORD_THEME_PATH, NORD_THEME_SOURCE),
             Self::Catppuccin => load_builtin_theme(CATPPUCCIN_THEME_PATH, CATPPUCCIN_THEME_SOURCE),
             Self::OneDark => load_builtin_theme(ONEDARK_THEME_PATH, ONEDARK_THEME_SOURCE),
@@ -67,7 +81,8 @@ impl ThemeSelection {
     pub fn next(&self) -> Self {
         match self {
             Self::Default => Self::NominalLight,
-            Self::NominalLight => Self::Nord,
+            Self::NominalLight => Self::RosePineMoon,
+            Self::RosePineMoon => Self::Nord,
             Self::Nord => Self::Catppuccin,
             Self::Catppuccin => Self::OneDark,
             Self::OneDark => Self::Default,
@@ -122,22 +137,22 @@ pub struct ThemeColors {
 
 impl Default for ThemeColors {
     fn default() -> Self {
-        Self {
-            background: "#0d1017".to_string(),
-            panel_bg: "#131720".to_string(),
-            text: "#e6edf3".to_string(),
-            accent: "#38bdf8".to_string(),
-            button: "#1c2230".to_string(),
-            button_hover: "#283044".to_string(),
-            button_text: "#d8e1eb".to_string(),
-            border: Some("#232a38".to_string()),
-            muted_text: Some("#7d8590".to_string()),
-            error: Some("#f85149".to_string()),
-            warning: Some("#d29922".to_string()),
-            success: Some("#3fb950".to_string()),
-            info: Some("#58a6ff".to_string()),
-            is_light: false,
-        }
+        ThemeColors::from_toml(NOMINAL_LIGHT_THEME_SOURCE).unwrap_or(Self {
+            background: "#f8fafc".to_string(),
+            panel_bg: "#ffffff".to_string(),
+            text: "#0f172a".to_string(),
+            accent: "#0284c7".to_string(),
+            button: "#f1f5f9".to_string(),
+            button_hover: "#e2e8f0".to_string(),
+            button_text: "#1e293b".to_string(),
+            border: Some("#cbd5e1".to_string()),
+            muted_text: Some("#64748b".to_string()),
+            error: Some("#dc2626".to_string()),
+            warning: Some("#d97706".to_string()),
+            success: Some("#16a34a".to_string()),
+            info: Some("#0284c7".to_string()),
+            is_light: true,
+        })
     }
 }
 
@@ -229,6 +244,80 @@ impl ThemeColors {
             .as_deref()
             .map(Self::parse_hex)
             .unwrap_or(eframe::egui::Color32::from_rgb(209, 154, 102))
+    }
+
+    /// High-contrast vertical playhead line and marker color for both dark and light themes.
+    pub fn playhead_color(&self) -> eframe::egui::Color32 {
+        if self.is_light {
+            eframe::egui::Color32::from_rgb(217, 119, 6) // Deep amber-orange (#d97706)
+        } else {
+            eframe::egui::Color32::from_rgb(250, 204, 21) // Crisp gold-yellow (#facc15)
+        }
+    }
+
+    /// High-contrast linked hover crosshair color for both dark and light themes.
+    pub fn hover_cursor_color(&self) -> eframe::egui::Color32 {
+        if self.is_light {
+            eframe::egui::Color32::from_rgba_unmultiplied(37, 99, 235, 195) // Royal blue (#2563eb)
+        } else {
+            eframe::egui::Color32::from_rgba_unmultiplied(125, 211, 252, 210) // Sky cyan (#7dd3fc)
+        }
+    }
+
+    /// Theme-aware semantic color for a [`daqcore::storage::FaultSeverity`] level.
+    pub fn fault_severity_color(
+        &self,
+        severity: daqcore::storage::FaultSeverity,
+    ) -> eframe::egui::Color32 {
+        match (self.is_light, severity) {
+            (true, daqcore::storage::FaultSeverity::Fatal) => {
+                eframe::egui::Color32::from_rgb(190, 18, 60) // #be123c
+            }
+            (false, daqcore::storage::FaultSeverity::Fatal) => {
+                eframe::egui::Color32::from_rgb(244, 63, 94) // #f43f5e
+            }
+            (true, daqcore::storage::FaultSeverity::Error) => {
+                eframe::egui::Color32::from_rgb(234, 88, 12) // #ea580c
+            }
+            (false, daqcore::storage::FaultSeverity::Error) => {
+                eframe::egui::Color32::from_rgb(249, 115, 22) // #f97316
+            }
+            (true, daqcore::storage::FaultSeverity::Warning) => {
+                eframe::egui::Color32::from_rgb(217, 119, 6) // #d97706
+            }
+            (false, daqcore::storage::FaultSeverity::Warning) => {
+                eframe::egui::Color32::from_rgb(245, 158, 11) // #f59e0b
+            }
+        }
+    }
+
+    /// Theme-aware default trace palette color.
+    pub fn trace_color(&self, index: usize) -> eframe::egui::Color32 {
+        const DARK_PALETTE: [eframe::egui::Color32; 8] = [
+            eframe::egui::Color32::from_rgb(80, 190, 255),
+            eframe::egui::Color32::from_rgb(255, 160, 60),
+            eframe::egui::Color32::from_rgb(100, 230, 140),
+            eframe::egui::Color32::from_rgb(235, 110, 245),
+            eframe::egui::Color32::from_rgb(255, 95, 105),
+            eframe::egui::Color32::from_rgb(70, 225, 220),
+            eframe::egui::Color32::from_rgb(250, 220, 80),
+            eframe::egui::Color32::from_rgb(165, 140, 255),
+        ];
+        const LIGHT_PALETTE: [eframe::egui::Color32; 8] = [
+            eframe::egui::Color32::from_rgb(2, 132, 199),
+            eframe::egui::Color32::from_rgb(234, 88, 12),
+            eframe::egui::Color32::from_rgb(22, 163, 74),
+            eframe::egui::Color32::from_rgb(147, 51, 234),
+            eframe::egui::Color32::from_rgb(225, 29, 72),
+            eframe::egui::Color32::from_rgb(13, 148, 136),
+            eframe::egui::Color32::from_rgb(180, 83, 9),
+            eframe::egui::Color32::from_rgb(79, 70, 229),
+        ];
+        if self.is_light {
+            LIGHT_PALETTE[index % LIGHT_PALETTE.len()]
+        } else {
+            DARK_PALETTE[index % DARK_PALETTE.len()]
+        }
     }
 
     #[cfg(test)]
@@ -337,8 +426,17 @@ mod tests {
             assert!(!theme.get_name().is_empty());
             let _ = (colors.muted_text_color(), colors.success_color());
         }
+        assert_eq!(ThemeSelection::default(), ThemeSelection::NominalLight);
         assert!(!ThemeSelection::Default.is_light());
         assert!(ThemeSelection::NominalLight.is_light());
+        assert!(!ThemeSelection::RosePineMoon.is_light());
+        assert_eq!(ThemeSelection::Default.get_name(), "Dark");
+        assert_eq!(ThemeSelection::NominalLight.get_name(), "Light");
+        assert_eq!(ThemeSelection::RosePineMoon.get_name(), "Rosé Pine Moon");
         assert_eq!(ThemeSelection::Default.next(), ThemeSelection::NominalLight);
+        assert_eq!(
+            ThemeSelection::NominalLight.next(),
+            ThemeSelection::RosePineMoon
+        );
     }
 }

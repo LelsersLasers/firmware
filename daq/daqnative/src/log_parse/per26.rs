@@ -35,6 +35,7 @@ struct ResolvedSignalMeta {
     description: String,
     is_discrete: bool,
     is_fault_flag: bool,
+    fault_severity: Option<auto_annotate::FaultSeverity>,
     bus_name: String,
     bus_id: u8,
     can_id: u32,
@@ -59,6 +60,14 @@ fn build_signal_lookup(database: &Database) -> HashMap<(String, String), Resolve
                     label_to_int.insert(label.to_ascii_lowercase(), raw_val as i64);
                 }
                 let is_fault_flag = auto_annotate::is_fault_flag_signal(&msg_name, &sig_name);
+                let fault_severity = if is_fault_flag {
+                    auto_annotate::FaultSeverity::resolve_for_signal(
+                        &signal_id,
+                        sig.fault_priority(),
+                    )
+                } else {
+                    None
+                };
                 let is_discrete = is_fault_flag
                     || !int_to_label.is_empty()
                     || (sig.bit_length() == 1
@@ -72,6 +81,7 @@ fn build_signal_lookup(database: &Database) -> HashMap<(String, String), Resolve
                         description: sig.description().to_owned(),
                         is_discrete,
                         is_fault_flag,
+                        fault_severity,
                         bus_name: bus.name().to_owned(),
                         bus_id: bus.bus_id(),
                         can_id: msg.identity(),
@@ -255,6 +265,12 @@ fn parse_csv_header_lines(
             m
         } else {
             let is_fault_flag = auto_annotate::is_fault_flag_signal(msg_name, sig_name);
+            let signal_id = storage::format_signal_id(msg_name, sig_name);
+            let fault_severity = if is_fault_flag {
+                auto_annotate::FaultSeverity::resolve_for_signal(&signal_id, None)
+            } else {
+                None
+            };
             let bus_id = match bus_name.as_str() {
                 "VCAN" | "Main" => 0,
                 "MCAN" => 1,
@@ -265,11 +281,12 @@ fn parse_csv_header_lines(
                 _ => 0,
             };
             ResolvedSignalMeta {
-                signal_id: storage::format_signal_id(msg_name, sig_name),
+                signal_id,
                 unit: csv_unit.to_owned(),
                 description: csv_desc.to_owned(),
                 is_discrete: is_fault_flag,
                 is_fault_flag,
+                fault_severity,
                 bus_name,
                 bus_id,
                 can_id: 0,
@@ -609,6 +626,7 @@ fn import_csv_boot_group(
                 unit: m.unit.clone(),
                 is_discrete: m.is_discrete,
                 is_fault_flag: m.is_fault_flag,
+                fault_severity: m.fault_severity,
                 bus_name: m.bus_name.clone(),
                 bus_id: m.bus_id,
                 can_id: m.can_id,
@@ -1018,6 +1036,7 @@ fn import_day_2025_09_20(
                                 unit: spec.meta.unit.clone(),
                                 is_discrete: spec.meta.is_discrete,
                                 is_fault_flag: spec.meta.is_fault_flag,
+                                fault_severity: spec.meta.fault_severity,
                                 bus_name: spec.meta.bus_name.clone(),
                                 bus_id: spec.meta.bus_id,
                                 can_id: spec.meta.can_id,
@@ -2791,6 +2810,7 @@ pub fn normalize_per26_columns_to_canonical(
                     unit: src_acc.unit.clone(),
                     is_discrete: src_acc.is_discrete,
                     is_fault_flag: src_acc.is_fault_flag,
+                    fault_severity: src_acc.fault_severity,
                     bus_name: src_acc.bus_name.clone(),
                     bus_id: src_acc.bus_id,
                     can_id: src_acc.can_id,
@@ -3140,6 +3160,7 @@ pub fn normalize_per26_columns_to_canonical(
             acc.unit = meta.unit.clone();
             acc.is_discrete = meta.is_discrete;
             acc.is_fault_flag = meta.is_fault_flag;
+            acc.fault_severity = meta.fault_severity;
             acc.bus_name = meta.bus_name.clone();
             acc.bus_id = meta.bus_id;
             acc.can_id = meta.can_id;
@@ -3232,6 +3253,7 @@ mod tests {
             unit: unit.to_owned(),
             is_discrete: false,
             is_fault_flag: false,
+            fault_severity: None,
             bus_name: "VCAN".to_owned(),
             bus_id: 0,
             can_id: 0,

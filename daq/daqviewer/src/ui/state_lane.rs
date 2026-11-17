@@ -312,6 +312,12 @@ impl StateLane {
         let cursor_ms = view.active_cursor_utc_ms();
         let setpoint_ms = view.timeline.setpoint_utc_ms();
         let hover_ms = view.hover_utc_ms();
+        let theme = ui::theme::get_theme(ui.ctx());
+        let strip_bg = if theme.is_light {
+            eframe::egui::Color32::from_rgba_unmultiplied(226, 232, 240, 225)
+        } else {
+            eframe::egui::Color32::from_rgba_unmultiplied(28, 32, 40, 210)
+        };
 
         let mut remove_idx: Option<usize> = None;
         let avail_w = ui.available_width().max(80.0);
@@ -331,9 +337,9 @@ impl StateLane {
                         .or_else(|| intervals.iter().rfind(|iv| iv.start_utc_ms <= cursor_ms));
 
                     ui.horizontal(|ui| {
-                        let (label_rect, _) = ui.allocate_exact_size(
+                        let (label_rect, label_resp) = ui.allocate_exact_size(
                             eframe::egui::vec2(label_col_w, row_h),
-                            eframe::egui::Sense::hover(),
+                            eframe::egui::Sense::click(),
                         );
                         let mut label_ui = ui.new_child(
                             eframe::egui::UiBuilder::new().max_rect(label_rect).layout(
@@ -350,8 +356,12 @@ impl StateLane {
                         }
                         let current_badge = active_interval.map(|iv| {
                             let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
-                            let color =
-                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let color = state_color_for_interval_for_signal(
+                                &lane.signal_id,
+                                &resolved,
+                                iv.raw_int,
+                                is_fault_sig,
+                            );
                             (resolved, color)
                         });
                         let title_response = label_ui.add(
@@ -387,11 +397,7 @@ impl StateLane {
                             eframe::egui::Sense::click_and_drag(),
                         );
                         let painter = ui.painter_at(strip_rect);
-                        painter.rect_filled(
-                            strip_rect,
-                            3.0,
-                            eframe::egui::Color32::from_rgba_unmultiplied(28, 32, 40, 210),
-                        );
+                        painter.rect_filled(strip_rect, 3.0, strip_bg);
 
                         let time_to_x = |t_ms: i64| -> f32 {
                             let frac = ((t_ms - start_ms) as f64 / span_ms).clamp(0.0, 1.0) as f32;
@@ -408,8 +414,12 @@ impl StateLane {
                                 eframe::egui::pos2(x1, strip_rect.bottom() - 2.0),
                             );
                             let resolved = resolve_state_label(&lane.signal_id, iv, is_fault_sig);
-                            let fill =
-                                state_color_for_interval(&resolved, iv.raw_int, is_fault_sig);
+                            let fill = state_color_for_interval_for_signal(
+                                &lane.signal_id,
+                                &resolved,
+                                iv.raw_int,
+                                is_fault_sig,
+                            );
                             painter.rect_filled(bar_rect, 2.5, fill.gamma_multiply(0.82));
                             painter.rect_stroke(
                                 bar_rect,
@@ -437,7 +447,7 @@ impl StateLane {
                             }
                         }
 
-                        // Playhead line (Yellow)
+                        // Playhead line
                         if setpoint_ms >= start_ms && setpoint_ms <= end_ms {
                             let px = time_to_x(setpoint_ms);
                             painter.line_segment(
@@ -445,11 +455,11 @@ impl StateLane {
                                     eframe::egui::pos2(px, strip_rect.top()),
                                     eframe::egui::pos2(px, strip_rect.bottom()),
                                 ],
-                                eframe::egui::Stroke::new(1.6_f32, eframe::egui::Color32::YELLOW),
+                                eframe::egui::Stroke::new(1.8_f32, theme.playhead_color()),
                             );
                         }
 
-                        // Synchronized Hover Crosshair line (Cyan)
+                        // Synchronized Hover Crosshair line
                         if let Some(h_ms) = hover_ms
                             && h_ms >= start_ms
                             && h_ms <= end_ms
@@ -460,10 +470,7 @@ impl StateLane {
                                     eframe::egui::pos2(hx, strip_rect.top()),
                                     eframe::egui::pos2(hx, strip_rect.bottom()),
                                 ],
-                                eframe::egui::Stroke::new(
-                                    1.2_f32,
-                                    eframe::egui::Color32::from_rgb(130, 225, 255),
-                                ),
+                                eframe::egui::Stroke::new(1.3_f32, theme.hover_cursor_color()),
                             );
                         }
 
@@ -515,7 +522,7 @@ impl StateLane {
                                     resolve_state_label(&lane.signal_id, iv, is_fault_sig);
                                 let dur_s =
                                     ((iv.end_utc_ms - iv.start_utc_ms).max(0) as f64) / 1000.0;
-                                strip_resp.on_hover_text(format!(
+                                strip_resp.clone().on_hover_text(format!(
                                     "{} ({})\nState: {} (raw = {})\nDuration: {:.2}s\nAt: {}",
                                     lane.label,
                                     lane.signal_id,
@@ -525,7 +532,7 @@ impl StateLane {
                                     daqcore::time::Time::from_unix_millis(ptr_ms).label()
                                 ));
                             } else {
-                                strip_resp.on_hover_text(format!(
+                                strip_resp.clone().on_hover_text(format!(
                                     "{} ({})\nAt: {}",
                                     lane.label,
                                     lane.signal_id,
@@ -533,6 +540,135 @@ impl StateLane {
                                 ));
                             }
                         }
+
+                        // Right-click context menu on either the lane label or the state strip
+                        let mut add_lane_context_menu = |ui: &mut eframe::egui::Ui| {
+                            ui.label(eframe::egui::RichText::new(&lane.signal_id).strong());
+                            if is_fault_sig {
+                                let (day_min, day_max) =
+                                    view.timeline.day_bounds_ms().unwrap_or((start_ms, end_ms));
+                                let active_day = view.timeline.active_track_day_id();
+                                let mut fault_occs: Vec<daqcore::storage::Annotation> = view
+                                    .router
+                                    .query_annotations_in_range(day_min..=day_max)
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .filter(|a| {
+                                        a.category == "fault"
+                                            && active_day.is_none_or(|d| a.track_day_id == d)
+                                            && a.fault_signal_id() == Some(lane.signal_id.as_str())
+                                    })
+                                    .collect();
+                                fault_occs.sort_by_key(|a| a.start_utc_ms);
+                                if let Some(sev) =
+                                    daqcore::storage::FaultSeverity::resolve_for_signal(
+                                        &lane.signal_id,
+                                        None,
+                                    )
+                                {
+                                    ui.colored_label(
+                                        theme.fault_severity_color(sev),
+                                        eframe::egui::RichText::new(format!(
+                                            "Severity: {} ({} occurrences in day)",
+                                            sev.display_name(),
+                                            fault_occs.len()
+                                        ))
+                                        .small(),
+                                    );
+                                }
+                                if !fault_occs.is_empty() {
+                                    if let Some(lcd) = fault_occs[0].fault_lcd_message() {
+                                        ui.label(eframe::egui::RichText::new(lcd).small().weak());
+                                    }
+                                    ui.separator();
+                                    let jump_to = |t_ms: i64| {
+                                        let half_win =
+                                            ((end_ms - start_ms) / 2).clamp(2_500, 10_000);
+                                        view.request_zoom_range_ms(
+                                            t_ms.saturating_sub(half_win),
+                                            t_ms.saturating_add(half_win),
+                                        );
+                                        view.request_setpoint_utc_ms(t_ms);
+                                    };
+                                    let first_ms = fault_occs[0].start_utc_ms;
+                                    if ui
+                                        .button(format!(
+                                            "Jump to First Occurrence ({})",
+                                            daqcore::time::Time::from_unix_millis(first_ms).label()
+                                        ))
+                                        .clicked()
+                                    {
+                                        jump_to(first_ms);
+                                        ui.close();
+                                    }
+                                    let next_occ = fault_occs
+                                        .iter()
+                                        .find(|o| o.start_utc_ms > setpoint_ms + 50)
+                                        .unwrap_or(&fault_occs[0]);
+                                    if ui
+                                        .button(format!(
+                                            "Jump to Next after Playhead ({})",
+                                            daqcore::time::Time::from_unix_millis(
+                                                next_occ.start_utc_ms
+                                            )
+                                            .label()
+                                        ))
+                                        .clicked()
+                                    {
+                                        jump_to(next_occ.start_utc_ms);
+                                        ui.close();
+                                    }
+                                    ui.menu_button(
+                                        format!("View All Occurrences ({})", fault_occs.len()),
+                                        |ui| {
+                                            eframe::egui::ScrollArea::vertical()
+                                                .max_height(240.0)
+                                                .show(ui, |ui| {
+                                                    for (occ_idx, occ) in
+                                                        fault_occs.iter().enumerate()
+                                                    {
+                                                        let t_lbl =
+                                                            daqcore::time::Time::from_unix_millis(
+                                                                occ.start_utc_ms,
+                                                            )
+                                                            .label();
+                                                        let dur_str = occ
+                                                            .end_utc_ms
+                                                            .filter(|&e| e > occ.start_utc_ms)
+                                                            .map(|e| {
+                                                                format!(
+                                                                    " ({:.2}s)",
+                                                                    (e - occ.start_utc_ms) as f64
+                                                                        / 1000.0
+                                                                )
+                                                            })
+                                                            .unwrap_or_default();
+                                                        if ui
+                                                            .button(format!(
+                                                                "#{} @ {}{}",
+                                                                occ_idx + 1,
+                                                                t_lbl,
+                                                                dur_str
+                                                            ))
+                                                            .clicked()
+                                                        {
+                                                            jump_to(occ.start_utc_ms);
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                });
+                                        },
+                                    );
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Remove Lane").clicked() {
+                                remove_idx = Some(idx);
+                                ui.close();
+                            }
+                        };
+                        label_resp.context_menu(&mut add_lane_context_menu);
+                        strip_resp.context_menu(&mut add_lane_context_menu);
                     });
                     ui.add_space(2.0);
                 }
@@ -618,7 +754,7 @@ pub fn is_likely_fault_signal(signal_id: &str) -> bool {
 }
 
 pub fn resolve_state_label(
-    _signal_id: &str,
+    signal_id: &str,
     interval: &daqcore::router::StateInterval,
     is_fault_sig: bool,
 ) -> String {
@@ -628,6 +764,10 @@ pub fn resolve_state_label(
     if is_fault_sig {
         if interval.raw_int == 0 {
             "OK (0)".to_owned()
+        } else if let Some(sev) =
+            daqcore::storage::FaultSeverity::resolve_for_signal(signal_id, None)
+        {
+            format!("{} ({})", sev.badge_label(), interval.raw_int)
         } else {
             format!("FAULT ({})", interval.raw_int)
         }
@@ -640,6 +780,22 @@ pub fn resolve_state_label(
     }
 }
 
+pub fn state_color_for_interval_for_signal(
+    signal_id: &str,
+    label: &str,
+    raw_int: i64,
+    is_fault_sig: bool,
+) -> eframe::egui::Color32 {
+    if is_fault_sig
+        && raw_int != 0
+        && let Some(sev) = daqcore::storage::FaultSeverity::resolve_for_signal(signal_id, None)
+    {
+        let (r, g, b) = sev.rgb();
+        return eframe::egui::Color32::from_rgb(r, g, b);
+    }
+    state_color_for_interval(label, raw_int, is_fault_sig)
+}
+
 pub fn state_color_for_interval(
     label: &str,
     raw_int: i64,
@@ -649,6 +805,12 @@ pub fn state_color_for_interval(
     if is_fault_sig {
         return if raw_int == 0 {
             eframe::egui::Color32::from_rgb(50, 175, 100)
+        } else if upper.starts_with("FATAL") {
+            eframe::egui::Color32::from_rgb(225, 29, 72)
+        } else if upper.starts_with("WARN") {
+            eframe::egui::Color32::from_rgb(245, 158, 11)
+        } else if upper.starts_with("ERROR") {
+            eframe::egui::Color32::from_rgb(249, 115, 22)
         } else {
             eframe::egui::Color32::from_rgb(225, 65, 65)
         };
@@ -704,9 +866,9 @@ mod tests {
             label: "RAW_1".to_owned(),
         };
         let label = resolve_state_label("a_box_fault_sync.IMD", &fault_iv, true);
-        assert_eq!(label, "FAULT (1)");
+        assert_eq!(label, "ERROR (1)");
         let col = state_color_for_interval(&label, 1, true);
-        assert_eq!(col, eframe::egui::Color32::from_rgb(225, 65, 65));
+        assert_eq!(col, eframe::egui::Color32::from_rgb(249, 115, 22));
 
         let t0 = daqcore::time::Time::from_unix_millis(1_794_500_000_000);
         let router = daqcore::router::VirtualTimelineRouter::live(t0, 30.0).expect("live router");

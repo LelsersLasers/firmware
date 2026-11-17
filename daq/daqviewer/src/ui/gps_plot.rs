@@ -259,16 +259,15 @@ impl GpsPlot {
         ui.horizontal_wrapped(|ui| {
             ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
 
-            let (color_badge, color_tip) = if let Some((sig_id, unit)) = &self.overlay_signal {
-                let resolved_unit = if unit.is_empty() {
-                    view.resolve_signal_unit(sig_id)
-                } else {
-                    unit.clone()
-                };
-                let u_str = if resolved_unit.is_empty() {
+            let (color_badge, color_tip) = if let Some((sig_id, unit)) = &mut self.overlay_signal {
+                let resolved = view.resolve_signal_unit(sig_id);
+                if !resolved.is_empty() {
+                    *unit = resolved;
+                }
+                let u_str = if unit.is_empty() {
                     String::new()
                 } else {
-                    format!(" {resolved_unit}")
+                    format!(" {unit}")
                 };
                 let val_str = cursor_overlay_val
                     .map(|v| format!(" = {v:.1}{u_str}"))
@@ -712,10 +711,12 @@ impl walkers::Plugin for CarTrajectoryPlugin {
             );
         }
 
+        let theme = ui::theme::get_theme(ui.ctx());
+
         // Playhead (`setpoint`) vehicle marker
         if let Some(play_pos) = self.playhead_pos {
             let screen_pt = projector.project(play_pos).to_pos2();
-            painter.circle_filled(screen_pt, 5.5, eframe::egui::Color32::YELLOW);
+            painter.circle_filled(screen_pt, 5.5, theme.playhead_color());
             painter.circle_stroke(
                 screen_pt,
                 5.5,
@@ -726,11 +727,7 @@ impl walkers::Plugin for CarTrajectoryPlugin {
         // Synchronized Hover Crosshair vehicle marker
         if let Some(h_pos) = self.hover_pos {
             let screen_pt = projector.project(h_pos).to_pos2();
-            painter.circle_filled(
-                screen_pt,
-                5.0,
-                eframe::egui::Color32::from_rgb(120, 235, 255),
-            );
+            painter.circle_filled(screen_pt, 5.0, theme.hover_cursor_color());
             painter.circle_stroke(
                 screen_pt,
                 6.5,

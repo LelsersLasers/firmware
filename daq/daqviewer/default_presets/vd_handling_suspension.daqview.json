@@ -24,10 +24,10 @@
                 "title": "Handling Response",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "LWS_Standard.LWS_ANGLE", "label": "Steering Angle", "unit": "deg" },
-                  { "signal_id": "IMU_angular_rate.Z_axis", "label": "Yaw Rate", "unit": "deg/s" },
-                  { "signal_id": "IMU_acceleration.Y_axis", "label": "Lateral Acceleration", "unit": "g" },
-                  { "signal_id": "vd.understeer_gradient", "label": "Understeer Gradient", "unit": "deg/g" }
+                  { "signal_id": "LWS_Standard.LWS_ANGLE" },
+                  { "signal_id": "IMU_angular_rate.Z_axis" },
+                  { "signal_id": "IMU_acceleration.Y_axis" },
+                  { "signal_id": "vd.understeer_gradient" }
                 ]
               },
               {
@@ -36,8 +36,8 @@
                 "title": "GPS Ground Speed",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "gps_speed_heading.gps_speed", "label": "GPS Ground Speed", "unit": "m/s" },
-                  { "signal_id": "vd.wheel_speed_avg_rpm", "label": "Wheel Speed Avg", "unit": "rpm" }
+                  { "signal_id": "gps_speed_heading.gps_speed" },
+                  { "signal_id": "vd.wheel_speed_avg_rpm" }
                 ]
               }
             ]
@@ -52,10 +52,10 @@
                 "title": "Shockpot Displacements vs Time",
                 "x_mode": "utc_time",
                 "channels": [
-                  { "signal_id": "front_shockpots.left", "label": "FL Shockpot", "unit": "mm" },
-                  { "signal_id": "front_shockpots.right", "label": "FR Shockpot", "unit": "mm" },
-                  { "signal_id": "rear_shockpots.left", "label": "RL Shockpot", "unit": "mm" },
-                  { "signal_id": "rear_shockpots.right", "label": "RR Shockpot", "unit": "mm" }
+                  { "signal_id": "front_shockpots.left" },
+                  { "signal_id": "front_shockpots.right" },
+                  { "signal_id": "rear_shockpots.left" },
+                  { "signal_id": "rear_shockpots.right" }
                 ]
               },
               {
@@ -65,10 +65,10 @@
                 "x_mode": "track_distance",
                 "speed_signal_id": "gps_speed_heading.gps_speed",
                 "channels": [
-                  { "signal_id": "vd.front_heave_mm", "label": "Front Heave", "unit": "mm" },
-                  { "signal_id": "vd.rear_heave_mm", "label": "Rear Heave", "unit": "mm" },
-                  { "signal_id": "vd.front_roll_displacement_mm", "label": "Front Roll", "unit": "mm" },
-                  { "signal_id": "vd.rear_roll_displacement_mm", "label": "Rear Roll", "unit": "mm" }
+                  { "signal_id": "vd.front_heave_mm" },
+                  { "signal_id": "vd.rear_heave_mm" },
+                  { "signal_id": "vd.front_roll_displacement_mm" },
+                  { "signal_id": "vd.rear_roll_displacement_mm" }
                 ]
               }
             ]
@@ -78,10 +78,10 @@
             "widget": "state_lane",
             "title": "Vehicle State & Fault Lanes",
             "lanes": [
-              { "signal_id": "main_hb.car_state", "label": "Car State" },
-              { "signal_id": "vcu_driver_request.vcu_mode", "label": "VCU Mode" },
-              { "signal_id": "inva_diagnostics.amk_state", "label": "Inverter A State" },
-              { "signal_id": "a_box_fault_sync.IMD", "label": "Fault: IMD" }
+              { "signal_id": "main_hb.car_state" },
+              { "signal_id": "vcu_driver_request.vcu_mode" },
+              { "signal_id": "inva_diagnostics.amk_state" },
+              { "signal_id": "a_box_fault_sync.IMD" }
             ]
           }
         ]
@@ -166,7 +166,6 @@
                 "widget": "gps_plot",
                 "title": "GPS Track Colored by Speed",
                 "color_signal": "gps_speed_heading.gps_speed",
-                "color_unit": "m/s",
                 "max_distance_meters": 500.0
               },
               {
@@ -174,7 +173,6 @@
                 "widget": "gps_plot",
                 "title": "Longitudinal Acceleration on GPS Track",
                 "color_signal": "IMU_acceleration.X_axis",
-                "color_unit": "g",
                 "max_distance_meters": 500.0
               },
               {
@@ -182,7 +180,6 @@
                 "widget": "gps_plot",
                 "title": "Lateral Acceleration on GPS Track",
                 "color_signal": "IMU_acceleration.Y_axis",
-                "color_unit": "g",
                 "max_distance_meters": 500.0
               },
               {
@@ -190,7 +187,6 @@
                 "widget": "gps_plot",
                 "title": "Yaw Rate on GPS Track",
                 "color_signal": "IMU_angular_rate.Z_axis",
-                "color_unit": "deg/s",
                 "max_distance_meters": 500.0
               },
               {
@@ -198,7 +194,6 @@
                 "widget": "gps_plot",
                 "title": "Throttle Position on GPS Track",
                 "color_signal": "pedals.throttle",
-                "color_unit": "%",
                 "max_distance_meters": 500.0
               },
               {
@@ -206,7 +201,6 @@
                 "widget": "gps_plot",
                 "title": "Brake Position on GPS Track",
                 "color_signal": "pedals.brake",
-                "color_unit": "%",
                 "max_distance_meters": 500.0
               }
             ]

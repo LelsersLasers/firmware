@@ -386,6 +386,14 @@ impl ActiveSignalMeta {
             .split_once('.')
             .unwrap_or(("", self.signal_id.as_str()))
     }
+
+    pub fn fault_severity(&self) -> Option<crate::superdbc::message::FaultSeverity> {
+        let (msg_name, sig_name) = self.split_message_signal();
+        if !crate::log_parse::auto_annotate::is_fault_flag_signal(msg_name, sig_name) {
+            return None;
+        }
+        crate::superdbc::message::FaultSeverity::resolve_for_signal(&self.signal_id, None)
+    }
 }
 
 /// Clock correlation provenance for the active timeline playhead or viewport.

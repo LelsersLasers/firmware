@@ -671,6 +671,10 @@ impl XYScatter {
                 );
             }
 
+            let theme = ui::theme::get_theme(plot_ui.ctx());
+            let playhead_col = theme.playhead_color();
+            let hover_col = theme.hover_cursor_color();
+
             // Recent comet trail leading up to playhead (`setpoint_ms`)
             if !timestamps_ms.is_empty() {
                 let trail_start = setpoint_ms.saturating_sub(COMET_TRAIL_MS);
@@ -681,16 +685,14 @@ impl XYScatter {
                         (lo..hi).map(|i| [x_vals[i], y_vals[i]]).collect();
                     plot_ui.line(
                         egui_plot::Line::new("", comet_pts.clone())
-                            .color(eframe::egui::Color32::from_rgba_unmultiplied(
-                                255, 220, 90, 180,
-                            ))
+                            .color(playhead_col.gamma_multiply(0.72))
                             .width(1.8_f32)
                             .allow_hover(false),
                     );
                     plot_ui.points(
                         egui_plot::Points::new("", comet_pts)
                             .radius(3.4_f32)
-                            .color(eframe::egui::Color32::from_rgb(255, 210, 75))
+                            .color(playhead_col.gamma_multiply(0.9))
                             .allow_hover(false),
                     );
                 }
@@ -704,7 +706,7 @@ impl XYScatter {
                             vec![[x_vals[play_idx], y_vals[play_idx]]],
                         )
                         .radius(5.8_f32)
-                        .color(eframe::egui::Color32::YELLOW)
+                        .color(playhead_col)
                         .allow_hover(false),
                     );
                 }
@@ -723,7 +725,7 @@ impl XYScatter {
                             vec![[x_vals[h_idx], y_vals[h_idx]]],
                         )
                         .radius(6.2_f32)
-                        .color(eframe::egui::Color32::from_rgb(130, 235, 255))
+                        .color(hover_col)
                         .allow_hover(false),
                     );
                 }

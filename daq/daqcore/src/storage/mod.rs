@@ -1,7 +1,7 @@
 //! Portable storage, manifest, annotation, and cloud sync protocol types.
 
 pub use crate::analysis::DerivedSignalDef;
-pub use crate::log_parse::auto_annotate::Annotation;
+pub use crate::log_parse::auto_annotate::{Annotation, FaultSeverity};
 use crate::log_parse::{correlate, parse};
 use sha2::Digest as _;
 use std::{collections::BTreeMap, fmt};
@@ -46,6 +46,19 @@ pub struct SignalManifestEntry {
     pub max_utc_ms: i64,
     pub min_val: f64,
     pub max_val: f64,
+}
+
+impl SignalManifestEntry {
+    pub fn fault_severity(&self) -> Option<FaultSeverity> {
+        let (msg_name, sig_name) = self
+            .signal_id
+            .split_once('.')
+            .unwrap_or(("", self.signal_id.as_str()));
+        if !crate::log_parse::auto_annotate::is_fault_flag_signal(msg_name, sig_name) {
+            return None;
+        }
+        FaultSeverity::resolve_for_signal(&self.signal_id, None)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
