@@ -49,8 +49,6 @@ pub struct NativeTileLoader {
     cloud_base_url: Arc<Mutex<Option<String>>>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
     req_tx: mpsc::Sender<NativeLoadJob>,
-    blocking_rt: Option<tokio::runtime::Runtime>,
-    blocking_client: Option<reqwest::Client>,
 }
 
 impl Default for NativeTileLoader {
@@ -72,22 +70,11 @@ impl NativeTileLoader {
             log::error!("Failed to spawn daq-tile-loader background thread: {err}");
         }
 
-        let blocking_rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .ok();
-        let blocking_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()
-            .ok();
-
         Self {
             partition_dirs: Mutex::new(HashMap::new()),
             cloud_base_url: Arc::new(Mutex::new(None)),
             repaint_cb,
             req_tx,
-            blocking_rt,
-            blocking_client,
         }
     }
 
@@ -275,16 +262,22 @@ impl TileLoader for NativeTileLoader {
         }
 
         let cloud_base_url = self.cloud_base_url.lock().ok().and_then(|u| u.clone());
-        if let Some(base_url) = cloud_base_url
-            && let Ok(series) = Self::execute_load(
-                key,
-                part_dir.as_deref(),
-                Some(&base_url),
-                self.blocking_rt.as_ref(),
-                self.blocking_client.as_ref(),
-            )
-        {
-            return Ok(Some(series));
+        if let Some(base_url) = cloud_base_url {
+            let (res_tx, res_rx) = mpsc::channel();
+            if self
+                .req_tx
+                .send(NativeLoadJob {
+                    key: key.clone(),
+                    part_dir,
+                    cloud_base_url: Some(base_url),
+                    res_tx,
+                })
+                .is_ok()
+                && let Ok(load_res) = res_rx.recv()
+                && let Ok(series) = load_res.result
+            {
+                return Ok(Some(series));
+            }
         }
 
         Ok(None)
