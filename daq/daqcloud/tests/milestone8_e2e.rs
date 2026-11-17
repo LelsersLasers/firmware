@@ -410,6 +410,54 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         "Expected live annotation deletion in < 100 ms, took {del_lat:?}"
     );
 
+    // -------------------------------------------------------------------------
+    // 5. Real-time derived signal (formula) sync + deletion via WebSocket
+    // -------------------------------------------------------------------------
+    let live_formula = daqcore::analysis::DerivedSignalDef {
+        id: "m8.synced_accel_mag".to_owned(),
+        label: "Synced Accel X Double".to_owned(),
+        expression: "IMU_acceleration.X_axis * 2.0".to_owned(),
+        unit: "g".to_owned(),
+        updated_at_ms: 1_794_500_200_000,
+        deleted: false,
+    };
+    router_a
+        .save_derived_signal(live_formula.clone())
+        .expect("Instance A save derived signal");
+
+    let mut sig_synced = false;
+    let sig_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < sig_deadline {
+        router_b.poll_cloud_sync();
+        if router_b.formula_engine().contains(&live_formula.id) {
+            sig_synced = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        sig_synced,
+        "Instance B should receive live derived signal via WebSocket"
+    );
+
+    router_a
+        .delete_derived_signal(&live_formula.id)
+        .expect("Instance A delete derived signal");
+    let mut sig_deleted = false;
+    let sig_del_deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < sig_del_deadline {
+        router_b.poll_cloud_sync();
+        if !router_b.formula_engine().contains(&live_formula.id) {
+            sig_deleted = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        sig_deleted,
+        "Instance B should receive derived signal deletion via WebSocket"
+    );
+
     router_a.disconnect_cloud();
     router_b.disconnect_cloud();
     server_handle.abort();
@@ -588,6 +636,7 @@ async fn daqweb_routes_preload_tile_and_export_e2e() {
             label: "2x Accel X".to_owned(),
             expression: "IMU_acceleration.X_axis * 2.0".to_owned(),
             unit: "G".to_owned(),
+            ..Default::default()
         }],
         layout: Some(daqviewer::workspace_io::FlexibleLayout::Tree(
             daqviewer::workspace_io::WorkspaceLayoutNode::Pane {
@@ -697,6 +746,43 @@ async fn daqweb_routes_preload_tile_and_export_e2e() {
     assert_eq!(downloads[0].filename, "web_export.csv");
     assert_eq!(downloads[1].filename, "web_export.parquet");
     assert!(downloads[1].bytes.starts_with(b"PAR1"));
+
+    // Verify saving a derived signal in `daqweb` syncs it to `daqcloud`
+    web_app
+        .state
+        .router
+        .save_derived_signal(daqcore::analysis::DerivedSignalDef {
+            id: "web.synced_triple_accel_x".to_owned(),
+            label: "3x Accel X".to_owned(),
+            expression: "IMU_acceleration.X_axis * 3.0".to_owned(),
+            unit: "G".to_owned(),
+            updated_at_ms: 1_794_600_000_000,
+            deleted: false,
+        })
+        .expect("web save derived signal");
+
+    let web_sig_deadline = Instant::now() + Duration::from_secs(5);
+    let mut remote_has_web_sig = false;
+    while Instant::now() < web_sig_deadline {
+        web_app.state.router.poll_cloud_sync();
+        if let Ok(resp) = client
+            .get(format!("{base_url}/api/v1/derived-signals"))
+            .send()
+            .await
+            && let Ok(sigs) = resp
+                .json::<Vec<daqcore::analysis::DerivedSignalDef>>()
+                .await
+            && sigs.iter().any(|s| s.id == "web.synced_triple_accel_x")
+        {
+            remote_has_web_sig = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        remote_has_web_sig,
+        "daqweb save_derived_signal must sync to daqcloud"
+    );
 
     server_handle.abort();
 }

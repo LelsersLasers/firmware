@@ -531,7 +531,10 @@ async fn post_export_handler(
     Json(req): Json<DatasetExportRequest>,
 ) -> Response {
     let store_dir = state.store_dir.clone();
-    let cloud_derived = state.registry.list_derived_signals(true).unwrap_or_default();
+    let cloud_derived = state
+        .registry
+        .list_derived_signals(true)
+        .unwrap_or_default();
     let export_res = tokio::task::spawn_blocking(move || {
         let mut router = daqcore::router::VirtualTimelineRouter::open_store(
             &store_dir,
@@ -540,7 +543,9 @@ async fn post_export_handler(
         )
         .map_err(daqnative::export::ExportError::Router)?;
         if !cloud_derived.is_empty() {
-            let _ = router.formula_engine_mut().apply_synced_defs(&cloud_derived);
+            let _ = router
+                .formula_engine_mut()
+                .apply_synced_defs(&cloud_derived);
         }
         if !req.custom_formulas.is_empty() {
             router

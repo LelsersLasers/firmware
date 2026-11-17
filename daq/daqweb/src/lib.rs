@@ -141,6 +141,7 @@ mod tests {
                 label: "Double FL Speed".to_owned(),
                 expression: "wheel_speeds.front_left * 2.0".to_owned(),
                 unit: "m/s".to_owned(),
+                ..Default::default()
             }],
             layout: Some(FlexibleLayout::Tree(WorkspaceLayoutNode::Linear {
                 dir: LinearSplitDir::Horizontal,

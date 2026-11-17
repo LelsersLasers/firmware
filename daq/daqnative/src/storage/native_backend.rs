@@ -450,7 +450,9 @@ impl RouterBackend for NativeRouterBackend {
         id: &str,
         updated_at_ms: i64,
     ) -> Result<bool, RouterError> {
-        let deleted = self.registry.soft_delete_derived_signal(id, updated_at_ms)?;
+        let deleted = self
+            .registry
+            .soft_delete_derived_signal(id, updated_at_ms)?;
         if deleted && let Some(cloud) = &self.cloud_sync {
             cloud.delete_derived_signal(id.trim().to_owned(), updated_at_ms);
         }

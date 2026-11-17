@@ -1559,6 +1559,7 @@ mod tests {
             label: "Custom Slip Ratio".to_owned(),
             expression: "vd.wheel_speed_avg_rpm / max(gps_speed_heading.gps_speed, 1.0)".to_owned(),
             unit: "rpm/(m/s)".to_owned(),
+            ..Default::default()
         });
 
         let json = view.to_json_pretty().expect("serialize json");

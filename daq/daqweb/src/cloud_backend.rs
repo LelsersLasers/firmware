@@ -1,4 +1,5 @@
 use daqcore::{
+    analysis::DerivedSignalDef,
     router::{
         CloudPollOutcome, PartitionPreloadPayload, RepaintCallback, Resolution, RouterBackend,
         RouterError, SignalSeries, TileCache, TileKey, TileLoadResult, TileLoader,
@@ -6,8 +7,9 @@ use daqcore::{
         wire::{decode_preload_payload, decode_tile_payload},
     },
     storage::{
-        Annotation, AnnotationUpsertPayload, CatalogResponse, CloudSyncStatus, InMemoryCatalog,
-        PartitionManifest, RegisteredPartition, TrackDay,
+        Annotation, AnnotationUpsertPayload, CatalogResponse, CloudSyncStatus,
+        DerivedSignalUpsertPayload, InMemoryCatalog, PartitionManifest, RegisteredPartition,
+        TrackDay,
     },
     time::Time,
 };
@@ -148,6 +150,9 @@ enum WebCloudEvent {
     AnnotationsPolled {
         annotations: Vec<Annotation>,
     },
+    DerivedSignalsPolled {
+        signals: Vec<DerivedSignalDef>,
+    },
     PreloadLoaded {
         partition_id: String,
         payload: PartitionPreloadPayload,
@@ -157,6 +162,7 @@ enum WebCloudEvent {
         error: String,
     },
     AnnotationSaved(Annotation),
+    DerivedSignalSaved(DerivedSignalDef),
     Error {
         url: String,
         error: String,
@@ -179,6 +185,7 @@ pub struct WebCloudRouterBackend {
     catalog_in_flight: bool,
     initial_catalog_loaded: bool,
     last_annotation_sync_ms: i64,
+    last_derived_sync_ms: i64,
 }
 
 impl WebCloudRouterBackend {
@@ -198,6 +205,7 @@ impl WebCloudRouterBackend {
             catalog_in_flight: false,
             initial_catalog_loaded: false,
             last_annotation_sync_ms: 0,
+            last_derived_sync_ms: 0,
         }
     }
 
@@ -259,7 +267,7 @@ impl WebCloudRouterBackend {
             format!("{trimmed}/api/v1/annotations?since_utc_ms={since_ms}&include_deleted=true");
         let tx = self.ev_tx.clone();
         let repaint = self.repaint_cb.clone();
-        let url_for_ev = base_url;
+        let url_for_ev = base_url.clone();
 
         ehttp::fetch(ehttp::Request::get(&url), move |resp_res| {
             let ev = match resp_res {
@@ -283,6 +291,40 @@ impl WebCloudRouterBackend {
             };
             let _ = tx.send(ev);
             if let Some(cb) = &repaint {
+                cb();
+            }
+        });
+
+        let since_sig_ms = self.last_derived_sync_ms.saturating_add(1);
+        let sig_url = format!(
+            "{trimmed}/api/v1/derived-signals?since_utc_ms={since_sig_ms}&include_deleted=true"
+        );
+        let tx_sig = self.ev_tx.clone();
+        let repaint_sig = self.repaint_cb.clone();
+        let url_for_sig_ev = base_url;
+
+        ehttp::fetch(ehttp::Request::get(&sig_url), move |resp_res| {
+            let ev = match resp_res {
+                Ok(resp) if resp.ok => {
+                    match serde_json::from_slice::<Vec<DerivedSignalDef>>(&resp.bytes) {
+                        Ok(signals) => WebCloudEvent::DerivedSignalsPolled { signals },
+                        Err(e) => WebCloudEvent::Error {
+                            url: url_for_sig_ev,
+                            error: format!("Invalid derived-signals JSON: {e}"),
+                        },
+                    }
+                }
+                Ok(resp) => WebCloudEvent::Error {
+                    url: url_for_sig_ev,
+                    error: format!("Derived signals HTTP {}", resp.status),
+                },
+                Err(err) => WebCloudEvent::Error {
+                    url: url_for_sig_ev,
+                    error: err,
+                },
+            };
+            let _ = tx_sig.send(ev);
+            if let Some(cb) = &repaint_sig {
                 cb();
             }
         });
@@ -445,6 +487,52 @@ impl RouterBackend for WebCloudRouterBackend {
         Ok(deleted)
     }
 
+    fn query_all_derived_signals(
+        &self,
+        include_deleted: bool,
+    ) -> Result<Vec<DerivedSignalDef>, RouterError> {
+        Ok(self.catalog.query_derived_signals(include_deleted))
+    }
+
+    fn upsert_derived_signal(&mut self, def: &DerivedSignalDef) -> Result<bool, RouterError> {
+        let changed = self.catalog.upsert_derived_signal(def);
+        if let Some(base_url) = &self.base_url
+            && let Ok(body) =
+                serde_json::to_vec(&DerivedSignalUpsertPayload::Single(Box::new(def.clone())))
+        {
+            let trimmed = base_url.trim_end_matches('/');
+            let mut req = ehttp::Request::post(format!("{trimmed}/api/v1/derived-signals"), body);
+            req.headers.insert("Content-Type", "application/json");
+            let tx = self.ev_tx.clone();
+            let def_clone = def.clone();
+            ehttp::fetch(req, move |res| {
+                if let Ok(resp) = res
+                    && resp.ok
+                {
+                    let _ = tx.send(WebCloudEvent::DerivedSignalSaved(def_clone));
+                }
+            });
+        }
+        Ok(changed)
+    }
+
+    fn soft_delete_derived_signal(
+        &mut self,
+        id: &str,
+        updated_at_ms: i64,
+    ) -> Result<bool, RouterError> {
+        let deleted = self.catalog.soft_delete_derived_signal(id, updated_at_ms);
+        if let Some(base_url) = &self.base_url {
+            let trimmed = base_url.trim_end_matches('/');
+            let mut req = ehttp::Request::get(format!(
+                "{trimmed}/api/v1/derived-signals/{id}?updated_at_ms={updated_at_ms}"
+            ));
+            req.method = "DELETE".to_owned();
+            ehttp::fetch(req, |_| {});
+        }
+        Ok(deleted)
+    }
+
     fn set_repaint_callback(&mut self, callback: Option<RepaintCallback>) {
         self.repaint_cb = callback.clone();
         self.loader.set_repaint_callback(callback);
@@ -462,6 +550,7 @@ impl RouterBackend for WebCloudRouterBackend {
         self.catalog_in_flight = false;
         self.initial_catalog_loaded = false;
         self.last_annotation_sync_ms = 0;
+        self.last_derived_sync_ms = 0;
         self.spawn_catalog_fetch();
         Ok(())
     }
@@ -474,6 +563,7 @@ impl RouterBackend for WebCloudRouterBackend {
         self.catalog_in_flight = false;
         self.initial_catalog_loaded = false;
         self.last_annotation_sync_ms = 0;
+        self.last_derived_sync_ms = 0;
     }
 
     fn cloud_status(&self) -> CloudSyncStatus {
@@ -487,7 +577,7 @@ impl RouterBackend for WebCloudRouterBackend {
 
     fn poll_cloud_sync(&mut self, tile_cache: &mut TileCache) -> CloudPollOutcome {
         // Once the initial catalog is loaded, poll lightweight `/api/v1/annotations?since_utc_ms=...`
-        // every 2.5 seconds instead of re-fetching the entire partition catalog.
+        // and `/api/v1/derived-signals?since_utc_ms=...` every 2.5 seconds.
         if self.base_url.is_some()
             && !self.catalog_in_flight
             && self
@@ -531,6 +621,13 @@ impl RouterBackend for WebCloudRouterBackend {
                             outcome.invalidate_annotations = true;
                         }
                     }
+                    for sig in &catalog.derived_signals {
+                        self.last_derived_sync_ms =
+                            self.last_derived_sync_ms.max(sig.updated_at_ms);
+                        if self.catalog.upsert_derived_signal(sig) {
+                            outcome.reload_derived_signals = true;
+                        }
+                    }
                     if catalog.partitions.len() != prev_part_count {
                         outcome.reload_partitions = true;
                     }
@@ -543,6 +640,17 @@ impl RouterBackend for WebCloudRouterBackend {
                             self.last_annotation_sync_ms.max(ann.updated_at_ms);
                         if self.catalog.upsert_annotation(ann) {
                             outcome.invalidate_annotations = true;
+                        }
+                    }
+                    self.update_connected_status();
+                }
+                WebCloudEvent::DerivedSignalsPolled { signals } => {
+                    self.catalog_in_flight = false;
+                    for sig in &signals {
+                        self.last_derived_sync_ms =
+                            self.last_derived_sync_ms.max(sig.updated_at_ms);
+                        if self.catalog.upsert_derived_signal(sig) {
+                            outcome.reload_derived_signals = true;
                         }
                     }
                     self.update_connected_status();
@@ -573,6 +681,11 @@ impl RouterBackend for WebCloudRouterBackend {
                         self.last_annotation_sync_ms.max(ann.updated_at_ms);
                     self.catalog.upsert_annotation(&ann);
                     outcome.invalidate_annotations = true;
+                }
+                WebCloudEvent::DerivedSignalSaved(sig) => {
+                    self.last_derived_sync_ms = self.last_derived_sync_ms.max(sig.updated_at_ms);
+                    self.catalog.upsert_derived_signal(&sig);
+                    outcome.reload_derived_signals = true;
                 }
                 WebCloudEvent::Error { url, error } => {
                     self.catalog_in_flight = false;

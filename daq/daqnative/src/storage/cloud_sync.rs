@@ -277,10 +277,9 @@ impl CloudSyncHandle {
     }
 
     pub fn delete_derived_signal(&self, id: String, updated_at_ms: i64) {
-        let _ = self.cmd_tx.send(CloudSyncCommand::DeleteDerivedSignal {
-            id,
-            updated_at_ms,
-        });
+        let _ = self
+            .cmd_tx
+            .send(CloudSyncCommand::DeleteDerivedSignal { id, updated_at_ms });
     }
 
     /// Drain all pending [`CloudSyncEvent`]s without blocking.

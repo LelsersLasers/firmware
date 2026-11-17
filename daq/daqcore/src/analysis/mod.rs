@@ -205,8 +205,7 @@ impl FormulaEngine {
             } else {
                 let should_apply = self.get(target_id).is_none_or(|existing| {
                     def.updated_at_ms > existing.def.updated_at_ms
-                        || (def.updated_at_ms == existing.def.updated_at_ms
-                            && existing.def != *def)
+                        || (def.updated_at_ms == existing.def.updated_at_ms && existing.def != *def)
                 });
                 if should_apply && self.upsert_formula(def.clone()).is_ok() {
                     changed = true;

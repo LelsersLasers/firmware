@@ -1302,6 +1302,7 @@ mod tests {
                 label: "Custom Shock Avg".to_owned(),
                 expression: "0.25 * (front_shockpots.left + front_shockpots.right + rear_shockpots.left + rear_shockpots.right)".to_owned(),
                 unit: "mm".to_owned(),
+                ..Default::default()
             }])
             .expect("register custom formula");
 
@@ -1414,6 +1415,7 @@ mod tests {
                 label: "Pack Internal Resistance".to_owned(),
                 expression: "abs(pack_stats.pack_current) * 10.0".to_owned(),
                 unit: "mOhm".to_owned(),
+                ..Default::default()
             }])
             .expect("merge custom formula");
 

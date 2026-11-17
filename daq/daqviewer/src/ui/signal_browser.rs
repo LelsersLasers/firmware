@@ -127,6 +127,8 @@ impl FormulaDraft {
             label,
             expression: self.expression.trim().to_owned(),
             unit: self.unit.trim().to_owned(),
+            updated_at_ms: daqcore::time::Time::now().unix_millis(),
+            deleted: false,
         }
     }
 
@@ -242,7 +244,7 @@ fn show_clean_channel_row(
     drag_payload: DraggedSignal,
     edit_formula: Option<&daqcore::analysis::CompiledDerivedSignal>,
     cursor_utc_ms: i64,
-    router: &daqcore::router::VirtualTimelineRouter,
+    router: &mut daqcore::router::VirtualTimelineRouter,
     state: &mut SignalBrowserState,
     action_queue: &mut Vec<action::AppAction>,
     muted_color: eframe::egui::Color32,
@@ -376,11 +378,15 @@ fn show_clean_channel_row(
             ));
             ui.close();
         }
-        if let Some(compiled) = edit_formula
-            && ui.button("Edit Formula…").clicked()
-        {
-            state.formula_draft = Some(FormulaDraft::from_compiled(compiled));
-            ui.close();
+        if let Some(compiled) = edit_formula {
+            if ui.button("Edit Formula…").clicked() {
+                state.formula_draft = Some(FormulaDraft::from_compiled(compiled));
+                ui.close();
+            }
+            if ui.button("Delete Formula").clicked() {
+                let _ = router.delete_derived_signal(&compiled.def.id);
+                ui.close();
+            }
         }
     });
 }
@@ -873,6 +879,7 @@ pub fn show_formula_editor_modal(
     let mut cancel_clicked = false;
     let mut save_clicked = false;
     let mut save_and_plot_clicked = false;
+    let mut delete_clicked = false;
 
     let validation = draft.validate(router.formula_engine());
     let title = if draft.is_editing_existing {
@@ -948,15 +955,21 @@ pub fn show_formula_editor_modal(
                 {
                     save_and_plot_clicked = true;
                 }
+                if draft.is_editing_existing && ui.button("Delete Formula").clicked() {
+                    delete_clicked = true;
+                }
                 if ui.button("Cancel").clicked() {
                     cancel_clicked = true;
                 }
             });
         });
 
-    if save_clicked || save_and_plot_clicked {
+    if delete_clicked {
+        let _ = router.delete_derived_signal(&draft.id);
+        state.formula_draft = None;
+    } else if save_clicked || save_and_plot_clicked {
         let def = draft.to_def();
-        match router.formula_engine_mut().upsert_formula(def.clone()) {
+        match router.save_derived_signal(def.clone()) {
             Ok(()) => {
                 if save_and_plot_clicked {
                     action_queue.push(action::AppAction::SpawnWidget(
