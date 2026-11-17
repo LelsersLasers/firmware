@@ -515,7 +515,10 @@ mod tests {
         assert!(engine.contains("battery.power_w"));
         assert!(engine.contains("battery.power_kw"));
         assert!(engine.contains("battery.energy_wh"));
-        assert!(engine.contains("vd.fl_damper_vel_mms"));
+        assert!(engine.contains("vd.front_roll_displacement_mm"));
+        assert!(!engine.contains("vd.front_heave_mm"));
+        assert!(!engine.contains("vd.fl_damper_vel_mms"));
+        assert!(!engine.contains("vd.fl_shockpot_50hz_mm"));
         assert!(engine.contains("vd.understeer_gradient"));
         assert!(engine.contains("thermals.max_igbt_temp_c"));
         assert_eq!(engine.unit_for("battery.power_w"), Some("W"));

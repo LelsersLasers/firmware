@@ -318,11 +318,7 @@ impl Registry {
                 .run_pending_migrations(MIGRATIONS)
                 .map_err(RegistryError::Migration)?
                 .is_empty();
-            let existing_derived_count: i64 =
-                derived_signals::table.count().get_result(&mut conn)?;
-            if any_applied || existing_derived_count == 0 {
-                Self::seed_builtin_derived_signals_in_conn(&mut conn)?;
-            }
+            Self::seed_builtin_derived_signals_in_conn(&mut conn)?;
             if any_applied {
                 Self::renumber_auto_stints_in_conn(&mut conn, None)?;
             }
@@ -974,11 +970,36 @@ impl Registry {
     fn seed_builtin_derived_signals_in_conn(
         conn: &mut SqliteConnection,
     ) -> Result<(), diesel::result::Error> {
-        for def in daqcore::analysis::FormulaEngine::builtin_defs() {
+        let builtins = daqcore::analysis::FormulaEngine::builtin_defs();
+        let builtin_ids: Vec<String> = builtins.iter().map(|d| d.id.clone()).collect();
+
+        // Remove unmodified legacy built-in derived signals (`updated_at_ms == 0`) that are
+        // no longer present in `daq/config/derived_signals.json`.
+        diesel::delete(
+            derived_signals::table
+                .filter(derived_signals::updated_at_ms.eq(0))
+                .filter(diesel::dsl::not(derived_signals::id.eq_any(&builtin_ids))),
+        )
+        .execute(conn)?;
+
+        for def in builtins {
             let row = DerivedSignalRow::from(&def);
             diesel::insert_or_ignore_into(derived_signals::table)
                 .values(&row)
                 .execute(conn)?;
+            // Keep unmodified built-in definitions (`updated_at_ms == 0`) synchronized with
+            // `daq/config/derived_signals.json` while preserving user-modified rows (`updated_at_ms > 0`).
+            diesel::update(
+                derived_signals::table
+                    .filter(derived_signals::id.eq(&row.id))
+                    .filter(derived_signals::updated_at_ms.eq(0)),
+            )
+            .set((
+                derived_signals::label.eq(&row.label),
+                derived_signals::expression.eq(&row.expression),
+                derived_signals::unit.eq(&row.unit),
+            ))
+            .execute(conn)?;
         }
         Ok(())
     }

@@ -37,18 +37,6 @@
       "unit": "rpm"
     },
     {
-      "id": "vd.front_heave_mm",
-      "label": "Front heave displacement",
-      "expression": "(front_shockpots.left + front_shockpots.right) / 2.0",
-      "unit": "mm"
-    },
-    {
-      "id": "vd.rear_heave_mm",
-      "label": "Rear heave displacement",
-      "expression": "(rear_shockpots.left + rear_shockpots.right) / 2.0",
-      "unit": "mm"
-    },
-    {
       "id": "vd.front_roll_displacement_mm",
       "label": "Front roll displacement (FL - FR)",
       "expression": "front_shockpots.left - front_shockpots.right",
@@ -58,54 +46,6 @@
       "id": "vd.rear_roll_displacement_mm",
       "label": "Rear roll displacement (RL - RR)",
       "expression": "rear_shockpots.left - rear_shockpots.right",
-      "unit": "mm"
-    },
-    {
-      "id": "vd.fl_damper_vel_mms",
-      "label": "Front left damper velocity",
-      "expression": "derivative(front_shockpots.left, 50)",
-      "unit": "mm/s"
-    },
-    {
-      "id": "vd.fr_damper_vel_mms",
-      "label": "Front right damper velocity",
-      "expression": "derivative(front_shockpots.right, 50)",
-      "unit": "mm/s"
-    },
-    {
-      "id": "vd.rl_damper_vel_mms",
-      "label": "Rear left damper velocity",
-      "expression": "derivative(rear_shockpots.left, 50)",
-      "unit": "mm/s"
-    },
-    {
-      "id": "vd.rr_damper_vel_mms",
-      "label": "Rear right damper velocity",
-      "expression": "derivative(rear_shockpots.right, 50)",
-      "unit": "mm/s"
-    },
-    {
-      "id": "vd.fl_shockpot_50hz_mm",
-      "label": "Front left shockpot (50 Hz low-pass)",
-      "expression": "lowpass(front_shockpots.left, 50)",
-      "unit": "mm"
-    },
-    {
-      "id": "vd.fr_shockpot_50hz_mm",
-      "label": "Front right shockpot (50 Hz low-pass)",
-      "expression": "lowpass(front_shockpots.right, 50)",
-      "unit": "mm"
-    },
-    {
-      "id": "vd.rl_shockpot_50hz_mm",
-      "label": "Rear left shockpot (50 Hz low-pass)",
-      "expression": "lowpass(rear_shockpots.left, 50)",
-      "unit": "mm"
-    },
-    {
-      "id": "vd.rr_shockpot_50hz_mm",
-      "label": "Rear right shockpot (50 Hz low-pass)",
-      "expression": "lowpass(rear_shockpots.right, 50)",
       "unit": "mm"
     },
     {

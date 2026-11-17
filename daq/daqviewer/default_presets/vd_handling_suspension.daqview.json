@@ -61,12 +61,10 @@
               {
                 "type": "pane",
                 "widget": "scope",
-                "title": "Heave & Roll Displacement (Distance Mode)",
+                "title": "Roll Displacement (Distance Mode)",
                 "x_mode": "track_distance",
                 "speed_signal_id": "gps_speed_heading.gps_speed",
                 "channels": [
-                  { "signal_id": "vd.front_heave_mm" },
-                  { "signal_id": "vd.rear_heave_mm" },
                   { "signal_id": "vd.front_roll_displacement_mm" },
                   { "signal_id": "vd.rear_roll_displacement_mm" }
                 ]
