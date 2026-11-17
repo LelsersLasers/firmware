@@ -175,7 +175,10 @@ impl AppState {
             if guard.len() >= 4096 {
                 guard.clear();
             }
-            guard.insert((path.to_path_buf(), computed_size, mtime_secs), digest.clone());
+            guard.insert(
+                (path.to_path_buf(), computed_size, mtime_secs),
+                digest.clone(),
+            );
         }
         Ok((computed_size, digest))
     }

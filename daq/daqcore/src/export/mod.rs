@@ -363,7 +363,7 @@ pub fn discover_available_signals(
 
 fn discover_available_signals_with_engine(
     router: &VirtualTimelineRouter,
-    formula_engine: & crate::analysis::FormulaEngine,
+    formula_engine: &crate::analysis::FormulaEngine,
     range: RangeInclusive<i64>,
 ) -> IndexMap<String, ExportSignalMeta> {
     let mut catalog: IndexMap<String, ExportSignalMeta> = IndexMap::new();
@@ -521,12 +521,8 @@ pub fn materialize_export_table_with_formulas(
         owned_engine.insert(eng)
     };
 
-    let metas = expand_signal_patterns_with_engine(
-        signal_patterns,
-        router,
-        formula_engine,
-        range.clone(),
-    )?;
+    let metas =
+        expand_signal_patterns_with_engine(signal_patterns, router, formula_engine, range.clone())?;
 
     let mut raw_ids_needed: BTreeSet<String> = BTreeSet::new();
     for meta in &metas {
@@ -707,28 +703,29 @@ pub fn resolve_annotation_time_range(
     let all_annotations = router.query_annotations_in_range(i64::MIN..=i64::MAX)?;
     let active_day_id = router.timeline().active_track_day_id();
 
-    let find_in = |filter_active_day: bool| -> Option<&crate::log_parse::auto_annotate::Annotation> {
-        let day_pred = |a: &&crate::log_parse::auto_annotate::Annotation| -> bool {
-            if filter_active_day {
-                active_day_id.is_some_and(|day_id| a.track_day_id == day_id)
-            } else {
-                true
-            }
+    let find_in =
+        |filter_active_day: bool| -> Option<&crate::log_parse::auto_annotate::Annotation> {
+            let day_pred = |a: &&crate::log_parse::auto_annotate::Annotation| -> bool {
+                if filter_active_day {
+                    active_day_id.is_some_and(|day_id| a.track_day_id == day_id)
+                } else {
+                    true
+                }
+            };
+            all_annotations
+                .iter()
+                .filter(day_pred)
+                .find(|a| {
+                    a.id.eq_ignore_ascii_case(query_trimmed)
+                        || a.name.eq_ignore_ascii_case(query_trimmed)
+                })
+                .or_else(|| {
+                    all_annotations
+                        .iter()
+                        .filter(day_pred)
+                        .find(|a| a.name.to_ascii_lowercase().contains(&query_lower))
+                })
         };
-        all_annotations
-            .iter()
-            .filter(day_pred)
-            .find(|a| {
-                a.id.eq_ignore_ascii_case(query_trimmed)
-                    || a.name.eq_ignore_ascii_case(query_trimmed)
-            })
-            .or_else(|| {
-                all_annotations
-                    .iter()
-                    .filter(day_pred)
-                    .find(|a| a.name.to_ascii_lowercase().contains(&query_lower))
-            })
-    };
 
     let matched = find_in(true)
         .or_else(|| find_in(false))

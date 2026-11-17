@@ -1047,8 +1047,7 @@ pub async fn download_file_resumable(
     let mut hasher = sha2::Sha256::new();
     let mut stream = resp.bytes_stream();
     while let Some(chunk_res) = stream.next().await {
-        let chunk =
-            chunk_res.map_err(|e| format!("Failed reading body stream from {url}: {e}"))?;
+        let chunk = chunk_res.map_err(|e| format!("Failed reading body stream from {url}: {e}"))?;
         part_file
             .write_all(&chunk)
             .map_err(|e| format!("Failed writing {}: {e}", part_path.display()))?;

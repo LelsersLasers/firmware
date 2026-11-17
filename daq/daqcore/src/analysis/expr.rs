@@ -1621,10 +1621,13 @@ impl<'a> Parser<'a> {
                         message: "derivative() window_ms must be >= 0".to_owned(),
                     });
                 }
-                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
-                    position: call_pos,
-                    message: "derivative() missing signal argument".to_owned(),
-                })?;
+                let first_arg = args
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AnalysisError::Syntax {
+                        position: call_pos,
+                        message: "derivative() missing signal argument".to_owned(),
+                    })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Derivative { window_ms },
                     arg: Box::new(first_arg),
@@ -1652,10 +1655,13 @@ impl<'a> Parser<'a> {
                         });
                     }
                 };
-                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
-                    position: call_pos,
-                    message: "integral() missing signal argument".to_owned(),
-                })?;
+                let first_arg = args
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AnalysisError::Syntax {
+                        position: call_pos,
+                        message: "integral() missing signal argument".to_owned(),
+                    })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Integral { reset_gap_ms },
                     arg: Box::new(first_arg),
@@ -1678,10 +1684,13 @@ impl<'a> Parser<'a> {
                         message: "lowpass() cutoff_hz must be > 0".to_owned(),
                     });
                 }
-                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
-                    position: call_pos,
-                    message: "lowpass() missing signal argument".to_owned(),
-                })?;
+                let first_arg = args
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AnalysisError::Syntax {
+                        position: call_pos,
+                        message: "lowpass() missing signal argument".to_owned(),
+                    })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Lowpass { cutoff_hz },
                     arg: Box::new(first_arg),
@@ -1704,10 +1713,13 @@ impl<'a> Parser<'a> {
                         message: "rolling_mean() window_ms must be >= 0".to_owned(),
                     });
                 }
-                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
-                    position: call_pos,
-                    message: "rolling_mean() missing signal argument".to_owned(),
-                })?;
+                let first_arg = args
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| AnalysisError::Syntax {
+                        position: call_pos,
+                        message: "rolling_mean() missing signal argument".to_owned(),
+                    })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::RollingMean { window_ms },
                     arg: Box::new(first_arg),
