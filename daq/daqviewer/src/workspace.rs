@@ -314,6 +314,8 @@ pub fn show(
     let requested_setpoint_ms = view.requested_setpoint_utc_ms();
     let requested_zoom = view.requested_zoom();
     let requested_zoom_range_ms = view.requested_zoom_range_ms();
+    let requested_range = view.requested_range_ms();
+    let requested_pause = view.requested_pause();
     let requested_pan_delta_ms = view.requested_pan_delta_ms();
     if view.requested_open_export_modal() {
         app.action_queue
@@ -328,6 +330,10 @@ pub fn show(
         app.hover_distance_m = None;
     }
     let mut timeline_changed = false;
+    if requested_pause {
+        app.router.timeline_mut().pause();
+        timeline_changed = true;
+    }
     if let Some((start_ms, end_ms)) = requested_zoom_range_ms {
         app.router.timeline_mut().zoom_to_range_ms(start_ms, end_ms);
         timeline_changed = true;
@@ -345,6 +351,14 @@ pub fn show(
             .start_utc_ms()
             .saturating_add(delta_ms);
         app.router.timeline_mut().pan_to_start_ms(next_start_ms);
+        timeline_changed = true;
+    }
+    if let Some((start, end)) = requested_range {
+        let cursor = app.router.timeline().setpoint_utc_ms().clamp(start, end);
+        let timeline = app.router.timeline_mut();
+        timeline.set_playing(false);
+        timeline.snap_to_range_ms(start, end);
+        timeline.set_setpoint(daqcore::time::Time::from_unix_millis(cursor));
         timeline_changed = true;
     }
     if let Some(setpoint_ms) = requested_setpoint_ms {

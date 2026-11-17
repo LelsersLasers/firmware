@@ -1,5 +1,12 @@
 use crate::{ui, workspace_view};
 
+#[path = "scope_plot.rs"]
+mod plot;
+
+#[cfg(test)]
+#[path = "scope_workflows.rs"]
+mod workflows;
+
 pub const CHANNEL_PALETTE: [eframe::egui::Color32; 8] = [
     eframe::egui::Color32::from_rgb(80, 190, 255), // Sky Blue
     eframe::egui::Color32::from_rgb(255, 160, 60), // Amber Orange
@@ -117,6 +124,7 @@ struct ScopeCacheKey {
     comparison_ids: Vec<String>,
     channel_specs: Vec<(String, String, String, eframe::egui::Color32)>,
     data_revision: u64,
+    configuration: String,
 }
 
 enum ChannelCursorLookup {
@@ -169,8 +177,15 @@ pub struct Scope {
     pub x_axis_mode: ScopeXAxisMode,
     pub speed_signal_id: String,
     pub show_inline_stats: bool,
+    pub show_legend: bool,
+    pub config: ui::scope_settings::ScopeConfig,
+    inspector: Option<(String, ui::scope_settings::InspectorTab)>,
+    gesture: Option<ui::scope_interaction::Gesture>,
+    measurements: ui::scope_interaction::Measurements,
+    lane_y_overrides: std::collections::BTreeMap<usize, (f64, f64)>,
+    plot_frames: Vec<eframe::egui::Rect>,
+    hidden_channels: std::collections::HashSet<String>,
     y_bounds_override: Option<(f64, f64)>,
-    right_drag_start: Option<(f64, i64)>,
     cached_data: Option<CachedScopeData>,
 }
 
@@ -200,8 +215,15 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
+            show_legend: true,
+            hidden_channels: std::collections::HashSet::new(),
+            config: ui::scope_settings::ScopeConfig::default(),
+            inspector: None,
+            gesture: None,
+            measurements: ui::scope_interaction::Measurements::default(),
+            lane_y_overrides: std::collections::BTreeMap::new(),
+            plot_frames: Vec::new(),
             y_bounds_override: None,
-            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -217,8 +239,15 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
+            show_legend: true,
+            hidden_channels: std::collections::HashSet::new(),
+            config: ui::scope_settings::ScopeConfig::default(),
+            inspector: None,
+            gesture: None,
+            measurements: ui::scope_interaction::Measurements::default(),
+            lane_y_overrides: std::collections::BTreeMap::new(),
+            plot_frames: Vec::new(),
             y_bounds_override: None,
-            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -248,8 +277,15 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
+            show_legend: true,
+            hidden_channels: std::collections::HashSet::new(),
+            config: ui::scope_settings::ScopeConfig::default(),
+            inspector: None,
+            gesture: None,
+            measurements: ui::scope_interaction::Measurements::default(),
+            lane_y_overrides: std::collections::BTreeMap::new(),
+            plot_frames: Vec::new(),
             y_bounds_override: None,
-            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -280,8 +316,15 @@ impl Scope {
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
+            show_legend: true,
+            hidden_channels: std::collections::HashSet::new(),
+            config: ui::scope_settings::ScopeConfig::default(),
+            inspector: None,
+            gesture: None,
+            measurements: ui::scope_interaction::Measurements::default(),
+            lane_y_overrides: std::collections::BTreeMap::new(),
+            plot_frames: Vec::new(),
             y_bounds_override: None,
-            right_drag_start: None,
             cached_data: None,
         }
     }
@@ -305,8 +348,15 @@ impl Scope {
             x_axis_mode,
             speed_signal_id,
             show_inline_stats: false,
+            show_legend: true,
+            hidden_channels: std::collections::HashSet::new(),
+            config: ui::scope_settings::ScopeConfig::default(),
+            inspector: None,
+            gesture: None,
+            measurements: ui::scope_interaction::Measurements::default(),
+            lane_y_overrides: std::collections::BTreeMap::new(),
+            plot_frames: Vec::new(),
             y_bounds_override,
-            right_drag_start: None,
             cached_data: None,
         };
         if !custom_title {
@@ -349,7 +399,11 @@ impl Scope {
             self.picker_target = None;
             return;
         }
-        let color = CHANNEL_PALETTE[self.channels.len() % CHANNEL_PALETTE.len()];
+        let color = CHANNEL_PALETTE
+            .iter()
+            .copied()
+            .find(|color| !self.channels.iter().any(|channel| channel.color == *color))
+            .unwrap_or(CHANNEL_PALETTE[self.channels.len() % CHANNEL_PALETTE.len()]);
         self.channels.push(ScopeChannel {
             signal_id,
             label,
@@ -362,12 +416,19 @@ impl Scope {
         self.refresh_title();
     }
 
+    fn toggle_channel_visibility(&mut self, index: usize) {
+        if let Some(channel) = self.channels.get(index)
+            && !self.hidden_channels.remove(&channel.signal_id)
+        {
+            self.hidden_channels.insert(channel.signal_id.clone());
+        }
+    }
+
     pub fn remove_channel(&mut self, index: usize) {
         if index < self.channels.len() {
-            self.channels.remove(index);
-            for (i, ch) in self.channels.iter_mut().enumerate() {
-                ch.color = CHANNEL_PALETTE[i % CHANNEL_PALETTE.len()];
-            }
+            let removed = self.channels.remove(index);
+            self.hidden_channels.remove(&removed.signal_id);
+            self.config.channels.remove(&removed.signal_id);
             if self.channels.is_empty() {
                 self.custom_title = false;
                 self.picker_target = Some(ScopePickerTarget::AddChannel);
@@ -461,6 +522,7 @@ impl Scope {
         ui: &mut eframe::egui::Ui,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
+        self.config.sanitize();
         let pane_rect = ui.max_rect();
         if let Some(payload) =
             eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx())
@@ -472,7 +534,9 @@ impl Scope {
                 eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::from_rgb(80, 190, 255)),
                 eframe::egui::StrokeKind::Inside,
             );
-            if ui.input(|i| i.pointer.any_released()) {
+            if (!self.config.stacked || self.channels.is_empty())
+                && ui.input(|i| i.pointer.any_released())
+            {
                 self.apply_dragged_signal((*payload).clone());
                 let _ = eframe::egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
                     ui.ctx(),
@@ -522,7 +586,6 @@ impl Scope {
         let start_ms = start.unix_millis();
         let end_ms = view.timeline.end_utc_ms();
         let duration_s = view.timeline.end().secs(start).max(0.001);
-        let playhead_s = view.timeline.setpoint().secs(start);
 
         let comparison_ids: Vec<String> = comparison_annotations
             .iter()
@@ -550,6 +613,7 @@ impl Scope {
             comparison_ids,
             channel_specs,
             data_revision: view.data_revision(),
+            configuration: serde_json::to_string(&self.config).unwrap_or_default(),
         };
 
         if self.cached_data.as_ref().is_none_or(|c| c.key != cache_key) {
@@ -557,11 +621,12 @@ impl Scope {
             let mut unit_groups: Vec<String> = Vec::new();
             let mut channel_unit_group: Vec<usize> = Vec::with_capacity(self.channels.len());
             for ch in &self.channels {
+                let axis_key = self.config.axis_key(ch);
                 let pos = unit_groups
                     .iter()
-                    .position(|u| u == &ch.unit)
+                    .position(|u| u == &axis_key)
                     .unwrap_or_else(|| {
-                        unit_groups.push(ch.unit.clone());
+                        unit_groups.push(axis_key.clone());
                         unit_groups.len() - 1
                     });
                 channel_unit_group.push(pos);
@@ -607,11 +672,7 @@ impl Scope {
                             width_px,
                         );
                         let style = line_styles[lap_idx % line_styles.len()];
-                        let trace_color = if self.channels.len() == 1 {
-                            CHANNEL_PALETTE[lap_idx % CHANNEL_PALETTE.len()]
-                        } else {
-                            ch.color
-                        };
+                        let trace_color = ch.color;
 
                         if self.x_axis_mode == ScopeXAxisMode::TrackDistance {
                             let dist_series = view.query_signal_vs_distance(
@@ -791,8 +852,16 @@ impl Scope {
             // Normalize unit bounds and build multi-unit Y transforms.
             let normalized_bounds: Vec<(f64, f64)> = unit_bounds
                 .iter()
-                .map(|&(lo, hi)| {
-                    if !lo.is_finite() || !hi.is_finite() {
+                .enumerate()
+                .map(|(index, &(lo, hi))| {
+                    if let Some(range) = self
+                        .config
+                        .axes
+                        .get(&unit_groups[index])
+                        .and_then(|axis| axis.valid_range())
+                    {
+                        range
+                    } else if !lo.is_finite() || !hi.is_finite() {
                         (-1.0, 1.0)
                     } else if (hi - lo).abs() < 1e-6 {
                         let pad = (lo.abs() * 0.05).max(1.0);
@@ -890,89 +959,41 @@ impl Scope {
             }
         }
 
-        // Single compact Nominal-style header strip:
-        // Left: colored channel pills (`■ Label = 3633.1 W`, with `[min, max, avg]` in tooltip or optional inline toggle)
-        // Right: `+` button (add channel) and `…` menu (X-axis mode, speed signal, inline stats toggle, reset Y, CSV export, clear)
-        let mut remove_idx: Option<usize> = None;
+        // One small toolbar. Signal readouts live in the floating legend.
         let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
 
-        ui.horizontal_wrapped(|ui| {
-            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Extend);
-
-            if is_comparison {
-                ui.colored_label(
-                    eframe::egui::Color32::from_rgb(255, 190, 60),
-                    eframe::egui::RichText::new(format!("[Overlay: {}]", comparison_annotations.len()))
-                        .small()
-                        .strong(),
-                );
+        ui.horizontal(|ui| {
+            if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
+                self.show_legend = !self.show_legend;
             }
-
-            for (idx, ch) in self.channels.iter().enumerate() {
-                let unit_str = if ch.unit.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {}", ch.unit)
-                };
-                let kind_prefix = if ch.is_derived { "ƒ " } else { "" };
-                let label_note = if !ch.label.is_empty() && ch.label != ch.signal_id {
-                    format!(" ({})", ch.label)
-                } else {
-                    String::new()
-                };
-                let (pill_text, tooltip_text) = if let Some(st) = channel_stats[idx] {
-                    let cur_str = st
-                        .cursor
-                        .map_or_else(|| "—".to_owned(), |v| format!("{v:.2}{unit_str}"));
-                    let pill = if self.show_inline_stats {
-                        format!(
-                            "■ {}{} = {} [min {:.2}, max {:.2}, avg {:.2}]",
-                            kind_prefix, ch.signal_id, cur_str, st.min, st.max, st.mean
-                        )
-                    } else {
-                        format!("■ {}{} = {}", kind_prefix, ch.signal_id, cur_str)
-                    };
-                    let tip = format!(
-                        "{}{}\nCursor: {}\nWindow Min: {:.3}{}\nWindow Max: {:.3}{}\nWindow Avg: {:.3}{}",
-                        ch.signal_id, label_note, cur_str, st.min, unit_str, st.max, unit_str, st.mean, unit_str
-                    );
-                    (pill, tip)
-                } else {
-                    (
-                        format!("■ {}{}{}", kind_prefix, ch.signal_id, unit_str),
-                        format!("{}{} (no samples in active window)", ch.signal_id, label_note),
-                    )
-                };
-
-                ui.colored_label(
-                    ch.color,
-                    eframe::egui::RichText::new(pill_text).size(11.5),
-                )
-                .on_hover_text(tooltip_text);
-                if ui
-                    .small_button("×")
-                    .on_hover_text(format!("Remove {}", ch.signal_id))
-                    .clicked()
-                {
-                    remove_idx = Some(idx);
-                }
-                ui.add_space(4.0);
+            if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
+                self.config.toggle_stack(&self.channels);
+                self.cached_data = None;
+                self.lane_y_overrides.clear();
+                return;
             }
-
-            if ui
-                .small_button("+")
-                .on_hover_text("Add another signal or derived formula to this Scope")
-                .clicked()
-            {
+            if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
+                self.measurements.enabled = !self.measurements.enabled;
+                self.gesture = None;
+            }
+            if ui.small_button("+").on_hover_text("Add signal").clicked() {
                 open_picker = Some(ScopePickerTarget::AddChannel);
             }
-
+            if is_comparison {
+                ui.label(
+                    eframe::egui::RichText::new(format!(
+                        "Comparing ({})",
+                        comparison_annotations.len()
+                    ))
+                    .small(),
+                );
+            }
             if self.x_axis_mode != ScopeXAxisMode::UtcTime
                 && ui
                     .small_button(self.x_axis_mode.label())
-                    .on_hover_text("Click to return to UTC Time X-axis")
+                    .on_hover_text("Use time axis")
                     .clicked()
             {
                 self.x_axis_mode = ScopeXAxisMode::UtcTime;
@@ -1014,68 +1035,112 @@ impl Scope {
                             self.refresh_title();
                         }
                     });
-                ui.separator();
-                ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
-                for mode in [
-                    ScopeXAxisMode::UtcTime,
-                    ScopeXAxisMode::ElapsedTime,
-                    ScopeXAxisMode::TrackDistance,
-                ] {
-                    if ui
-                        .selectable_label(self.x_axis_mode == mode, mode.label())
-                        .clicked()
-                    {
-                        self.x_axis_mode = mode;
-                        if mode == ScopeXAxisMode::TrackDistance && self.speed_signal_id.is_empty()
+                    ui.separator();
+                    ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
+                    for mode in [
+                        ScopeXAxisMode::UtcTime,
+                        ScopeXAxisMode::ElapsedTime,
+                        ScopeXAxisMode::TrackDistance,
+                    ] {
+                        if ui
+                            .selectable_label(self.x_axis_mode == mode, mode.label())
+                            .clicked()
                         {
-                            self.speed_signal_id = view.resolve_default_speed_signal();
+                            self.x_axis_mode = mode;
+                            if mode == ScopeXAxisMode::TrackDistance
+                                && self.speed_signal_id.is_empty()
+                            {
+                                self.speed_signal_id = view.resolve_default_speed_signal();
+                            }
+                            ui.close();
                         }
+                    }
+                    if self.x_axis_mode == ScopeXAxisMode::TrackDistance
+                        && ui
+                            .button(format!("Speed Signal: {}…", self.speed_signal_id))
+                            .on_hover_text(&self.speed_signal_id)
+                            .clicked()
+                    {
+                        open_picker = Some(ScopePickerTarget::SpeedSignal);
                         ui.close();
                     }
-                }
-                if self.x_axis_mode == ScopeXAxisMode::TrackDistance
-                    && ui
-                        .button(format!("Speed Signal: {}…", self.speed_signal_id))
-                        .on_hover_text(&self.speed_signal_id)
-                        .clicked()
-                {
-                    open_picker = Some(ScopePickerTarget::SpeedSignal);
-                    ui.close();
-                }
-                ui.separator();
-                ui.checkbox(
-                    &mut self.show_inline_stats,
-                    "Show [min, max, avg] inline",
-                );
-                if self.y_bounds_override.is_some() && ui.button("Reset Y-Axis Zoom").clicked() {
-                    self.y_bounds_override = None;
-                    ui.close();
-                }
-                if ui.button("Export CSV…").clicked() {
-                    export_csv = true;
-                    ui.close();
-                }
-                if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
-                    clear_all = true;
-                    ui.close();
-                }
-            });
+                    ui.separator();
+                    ui.checkbox(&mut self.show_inline_stats, "Show statistics");
+                    ui.menu_button("Plots", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Count");
+                            if ui
+                                .add(
+                                    eframe::egui::DragValue::new(&mut self.config.lanes)
+                                        .range(1..=8),
+                                )
+                                .changed()
+                            {
+                                self.config.stacked = self.config.lanes > 1;
+                                self.config.sanitize();
+                                self.cached_data = None;
+                            }
+                        });
+                        if ui.button("Split signals").clicked() {
+                            self.config.stacked = true;
+                            for (index, channel) in self.channels.iter().enumerate() {
+                                self.config
+                                    .channels
+                                    .entry(channel.signal_id.clone())
+                                    .or_default()
+                                    .lane = index % self.config.lanes;
+                            }
+                            self.cached_data = None;
+                            ui.close();
+                        }
+                        if ui.button("Combine signals").clicked() {
+                            self.config.stacked = false;
+                            self.cached_data = None;
+                            ui.close();
+                        }
+                    });
+                    ui.menu_button("Cursors", |ui| {
+                        for (slot, label) in [(0, "Set A"), (1, "Set B")] {
+                            if ui.button(label).clicked() {
+                                self.measurements.enabled = true;
+                                self.measurements.next = slot;
+                                ui.close();
+                            }
+                        }
+                        if ui.button("Clear cursors").clicked() {
+                            self.measurements.pins = [None, None];
+                            ui.close();
+                        }
+                    });
+                    if self.y_bounds_override.is_some() && ui.button("Reset Y-Axis Zoom").clicked()
+                    {
+                        self.y_bounds_override = None;
+                        ui.close();
+                    }
+                    if ui.button("Export CSV…").clicked() {
+                        export_csv = true;
+                        ui.close();
+                    }
+                    if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
+                        clear_all = true;
+                        ui.close();
+                    }
+                });
         });
 
         if export_csv {
             view.request_open_export_modal();
         }
 
-        if let Some(idx) = remove_idx {
-            self.remove_channel(idx);
-            return egui_tiles::UiResponse::None;
-        }
         if let Some(target) = open_picker {
             self.picker_target = Some(target);
             return egui_tiles::UiResponse::None;
         }
         if clear_all {
             self.channels.clear();
+            self.hidden_channels.clear();
+            self.config.channels.clear();
+            self.config.axes.clear();
             self.cached_data = None;
             self.custom_title = false;
             self.refresh_title();
@@ -1083,419 +1148,7 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        let Some(cached) = self.cached_data.as_ref() else {
-            return egui_tiles::UiResponse::None;
-        };
-
-        if cached
-            .mapped_traces
-            .iter()
-            .all(|t| t.mean_points.is_empty())
-        {
-            ui.label("No retained samples in the selected interval.");
-        }
-
-        let primary_min = cached.primary_min;
-        let primary_max = cached.primary_max;
-        let max_x_bound = cached.max_x_bound;
-        let multi_unit = cached.unit_groups.len() > 1;
-        let y_axes: Vec<egui_plot::AxisHints<'static>> = cached
-            .unit_groups
-            .iter()
-            .enumerate()
-            .map(|(u_idx, unit_name)| {
-                let placement = if u_idx % 2 == 0 {
-                    egui_plot::HPlacement::Left
-                } else {
-                    egui_plot::HPlacement::Right
-                };
-                let tf = cached.unit_transforms[u_idx];
-                let mut hints = egui_plot::AxisHints::new_y()
-                    .placement(placement)
-                    .formatter(move |mark, _range| {
-                        let phys = tf.plot_to_phys(mark.value);
-                        let phys_step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
-                        let decimals = (-phys_step.log10().floor() as isize).clamp(0, 3) as usize;
-                        eframe::egui::emath::format_with_decimals_in_range(
-                            phys,
-                            decimals..=decimals,
-                        )
-                    });
-                if multi_unit && !unit_name.is_empty() {
-                    hints = hints.label(unit_name.clone());
-                }
-                hints
-            })
-            .collect();
-
-        let x_axis_mode = self.x_axis_mode;
-
-        // Compute playhead X and linked hover X in the current X-axis coordinate system.
-        let playhead_x: Option<f64> =
-            if is_comparison {
-                None
-            } else {
-                match x_axis_mode {
-                    ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => Some(playhead_s),
-                    ScopeXAxisMode::TrackDistance => cached
-                        .primary_distance_lookup
-                        .as_ref()
-                        .and_then(|(_, ts, ds)| {
-                            interpolate_distance_at_ms(ts, ds, view.timeline.setpoint_utc_ms())
-                        }),
-                }
-            };
-
-        let hover_x: Option<f64> = match x_axis_mode {
-            ScopeXAxisMode::TrackDistance => view.hover_distance_m().or_else(|| {
-                let hover_ms = view.hover_utc_ms()?;
-                let (_, ts, ds) = cached.primary_distance_lookup.as_ref()?;
-                interpolate_distance_at_ms(ts, ds, hover_ms)
-            }),
-            ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
-                view.hover_utc_ms().map(|hover_ms| {
-                    let ref_start_ms = if is_comparison {
-                        comparison_annotations
-                            .first()
-                            .map_or(start_ms, |a| a.start_utc_ms)
-                    } else {
-                        start_ms
-                    };
-                    ((hover_ms - ref_start_ms) as f64) / 1000.0
-                })
-            }
-        };
-
-        let plot_width = ui.available_width().max(60.0);
-        let plot_height = ui.available_height().max(60.0);
-
-        let plot_id = (
-            "scope_plot_v2",
-            self.instance_num,
-            is_comparison,
-            x_axis_mode as u8,
-        );
-        let (active_y_min, active_y_max) =
-            self.y_bounds_override.unwrap_or((primary_min, primary_max));
-        let mut next_y_override = self.y_bounds_override;
-        let mut next_right_drag_start = self.right_drag_start;
-
-        let mut plot = egui_plot::Plot::new(plot_id)
-            .custom_y_axes(y_axes)
-            .width(plot_width)
-            .height(plot_height)
-            .allow_zoom(false)
-            .allow_drag(false)
-            .allow_scroll(false)
-            .allow_boxed_zoom(false)
-            .allow_double_click_reset(false)
-            .x_axis_formatter(move |mark, _| match (is_comparison, x_axis_mode) {
-                (_, ScopeXAxisMode::TrackDistance) => format!("{:.0} m", mark.value),
-                (true, _) | (false, ScopeXAxisMode::ElapsedTime) => format!("{:.1}s", mark.value),
-                (false, ScopeXAxisMode::UtcTime) => {
-                    let offset_ms = (mark.value * 1000.0).round() as i64;
-                    start.offset(offset_ms).label()
-                }
-            });
-        // Only show the in-plot legend box when comparing multiple laps/stints (to distinguish solid vs dashed laps);
-        // in standard mode, the compact channel pills in the header strip already serve as the color-coded legend + live readout.
-        if is_comparison {
-            plot = plot.legend(egui_plot::Legend::default());
-        }
-        plot.show(ui, |plot_ui| {
-            plot_ui.set_plot_bounds_x(0.0..=max_x_bound);
-            plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
-
-            for trace in &cached.mapped_traces {
-                let fill_color = trace.color.gamma_multiply(0.22);
-                let band_stroke =
-                    eframe::egui::Stroke::new(0.5_f32, trace.color.gamma_multiply(0.35));
-
-                for quad in &trace.envelope_bands {
-                    plot_ui.polygon(
-                        egui_plot::Polygon::new("", quad.to_vec())
-                            .fill_color(fill_color)
-                            .stroke(band_stroke)
-                            .allow_hover(false),
-                    );
-                }
-
-                plot_ui.line(
-                    egui_plot::Line::new(
-                        trace.name.clone(),
-                        egui_plot::PlotPoints::from(trace.mean_points.clone()),
-                    )
-                    .color(trace.color)
-                    .style(trace.style),
-                );
-            }
-
-            let theme = ui::theme::get_theme(plot_ui.ctx());
-            if let Some(px) = playhead_x {
-                plot_ui.vline(
-                    egui_plot::VLine::new("", px)
-                        .color(theme.playhead_color())
-                        .width(1.6_f32),
-                );
-            }
-
-            if let Some(hx) = hover_x
-                && hx >= 0.0
-                && hx <= max_x_bound
-            {
-                plot_ui.vline(
-                    egui_plot::VLine::new("", hx)
-                        .color(theme.hover_cursor_color())
-                        .style(egui_plot::LineStyle::dashed_dense()),
-                );
-            }
-
-            let popup_open = eframe::egui::Popup::is_any_open(plot_ui.ctx());
-            let mut pointer_utc_ms: Option<i64> = None;
-            let mut pointer_plot_y: Option<f64> = None;
-            if !popup_open
-                && plot_ui.response().hovered()
-                && let Some(coord) = plot_ui.pointer_coordinate()
-            {
-                pointer_plot_y = Some(coord.y);
-                let clamped_x = coord.x.clamp(0.0, max_x_bound);
-                match x_axis_mode {
-                    ScopeXAxisMode::TrackDistance => {
-                        view.set_hover_distance_m(Some(clamped_x));
-                        if let Some((_, ts, ds)) = &cached.primary_distance_lookup
-                            && let Some(utc_ms) = interpolate_ms_at_distance(ts, ds, clamped_x)
-                        {
-                            view.set_hover_utc_ms(Some(utc_ms));
-                            pointer_utc_ms = Some(utc_ms);
-                            if plot_ui.response().clicked() {
-                                view.request_setpoint_utc_ms(utc_ms);
-                            }
-                        }
-                    }
-                    ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
-                        let ref_start_ms = if is_comparison {
-                            comparison_annotations
-                                .first()
-                                .map_or(start_ms, |a| a.start_utc_ms)
-                        } else {
-                            start_ms
-                        };
-                        let utc_ms = ref_start_ms + (clamped_x * 1000.0).round() as i64;
-                        view.set_hover_utc_ms(Some(utc_ms));
-                        pointer_utc_ms = Some(utc_ms);
-                        if plot_ui.response().clicked() {
-                            view.request_setpoint_utc_ms(utc_ms);
-                        }
-                    }
-                }
-            }
-
-            // Double-clicking on Scope resets ONLY the Y-axis range to fit the locally
-            // selected window; it never changes the MasterTimeline X range.
-            if !popup_open && plot_ui.response().double_clicked() {
-                next_y_override = None;
-                plot_ui.set_plot_bounds_y(primary_min..=primary_max);
-            }
-
-            if !is_comparison && !popup_open {
-                let span_ms = (end_ms - start_ms).max(daqcore::timeline::MIN_WINDOW_MS) as f64;
-                let anchor_ms = pointer_utc_ms.unwrap_or_else(|| view.timeline.setpoint_utc_ms());
-
-                if plot_ui.response().hovered() {
-                    let (scroll, zoom_delta, shift_held) = plot_ui
-                        .ctx()
-                        .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
-                    if shift_held && scroll.y.abs() > 0.5 {
-                        let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
-                        let y_lo = active_y_min.min(active_y_max);
-                        let y_hi = active_y_max.max(y_lo);
-                        let cur_span = (y_hi - y_lo).max(1e-6);
-                        let new_span = (cur_span * factor).clamp(1e-4, 1e9);
-                        let anchor_y = pointer_plot_y
-                            .unwrap_or((y_lo + y_hi) * 0.5)
-                            .clamp(y_lo, y_hi);
-                        let ratio = (anchor_y - y_lo) / cur_span;
-                        let new_lo = anchor_y - ratio * new_span;
-                        next_y_override = Some((new_lo, new_lo + new_span));
-                    } else if (zoom_delta - 1.0).abs() > 1e-3 {
-                        let factor = (1.0 / f64::from(zoom_delta)).clamp(0.25, 4.0);
-                        view.request_zoom_around_ms(anchor_ms, factor);
-                    } else if scroll.y.abs() > 0.5 {
-                        let factor = if scroll.y > 0.0 { 0.8 } else { 1.25 };
-                        view.request_zoom_around_ms(anchor_ms, factor);
-                    }
-                    if scroll.x.abs() > 0.5 {
-                        let delta_ms =
-                            (-(scroll.x as f64) / (plot_width as f64) * span_ms).round() as i64;
-                        view.request_pan_delta_ms(delta_ms);
-                    }
-                }
-
-                let plot_rect = plot_ui.response().rect;
-                let plot_x_to_utc_ms = |clamped_x: f64| -> Option<i64> {
-                    match x_axis_mode {
-                        ScopeXAxisMode::TrackDistance => cached
-                            .primary_distance_lookup
-                            .as_ref()
-                            .and_then(|(_, ts, ds)| interpolate_ms_at_distance(ts, ds, clamped_x)),
-                        ScopeXAxisMode::UtcTime | ScopeXAxisMode::ElapsedTime => {
-                            Some(start_ms + (clamped_x * 1000.0).round() as i64)
-                        }
-                    }
-                };
-
-                let (sec_pressed, sec_down, sec_released, press_origin, latest_pos) =
-                    plot_ui.ctx().input(|i| {
-                        (
-                            i.pointer
-                                .button_pressed(eframe::egui::PointerButton::Secondary),
-                            i.pointer.secondary_down(),
-                            i.pointer
-                                .button_released(eframe::egui::PointerButton::Secondary),
-                            i.pointer.press_origin(),
-                            i.pointer.interact_pos().or_else(|| i.pointer.latest_pos()),
-                        )
-                    });
-
-                if next_right_drag_start.is_none()
-                    && (sec_pressed || sec_down)
-                    && let Some(origin) = press_origin
-                    && plot_rect.contains(origin)
-                {
-                    let start_x = plot_ui.plot_from_screen(origin).x.clamp(0.0, max_x_bound);
-                    if let Some(start_utc) = plot_x_to_utc_ms(start_x) {
-                        next_right_drag_start = Some((start_x, start_utc));
-                    }
-                }
-
-                if let Some((start_x, start_utc)) = next_right_drag_start {
-                    if let Some(pos) = latest_pos {
-                        let cur_x = plot_ui.plot_from_screen(pos).x.clamp(0.0, max_x_bound);
-                        let start_screen_x = plot_ui
-                            .screen_from_plot(egui_plot::PlotPoint::new(start_x, active_y_min))
-                            .x;
-                        let cur_screen_x = plot_ui
-                            .screen_from_plot(egui_plot::PlotPoint::new(cur_x, active_y_min))
-                            .x;
-                        let screen_dx = (cur_screen_x - start_screen_x).abs();
-
-                        if sec_down && !sec_released {
-                            if x_axis_mode == ScopeXAxisMode::TrackDistance {
-                                view.set_hover_distance_m(Some(cur_x));
-                            }
-                            if let Some(cur_utc) = plot_x_to_utc_ms(cur_x) {
-                                view.set_hover_utc_ms(Some(cur_utc));
-                            }
-                            if screen_dx >= 2.0 {
-                                let x_lo = start_x.min(cur_x);
-                                let x_hi = start_x.max(cur_x);
-                                let sel_color = eframe::egui::Color32::from_rgb(80, 190, 255);
-                                plot_ui.polygon(
-                                    egui_plot::Polygon::new(
-                                        "",
-                                        vec![
-                                            [x_lo, active_y_min],
-                                            [x_hi, active_y_min],
-                                            [x_hi, active_y_max],
-                                            [x_lo, active_y_max],
-                                        ],
-                                    )
-                                    .fill_color(sel_color.gamma_multiply(0.18))
-                                    .stroke(eframe::egui::Stroke::new(
-                                        1.0_f32,
-                                        sel_color.gamma_multiply(0.55),
-                                    ))
-                                    .allow_hover(false),
-                                );
-                                plot_ui.vline(
-                                    egui_plot::VLine::new("", x_lo)
-                                        .color(sel_color)
-                                        .width(1.5_f32),
-                                );
-                                plot_ui.vline(
-                                    egui_plot::VLine::new("", x_hi)
-                                        .color(sel_color)
-                                        .width(1.5_f32),
-                                );
-                                if let Some(cur_utc) = plot_x_to_utc_ms(cur_x) {
-                                    let dt_ms = (cur_utc - start_utc).abs();
-                                    let label = if dt_ms >= 1_000 {
-                                        format!("Δ {:.2} s", dt_ms as f64 / 1000.0)
-                                    } else {
-                                        format!("Δ {dt_ms} ms")
-                                    };
-                                    let mid_x = 0.5 * (x_lo + x_hi);
-                                    let top_y = active_y_min + 0.90 * (active_y_max - active_y_min);
-                                    plot_ui.text(
-                                        egui_plot::Text::new(
-                                            "",
-                                            egui_plot::PlotPoint::new(mid_x, top_y),
-                                            eframe::egui::RichText::new(label)
-                                                .size(11.0)
-                                                .strong()
-                                                .color(eframe::egui::Color32::WHITE)
-                                                .background_color(
-                                                    eframe::egui::Color32::from_rgba_unmultiplied(
-                                                        18, 24, 34, 215,
-                                                    ),
-                                                ),
-                                        )
-                                        .anchor(eframe::egui::Align2::CENTER_CENTER),
-                                    );
-                                }
-                            }
-                        } else {
-                            next_right_drag_start = None;
-                            if screen_dx >= 4.0
-                                && let Some(end_utc) = plot_x_to_utc_ms(cur_x)
-                            {
-                                let lo_ms = start_utc.min(end_utc);
-                                let hi_ms = start_utc.max(end_utc);
-                                if hi_ms > lo_ms {
-                                    view.request_zoom_range_ms(lo_ms, hi_ms);
-                                }
-                            }
-                        }
-                    } else if !sec_down || sec_released {
-                        next_right_drag_start = None;
-                    }
-                }
-
-                let drag_dx = if next_right_drag_start.is_some() {
-                    0.0
-                } else if plot_ui
-                    .response()
-                    .dragged_by(eframe::egui::PointerButton::Primary)
-                {
-                    plot_ui.response().drag_delta().x
-                } else if plot_ui.response().hovered() {
-                    plot_ui.ctx().input(|i| {
-                        if i.pointer.primary_down()
-                            && i.pointer
-                                .press_origin()
-                                .is_some_and(|origin| plot_rect.contains(origin))
-                        {
-                            i.pointer.delta().x
-                        } else {
-                            0.0
-                        }
-                    })
-                } else {
-                    0.0
-                };
-                if drag_dx.abs() > 0.0 {
-                    let delta_ms =
-                        (-(drag_dx as f64) / (plot_width as f64) * span_ms).round() as i64;
-                    view.request_pan_delta_ms(delta_ms);
-                }
-            } else {
-                next_right_drag_start = None;
-            }
-        });
-        self.y_bounds_override = next_y_override;
-        self.right_drag_start = next_right_drag_start;
-
-        egui_tiles::UiResponse::None
+        self.render_plots(ui, view, &comparison_annotations, &channel_stats)
     }
 }
 
@@ -1797,6 +1450,206 @@ mod tests {
     use super::*;
 
     #[test]
+    fn floating_legend_toggle_and_interactions_stay_out_of_plot_navigation() {
+        use eframe::egui::{self, Event, Modifiers, PointerButton};
+
+        fn frame(
+            ctx: &egui::Context,
+            scope: &mut Scope,
+            router: &daqcore::router::VirtualTimelineRouter,
+            events: Vec<Event>,
+        ) -> egui::FullOutput {
+            let view = workspace_view::WorkspaceDataView::new(router);
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900.0, 500.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let _ = scope.show(ui, &view);
+                    });
+                },
+            );
+            assert_eq!(
+                view.requested_setpoint_utc_ms(),
+                None,
+                "Legend clicks cannot scrub"
+            );
+            assert_eq!(
+                view.requested_pan_delta_ms(),
+                None,
+                "Legend drags cannot pan"
+            );
+            assert_eq!(view.requested_zoom(), None, "Legend scrolling cannot zoom");
+            output
+        }
+        fn find(output: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    let center = text.pos + text.galley.size() * 0.5;
+                    shape.clip_rect.contains(center).then_some(center)
+                }
+                _ => None,
+            })
+        }
+        fn click(
+            ctx: &egui::Context,
+            scope: &mut Scope,
+            router: &daqcore::router::VirtualTimelineRouter,
+            pos: egui::Pos2,
+        ) -> egui::FullOutput {
+            frame(ctx, scope, router, vec![Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                frame(
+                    ctx,
+                    scope,
+                    router,
+                    vec![Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    }],
+                );
+            }
+            frame(ctx, scope, router, vec![])
+        }
+
+        let ctx = egui::Context::default();
+        ui::theme::store_theme(&ctx, ui::theme::ThemeSelection::default().get_colors());
+        let router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(100_000),
+            30.0,
+        )
+        .unwrap();
+        let mut scope = Scope::new_multi(
+            1,
+            "Legend test",
+            (0..20)
+                .map(|index| {
+                    (
+                        format!("message.signal_{index}"),
+                        format!("Channel {index}"),
+                        "V".to_owned(),
+                    )
+                })
+                .collect(),
+        );
+        frame(&ctx, &mut scope, &router, vec![]);
+        let output = frame(&ctx, &mut scope, &router, vec![]);
+        let toggle = egui::pos2(20.0, 17.0);
+        assert!(find(&output, "Legend").is_none(), "The toggle is icon only");
+        let entry = find(&output, "Channel 0").expect("Floating legend is visible");
+        assert!(
+            entry.x < 450.0 && entry.y > 250.0,
+            "Legend belongs at the bottom left"
+        );
+        let panel = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect)
+                    if rect.rect.width() >= 150.0
+                        && rect.rect.width() <= 330.0
+                        && rect.rect.height() <= 190.0 =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            })
+            .expect("Legend panel");
+        let eye = egui::pos2(panel.right() - 17.0, entry.y);
+        let key = scope.cached_data.as_ref().unwrap().key.clone();
+        let colors: Vec<_> = scope.channels.iter().map(|channel| channel.color).collect();
+        click(&ctx, &mut scope, &router, eye);
+        assert!(scope.hidden_channels.contains("message.signal_0"));
+        assert_eq!(
+            scope.channels.len(),
+            20,
+            "Hiding does not remove the signal"
+        );
+        assert!(
+            !egui::Popup::is_any_open(&ctx),
+            "The eye does not open channel details"
+        );
+        click(&ctx, &mut scope, &router, eye);
+        assert!(!scope.hidden_channels.contains("message.signal_0"));
+        assert_eq!(scope.cached_data.as_ref().unwrap().key, key);
+        assert_eq!(
+            scope
+                .channels
+                .iter()
+                .map(|channel| channel.color)
+                .collect::<Vec<_>>(),
+            colors
+        );
+        assert!(
+            find(&output, "Channel 19").is_none(),
+            "Long legends scroll instead of growing"
+        );
+        frame(
+            &ctx,
+            &mut scope,
+            &router,
+            vec![
+                Event::PointerMoved(entry),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -20.0),
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        frame(
+            &ctx,
+            &mut scope,
+            &router,
+            vec![Event::PointerButton {
+                pos: entry,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        let dragged = entry - egui::vec2(60.0, 0.0);
+        frame(
+            &ctx,
+            &mut scope,
+            &router,
+            vec![Event::PointerMoved(dragged)],
+        );
+        frame(
+            &ctx,
+            &mut scope,
+            &router,
+            vec![Event::PointerButton {
+                pos: dragged,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        // Toggling the overlay must not change the plot or lose its scroll position.
+        let output = click(&ctx, &mut scope, &router, toggle);
+        assert!(!scope.show_legend);
+        assert!(find(&output, "Channel 0").is_none());
+        let output = click(&ctx, &mut scope, &router, toggle);
+        assert!(scope.show_legend);
+        let entry = find(&output, "Channel 0")
+            .or_else(|| find(&output, "Channel 1"))
+            .expect("Visible legend row");
+        let output = click(&ctx, &mut scope, &router, entry);
+        let remove = find(&output, "Remove signal").expect("Channel details popup");
+        click(&ctx, &mut scope, &router, remove);
+        assert_eq!(scope.channels.len(), 19);
+    }
+
+    #[test]
     fn unit_axis_transform_roundtrips_physical_values() {
         let tf = UnitAxisTransform::from_ranges(200.0, 400.0, -50.0, 150.0);
         assert!((tf.phys_to_plot(-50.0) - 200.0).abs() < 1e-9);
@@ -2006,151 +1859,5 @@ mod tests {
             "1 Hz fallback envelope must not have NaN breaks when window < 900s: {fb_pts:?}"
         );
         assert_eq!(fb_quads.len(), 9);
-    }
-
-    #[test]
-    fn right_click_drag_zooms_scope_to_selected_time_range() {
-        let base_ms = 1_788_719_000_000;
-        let mut router = daqcore::router::VirtualTimelineRouter::live(
-            daqcore::time::Time::from_unix_millis(base_ms + 10_000),
-            10.0,
-        )
-        .expect("live router");
-        router
-            .timeline_mut()
-            .snap_to_range_ms(base_ms, base_ms + 10_000);
-
-        let mut scope = Scope::new_channel(
-            1,
-            "wheel_speeds.front_left".to_owned(),
-            "wheel_speeds.front_left".to_owned(),
-            "rpm".to_owned(),
-        );
-        let ctx = eframe::egui::Context::default();
-
-        // Frame 1: initial layout pass
-        let view1 = workspace_view::WorkspaceDataView::new(&router);
-        let raw1 = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(1000.0, 500.0),
-            )),
-            ..Default::default()
-        };
-        let _ = ctx.run(raw1, |ctx| {
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = scope.show(ui, &view1);
-            });
-        });
-
-        // Frame 2: press secondary (right) mouse button at x=300, y=250
-        let p_start = eframe::egui::pos2(300.0, 250.0);
-        let p_end = eframe::egui::pos2(700.0, 250.0);
-        let view2 = workspace_view::WorkspaceDataView::new(&router);
-        let raw2 = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(1000.0, 500.0),
-            )),
-            events: vec![
-                eframe::egui::Event::PointerMoved(p_start),
-                eframe::egui::Event::PointerButton {
-                    pos: p_start,
-                    button: eframe::egui::PointerButton::Secondary,
-                    pressed: true,
-                    modifiers: eframe::egui::Modifiers::NONE,
-                },
-            ],
-            ..Default::default()
-        };
-        let _ = ctx.run(raw2, |ctx| {
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = scope.show(ui, &view2);
-            });
-        });
-        assert!(scope.right_drag_start.is_some());
-
-        // Frame 3: drag right to x=700, y=250 while holding right button
-        let view3 = workspace_view::WorkspaceDataView::new(&router);
-        let raw3 = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(1000.0, 500.0),
-            )),
-            events: vec![eframe::egui::Event::PointerMoved(p_end)],
-            ..Default::default()
-        };
-        let _ = ctx.run(raw3, |ctx| {
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = scope.show(ui, &view3);
-            });
-        });
-        assert!(scope.right_drag_start.is_some());
-        assert_eq!(view3.requested_zoom_range_ms(), None);
-
-        // Frame 4: release right mouse button at x=700, y=250 -> emits zoom range request
-        let view4 = workspace_view::WorkspaceDataView::new(&router);
-        let raw4 = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(1000.0, 500.0),
-            )),
-            events: vec![eframe::egui::Event::PointerButton {
-                pos: p_end,
-                button: eframe::egui::PointerButton::Secondary,
-                pressed: false,
-                modifiers: eframe::egui::Modifiers::NONE,
-            }],
-            ..Default::default()
-        };
-        let _ = ctx.run(raw4, |ctx| {
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                let _ = scope.show(ui, &view4);
-            });
-        });
-        assert!(scope.right_drag_start.is_none());
-        let (zoom_lo, zoom_hi) = view4
-            .requested_zoom_range_ms()
-            .expect("expected right-click drag release to request zoom range");
-        assert!(zoom_lo > base_ms && zoom_hi < base_ms + 10_000);
-        assert!(zoom_hi - zoom_lo >= 2_000 && zoom_hi - zoom_lo <= 6_000);
-
-        router.timeline_mut().zoom_to_range_ms(zoom_lo, zoom_hi);
-        assert_eq!(router.timeline().start_utc_ms(), zoom_lo);
-        assert_eq!(router.timeline().end_utc_ms(), zoom_hi);
-    }
-
-    #[test]
-    fn build_envelope_quads_preserves_bands_and_extrema_when_step_exceeds_max_gap() {
-        let base_ms = 1_788_719_000_000;
-        // 1,200 1 Hz buckets -> step = 5 when target_quads = 240, so step * 1000 ms (5,000 ms)
-        // exceeds max_gap_ms = 3,000 ms.
-        let mut buckets: Vec<daqcore::router::EnvelopePoint> = (0..1_200)
-            .map(|i| daqcore::router::EnvelopePoint {
-                utc_ms: base_ms + i * 1_000,
-                min: 10.0,
-                max: 20.0,
-                mean: 15.0,
-            })
-            .collect();
-        // Put a spike on an intermediate bucket (not divisible by step = 5)
-        buckets[3].min = -50.0;
-        buckets[3].max = 99.0;
-
-        let quads = build_envelope_quads(&buckets, base_ms, 3_000, 720);
-        assert!(
-            !quads.is_empty(),
-            "envelope quads must not be dropped when decimation step exceeds max_gap_ms"
-        );
-        let overall_min = quads
-            .iter()
-            .flat_map(|q| q.iter().map(|pt| pt[1]))
-            .fold(f64::INFINITY, f64::min);
-        let overall_max = quads
-            .iter()
-            .flat_map(|q| q.iter().map(|pt| pt[1]))
-            .fold(f64::NEG_INFINITY, f64::max);
-        assert_eq!(overall_min, -50.0);
-        assert_eq!(overall_max, 99.0);
     }
 }

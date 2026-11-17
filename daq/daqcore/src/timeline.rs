@@ -500,8 +500,19 @@ impl MasterTimeline {
         }
     }
 
+    pub fn pause(&mut self) {
+        self.start_track = Track::Frozen;
+        self.end_track = Track::Frozen;
+        self.setpoint_track = Track::Frozen;
+        self.is_playing = false;
+    }
+
     pub fn toggle_playing(&mut self) {
-        self.set_playing(!self.is_playing);
+        if self.is_live() {
+            self.pause();
+        } else {
+            self.set_playing(!self.is_playing);
+        }
     }
 
     pub fn playback_speed(&self) -> f64 {

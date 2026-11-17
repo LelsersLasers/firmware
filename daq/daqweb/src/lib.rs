@@ -153,6 +153,8 @@ mod tests {
                             custom_title: true,
                             x_mode: ScopeXAxisMode::default(),
                             speed_signal_id: "wheel_speeds.front_left".to_owned(),
+                            show_legend: true,
+                            plot: Default::default(),
                             y_bounds: None,
                             channels: vec![ScopeChannelSpec {
                                 signal_id: "custom.double_fl_speed".to_owned(),
