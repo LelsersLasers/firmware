@@ -384,10 +384,12 @@ fn show_clean_channel_row(
         let sig_id = drag_payload.signal_id();
         let (msg_part, sig_part) = sig_id.split_once('.').unwrap_or(("", sig_id.as_str()));
         if daqcore::log_parse::auto_annotate::is_fault_flag_signal(msg_part, sig_part) {
-            let (day_min, day_max) = router
-                .timeline()
-                .day_bounds_ms()
-                .unwrap_or_else(|| (router.timeline().start_utc_ms(), router.timeline().end_utc_ms()));
+            let (day_min, day_max) = router.timeline().day_bounds_ms().unwrap_or_else(|| {
+                (
+                    router.timeline().start_utc_ms(),
+                    router.timeline().end_utc_ms(),
+                )
+            });
             let active_day = router.timeline().active_track_day_id().map(str::to_owned);
             let mut fault_occs: Vec<daqcore::storage::Annotation> = router
                 .query_annotations_in_range(day_min..=day_max)

@@ -97,11 +97,8 @@ pub(super) fn show_toolbar_strip(
                 val_str.push_str(&format!("[{:.1}..{:.1}, μ {:.1}]", st.min, st.max, st.mean));
             }
             (!val_str.is_empty()).then(|| {
-                ui.painter().layout_no_wrap(
-                    val_str,
-                    egui::FontId::monospace(10.0),
-                    text_color,
-                )
+                ui.painter()
+                    .layout_no_wrap(val_str, egui::FontId::monospace(10.0), text_color)
             })
         } else {
             None
@@ -438,11 +435,9 @@ fn show_channel_details_popup(
             ui.label(&entry.signal_id);
             if let Some(stats) = entry.stats {
                 egui::Grid::new(("legend_statistics", instance, index)).show(ui, |ui| {
-                    for (label, value) in [
-                        ("Min", stats.min),
-                        ("Max", stats.max),
-                        ("Mean", stats.mean),
-                    ] {
+                    for (label, value) in
+                        [("Min", stats.min), ("Max", stats.max), ("Mean", stats.mean)]
+                    {
                         ui.label(label);
                         ui.monospace(format!("{value:.3}"));
                         ui.end_row();
@@ -450,14 +445,8 @@ fn show_channel_details_popup(
                 });
             }
             for (label, tab) in [
-                (
-                    "Appearance",
-                    ui::scope_settings::InspectorTab::Appearance,
-                ),
-                (
-                    "Assignment",
-                    ui::scope_settings::InspectorTab::Assignment,
-                ),
+                ("Appearance", ui::scope_settings::InspectorTab::Appearance),
+                ("Assignment", ui::scope_settings::InspectorTab::Assignment),
                 ("Axis", ui::scope_settings::InspectorTab::Axis),
             ] {
                 if ui.button(label).clicked() {

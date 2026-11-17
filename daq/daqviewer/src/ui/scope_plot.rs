@@ -649,8 +649,7 @@ impl Scope {
         if let Some(update) = update
             && let Some(channel) = self.channels.get_mut(update.index)
         {
-            channel.color =
-                Color32::from_rgb(update.color[0], update.color[1], update.color[2]);
+            channel.color = Color32::from_rgb(update.color[0], update.color[1], update.color[2]);
             if update.style.lane > 0 {
                 self.config.stacked = true;
             }

@@ -220,8 +220,7 @@ pub fn detect_signal_fault_transitions_with_meta(
     severity: Option<FaultSeverity>,
     description: &str,
 ) -> Vec<Annotation> {
-    let resolved_severity =
-        severity.or_else(|| FaultSeverity::resolve_for_signal(signal_id, None));
+    let resolved_severity = severity.or_else(|| FaultSeverity::resolve_for_signal(signal_id, None));
     let mut annotations = Vec::new();
     let mut prev_val: i64 = 0;
     let mut active_start_ms: Option<i64> = None;
@@ -509,10 +508,7 @@ mod tests {
         assert_eq!(faults[1].start_utc_ms, 7_000);
         assert_eq!(faults[1].end_utc_ms, Some(8_000));
 
-        assert!(!is_fault_flag_signal(
-            "INVA_SET",
-            "AMK_Control_bErrorReset"
-        ));
+        assert!(!is_fault_flag_signal("INVA_SET", "AMK_Control_bErrorReset"));
         assert!(is_fault_flag_signal("INVA_INFO", "AMK_Status_bError"));
 
         let warn_faults = detect_signal_fault_transitions_with_meta(
@@ -523,11 +519,11 @@ mod tests {
             Some(FaultSeverity::Warning),
             "Pack warm (>50C)",
         );
-        assert_eq!(warn_faults[0].fault_severity(), Some(FaultSeverity::Warning));
-        assert_eq!(warn_faults[0].color, "#f59e0b");
         assert_eq!(
-            warn_faults[0].fault_lcd_message(),
-            Some("Pack warm (>50C)")
+            warn_faults[0].fault_severity(),
+            Some(FaultSeverity::Warning)
         );
+        assert_eq!(warn_faults[0].color, "#f59e0b");
+        assert_eq!(warn_faults[0].fault_lcd_message(), Some("Pack warm (>50C)"));
     }
 }

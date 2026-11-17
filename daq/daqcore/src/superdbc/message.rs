@@ -70,16 +70,7 @@ pub enum DisplayFormat {
 
 /// Fault severity tier defined in node configuration (`warning`, `error`, `fatal`).
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum FaultSeverity {
@@ -139,9 +130,7 @@ impl FaultSeverity {
         if let Some(sev) = explicit {
             return Some(sev);
         }
-        let (msg_name, sig_name) = signal_id
-            .split_once('.')
-            .unwrap_or(("", signal_id));
+        let (msg_name, sig_name) = signal_id.split_once('.').unwrap_or(("", signal_id));
         let sig_upper = sig_name.to_ascii_uppercase();
         if sig_upper.starts_with("SDC") && !sig_upper.ends_with("_SWITCH_FAULT") {
             return Some(Self::Fatal);
@@ -182,7 +171,9 @@ impl FaultSeverity {
             _ if sig_upper.ends_with("_SWITCH_FAULT") => return Some(Self::Error),
             _ => {}
         }
-        if !msg_name.is_empty() && crate::log_parse::auto_annotate::is_fault_flag_signal(msg_name, sig_name) {
+        if !msg_name.is_empty()
+            && crate::log_parse::auto_annotate::is_fault_flag_signal(msg_name, sig_name)
+        {
             return Some(Self::Error);
         }
         None

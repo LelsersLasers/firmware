@@ -563,13 +563,9 @@ fn show_transport_bar(
         eframe::egui::Sense::hover(),
     );
 
-    let mut row_ui = ui.new_child(
-        eframe::egui::UiBuilder::new()
-            .max_rect(row_rect)
-            .layout(eframe::egui::Layout::left_to_right(
-                eframe::egui::Align::Center,
-            )),
-    );
+    let mut row_ui = ui.new_child(eframe::egui::UiBuilder::new().max_rect(row_rect).layout(
+        eframe::egui::Layout::left_to_right(eframe::egui::Align::Center),
+    ));
     row_ui.set_clip_rect(ui.clip_rect().intersect(row_rect));
     row_ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
@@ -2063,9 +2059,9 @@ fn show_day_overview_lane(
                         ui.menu_button(
                             format!("All Occurrences ({})", group.occurrences.len()),
                             |ui| {
-                                eframe::egui::ScrollArea::vertical()
-                                    .max_height(240.0)
-                                    .show(ui, |ui| {
+                                eframe::egui::ScrollArea::vertical().max_height(240.0).show(
+                                    ui,
+                                    |ui| {
                                         for (idx, occ) in group.occurrences.iter().enumerate() {
                                             let t_lbl = daqcore::time::Time::from_unix_millis(
                                                 occ.start_utc_ms,
@@ -2082,38 +2078,44 @@ fn show_day_overview_lane(
                                                 })
                                                 .unwrap_or_default();
                                             if ui
-                                                .button(format!("#{} @ {}{}", idx + 1, t_lbl, dur_str))
+                                                .button(format!(
+                                                    "#{} @ {}{}",
+                                                    idx + 1,
+                                                    t_lbl,
+                                                    dur_str
+                                                ))
                                                 .clicked()
                                             {
                                                 pending_jump_fault_ms = Some(occ.start_utc_ms);
                                                 ui.close();
                                             }
                                         }
-                                    });
+                                    },
+                                );
                             },
                         );
                         ui.horizontal(|ui| {
                             if ui.small_button("Open in State Lane").clicked() {
-                                timeline_ui.pending_actions.push(
-                                    action::AppAction::SpawnWidget(
+                                timeline_ui
+                                    .pending_actions
+                                    .push(action::AppAction::SpawnWidget(
                                         widget_constructor::WidgetConstructor::StateLaneSingle {
                                             signal_id: group.signal_id.clone(),
                                             label: group.short_name.clone(),
                                         },
-                                    ),
-                                );
+                                    ));
                                 ui.close();
                             }
                             if ui.small_button("Plot in Scope").clicked() {
-                                timeline_ui.pending_actions.push(
-                                    action::AppAction::SpawnWidget(
+                                timeline_ui
+                                    .pending_actions
+                                    .push(action::AppAction::SpawnWidget(
                                         widget_constructor::WidgetConstructor::ScopeChannel {
                                             signal_id: group.signal_id.clone(),
                                             label: group.short_name.clone(),
                                             unit: String::new(),
                                         },
-                                    ),
-                                );
+                                    ));
                                 ui.close();
                             }
                         });
@@ -2363,10 +2365,7 @@ pub fn show_chunk_navigator_contents(
         return;
     }
 
-    let active_day_id = router
-        .timeline()
-        .active_track_day_id()
-        .map(str::to_owned);
+    let active_day_id = router.timeline().active_track_day_id().map(str::to_owned);
 
     let mut req_select_day: Option<Option<String>> = None;
     let mut req_set_day_label: Option<(String, String)> = None;
@@ -2409,7 +2408,11 @@ pub fn show_chunk_navigator_contents(
         let combo_w = (ui.available_width() - trailing_reserve).max(75.0);
         eframe::egui::ComboBox::from_id_salt("sidebar_sessions_day_combo")
             .width(combo_w)
-            .selected_text(eframe::egui::RichText::new(selected_label).size(11.0).strong())
+            .selected_text(
+                eframe::egui::RichText::new(selected_label)
+                    .size(11.0)
+                    .strong(),
+            )
             .show_ui(ui, |ui| {
                 if ui
                     .selectable_label(active_day_id.is_none(), "All Track Days")
@@ -2547,11 +2550,12 @@ pub fn show_chunk_navigator_contents(
     let mut day_stints: Vec<&daqcore::storage::Annotation> = all_annotations
         .iter()
         .filter(|a| {
-            filter_day
-                .as_deref()
-                .is_none_or(|d| a.track_day_id == d)
+            filter_day.as_deref().is_none_or(|d| a.track_day_id == d)
                 && a.category != "fault"
-                && matches(&format!("{} {} {} {}", a.track_day_id, a.name, a.category, a.notes))
+                && matches(&format!(
+                    "{} {} {} {}",
+                    a.track_day_id, a.name, a.category, a.notes
+                ))
         })
         .collect();
     day_stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
@@ -2559,9 +2563,7 @@ pub fn show_chunk_navigator_contents(
     let day_fault_anns: Vec<daqcore::storage::Annotation> = all_annotations
         .iter()
         .filter(|a| {
-            filter_day
-                .as_deref()
-                .is_none_or(|d| a.track_day_id == d)
+            filter_day.as_deref().is_none_or(|d| a.track_day_id == d)
                 && a.category == "fault"
                 && matches(&format!("{} {} {}", a.track_day_id, a.name, a.notes))
         })
@@ -2650,11 +2652,9 @@ pub fn show_chunk_navigator_contents(
                     .map(|s| theme.fault_severity_color(s))
                     .unwrap_or(accent_color);
                 let chip = eframe::egui::Button::new(
-                    eframe::egui::RichText::new(lbl).size(10.0).color(if is_sel {
-                        col
-                    } else {
-                        muted_color
-                    }),
+                    eframe::egui::RichText::new(lbl)
+                        .size(10.0)
+                        .color(if is_sel { col } else { muted_color }),
                 )
                 .fill(if is_sel {
                     col.gamma_multiply(0.16)
@@ -3521,7 +3521,9 @@ mod tests {
             end_utc_ms: Some(1_105_000),
             author: "daqcore".to_owned(),
             source: "auto".to_owned(),
-            notes: "[ERROR] Isolation fault — Auto-detected fault transition on a_box_fault_sync.IMD".to_owned(),
+            notes:
+                "[ERROR] Isolation fault — Auto-detected fault transition on a_box_fault_sync.IMD"
+                    .to_owned(),
             updated_at_ms: 1_105_000,
             deleted: false,
         };

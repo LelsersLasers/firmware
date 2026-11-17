@@ -17,7 +17,12 @@ pub enum ThemeSelection {
     #[default]
     #[serde(alias = "nominal_light", alias = "Light", alias = "light")]
     NominalLight,
-    #[serde(alias = "NominalDark", alias = "nominal_dark", alias = "Dark", alias = "dark")]
+    #[serde(
+        alias = "NominalDark",
+        alias = "nominal_dark",
+        alias = "Dark",
+        alias = "dark"
+    )]
     Default,
     #[serde(alias = "rose_pine_moon", alias = "RosePine")]
     RosePineMoon,

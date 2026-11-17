@@ -1757,12 +1757,9 @@ mod tests {
         let json = serde_json::to_string(&spec).unwrap();
         let restored: PaneSpec = serde_json::from_str(&json).unwrap();
         let mut platform = NoopViewerPlatform;
-        let widget = instantiate_pane_spec(
-            &restored,
-            &mut widget_ids::WidgetIds::new(),
-            &mut platform,
-        )
-        .expect("instantiate scope");
+        let widget =
+            instantiate_pane_spec(&restored, &mut widget_ids::WidgetIds::new(), &mut platform)
+                .expect("instantiate scope");
         let widgets::Widget::Scope(scope) = widget else {
             panic!("Expected scope");
         };

@@ -545,10 +545,8 @@ impl StateLane {
                         let mut add_lane_context_menu = |ui: &mut eframe::egui::Ui| {
                             ui.label(eframe::egui::RichText::new(&lane.signal_id).strong());
                             if is_fault_sig {
-                                let (day_min, day_max) = view
-                                    .timeline
-                                    .day_bounds_ms()
-                                    .unwrap_or((start_ms, end_ms));
+                                let (day_min, day_max) =
+                                    view.timeline.day_bounds_ms().unwrap_or((start_ms, end_ms));
                                 let active_day = view.timeline.active_track_day_id();
                                 let mut fault_occs: Vec<daqcore::storage::Annotation> = view
                                     .router
@@ -562,10 +560,12 @@ impl StateLane {
                                     })
                                     .collect();
                                 fault_occs.sort_by_key(|a| a.start_utc_ms);
-                                if let Some(sev) = daqcore::storage::FaultSeverity::resolve_for_signal(
-                                    &lane.signal_id,
-                                    None,
-                                ) {
+                                if let Some(sev) =
+                                    daqcore::storage::FaultSeverity::resolve_for_signal(
+                                        &lane.signal_id,
+                                        None,
+                                    )
+                                {
                                     ui.colored_label(
                                         theme.fault_severity_color(sev),
                                         eframe::egui::RichText::new(format!(
@@ -578,9 +578,7 @@ impl StateLane {
                                 }
                                 if !fault_occs.is_empty() {
                                     if let Some(lcd) = fault_occs[0].fault_lcd_message() {
-                                        ui.label(
-                                            eframe::egui::RichText::new(lcd).small().weak(),
-                                        );
+                                        ui.label(eframe::egui::RichText::new(lcd).small().weak());
                                     }
                                     ui.separator();
                                     let jump_to = |t_ms: i64| {
@@ -788,7 +786,8 @@ pub fn state_color_for_interval_for_signal(
     raw_int: i64,
     is_fault_sig: bool,
 ) -> eframe::egui::Color32 {
-    if is_fault_sig && raw_int != 0
+    if is_fault_sig
+        && raw_int != 0
         && let Some(sev) = daqcore::storage::FaultSeverity::resolve_for_signal(signal_id, None)
     {
         let (r, g, b) = sev.rgb();
