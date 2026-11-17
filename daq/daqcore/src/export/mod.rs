@@ -358,6 +358,14 @@ pub fn discover_available_signals(
     router: &VirtualTimelineRouter,
     range: RangeInclusive<i64>,
 ) -> IndexMap<String, ExportSignalMeta> {
+    discover_available_signals_with_engine(router, router.formula_engine(), range)
+}
+
+fn discover_available_signals_with_engine(
+    router: &VirtualTimelineRouter,
+    formula_engine: & crate::analysis::FormulaEngine,
+    range: RangeInclusive<i64>,
+) -> IndexMap<String, ExportSignalMeta> {
     let mut catalog: IndexMap<String, ExportSignalMeta> = IndexMap::new();
 
     for meta in router.active_signals_in_range(range) {
@@ -374,20 +382,18 @@ pub fn discover_available_signals(
         );
     }
 
-    for compiled in router.formula_engine().definitions() {
-        let raw_deps_available = if let Ok((_, leaf_raw)) = router
-            .formula_engine()
-            .execution_plan_for_expr(&compiled.ast)
-        {
-            !leaf_raw.is_empty()
-                && leaf_raw.iter().all(|raw_id| {
-                    catalog
-                        .get(raw_id)
-                        .is_some_and(|meta| meta.has_samples_in_range)
-                })
-        } else {
-            false
-        };
+    for compiled in formula_engine.definitions() {
+        let raw_deps_available =
+            if let Ok((_, leaf_raw)) = formula_engine.execution_plan_for_expr(&compiled.ast) {
+                !leaf_raw.is_empty()
+                    && leaf_raw.iter().all(|raw_id| {
+                        catalog
+                            .get(raw_id)
+                            .is_some_and(|meta| meta.has_samples_in_range)
+                    })
+            } else {
+                false
+            };
         if raw_deps_available {
             catalog.insert(
                 compiled.def.id.clone(),
@@ -406,16 +412,12 @@ pub fn discover_available_signals(
     catalog
 }
 
-/// Expand a list of signal patterns against the signals available in `router` over `range`.
-pub fn expand_signal_patterns(
+fn match_patterns_against_catalog(
     signal_patterns: &[String],
-    router: &VirtualTimelineRouter,
-    range: RangeInclusive<i64>,
-) -> Result<Vec<ExportSignalMeta>, ExportError> {
-    let catalog = discover_available_signals(router, range);
-    let any_active_in_range = catalog.values().any(|m| m.has_samples_in_range);
+    catalog: &IndexMap<String, ExportSignalMeta>,
+    require_active: bool,
+) -> Result<IndexMap<String, ExportSignalMeta>, ExportError> {
     let mut selected: IndexMap<String, ExportSignalMeta> = IndexMap::new();
-
     for raw_pattern in signal_patterns {
         let pattern = canonicalize_signal_ref(raw_pattern);
         if pattern.is_empty() {
@@ -424,7 +426,7 @@ pub fn expand_signal_patterns(
         let is_wildcard = pattern.contains('*') || pattern.contains('?');
         if !is_wildcard {
             if let Some(meta) = catalog.get(&pattern)
-                && (!any_active_in_range || meta.has_samples_in_range)
+                && (!require_active || meta.has_samples_in_range)
             {
                 selected.insert(meta.signal_id.clone(), meta.clone());
             }
@@ -438,37 +440,36 @@ pub fn expand_signal_patterns(
             .compile_matcher();
 
         for meta in catalog.values() {
-            if glob.is_match(&meta.signal_id) && (!any_active_in_range || meta.has_samples_in_range)
-            {
+            if glob.is_match(&meta.signal_id) && (!require_active || meta.has_samples_in_range) {
                 selected.insert(meta.signal_id.clone(), meta.clone());
             }
         }
     }
+    Ok(selected)
+}
 
-    if selected.is_empty() {
-        for raw_pattern in signal_patterns {
-            let pattern = canonicalize_signal_ref(raw_pattern);
-            if pattern.is_empty() {
-                continue;
-            }
-            let is_wildcard = pattern.contains('*') || pattern.contains('?');
-            if !is_wildcard {
-                if let Some(meta) = catalog.get(&pattern) {
-                    selected.insert(meta.signal_id.clone(), meta.clone());
-                }
-                continue;
-            }
-            let glob = GlobBuilder::new(&pattern)
-                .case_insensitive(false)
-                .build()
-                .map_err(|e| ExportError::ConfigParse(format!("invalid glob '{pattern}': {e}")))?
-                .compile_matcher();
-            for meta in catalog.values() {
-                if glob.is_match(&meta.signal_id) {
-                    selected.insert(meta.signal_id.clone(), meta.clone());
-                }
-            }
-        }
+/// Expand a list of signal patterns against the signals available in `router` over `range`.
+pub fn expand_signal_patterns(
+    signal_patterns: &[String],
+    router: &VirtualTimelineRouter,
+    range: RangeInclusive<i64>,
+) -> Result<Vec<ExportSignalMeta>, ExportError> {
+    expand_signal_patterns_with_engine(signal_patterns, router, router.formula_engine(), range)
+}
+
+fn expand_signal_patterns_with_engine(
+    signal_patterns: &[String],
+    router: &VirtualTimelineRouter,
+    formula_engine: &crate::analysis::FormulaEngine,
+    range: RangeInclusive<i64>,
+) -> Result<Vec<ExportSignalMeta>, ExportError> {
+    let catalog = discover_available_signals_with_engine(router, formula_engine, range);
+    let any_active_in_range = catalog.values().any(|m| m.has_samples_in_range);
+    let mut selected =
+        match_patterns_against_catalog(signal_patterns, &catalog, any_active_in_range)?;
+
+    if selected.is_empty() && any_active_in_range {
+        selected = match_patterns_against_catalog(signal_patterns, &catalog, false)?;
     }
 
     if selected.is_empty() {
@@ -485,6 +486,18 @@ pub fn materialize_export_table(
     signal_patterns: &[String],
     sampling_mode: SamplingMode,
 ) -> Result<ExportTable, ExportError> {
+    materialize_export_table_with_formulas(router, range, signal_patterns, sampling_mode, &[])
+}
+
+/// Materialize a synchronized [`ExportTable`] with additional ad-hoc `custom_formulas` merged into
+/// the router's [`FormulaEngine`].
+pub fn materialize_export_table_with_formulas(
+    router: &VirtualTimelineRouter,
+    range: RangeInclusive<i64>,
+    signal_patterns: &[String],
+    sampling_mode: SamplingMode,
+    custom_formulas: &[DerivedSignalDef],
+) -> Result<ExportTable, ExportError> {
     let start_utc_ms = *range.start();
     let end_utc_ms = *range.end();
     if end_utc_ms < start_utc_ms {
@@ -499,15 +512,27 @@ pub fn materialize_export_table(
         return Err(ExportError::InvalidSamplingRate(rate_hz));
     }
 
-    let metas = expand_signal_patterns(signal_patterns, router, range.clone())?;
+    let mut owned_engine = None;
+    let formula_engine = if custom_formulas.is_empty() {
+        router.formula_engine()
+    } else {
+        let mut eng = router.formula_engine().clone();
+        eng.merge_defs(custom_formulas)?;
+        owned_engine.insert(eng)
+    };
+
+    let metas = expand_signal_patterns_with_engine(
+        signal_patterns,
+        router,
+        formula_engine,
+        range.clone(),
+    )?;
 
     let mut raw_ids_needed: BTreeSet<String> = BTreeSet::new();
     for meta in &metas {
         if meta.is_derived {
-            if let Some(compiled) = router.formula_engine().get(&meta.signal_id) {
-                let (_, leaves) = router
-                    .formula_engine()
-                    .execution_plan_for_expr(&compiled.ast)?;
+            if let Some(compiled) = formula_engine.get(&meta.signal_id) {
+                let (_, leaves) = formula_engine.execution_plan_for_expr(&compiled.ast)?;
                 for leaf in leaves {
                     raw_ids_needed.insert(leaf);
                 }
@@ -553,13 +578,13 @@ pub fn materialize_export_table(
         .map(|&t| (t - origin_ms) as f64 / 1000.0)
         .collect();
 
-    let max_staleness_ms = router.formula_engine().max_staleness_ms();
+    let max_staleness_ms = formula_engine.max_staleness_ms();
     let explicit_grid = TargetGrid::Explicit(timestamps_utc_ms.clone());
     let mut columns = Vec::with_capacity(metas.len());
 
     for meta in metas {
         let values = if meta.is_derived {
-            let series = router.formula_engine().evaluate_channel_with(
+            let series = formula_engine.evaluate_channel_with(
                 &meta.signal_id,
                 &explicit_grid,
                 Resolution::FullRes,
@@ -844,28 +869,48 @@ fn write_mat_double_column<W: Write>(
     matrix_body.extend_from_slice(&MX_DOUBLE_CLASS.to_le_bytes());
     matrix_body.extend_from_slice(&0u32.to_le_bytes());
 
-    let rows = i32::try_from(values.len()).unwrap_or(i32::MAX);
+    let rows = i32::try_from(values.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "MAT-file column length exceeds i32::MAX",
+        )
+    })?;
     matrix_body.extend_from_slice(&MI_INT32.to_le_bytes());
     matrix_body.extend_from_slice(&8u32.to_le_bytes());
     matrix_body.extend_from_slice(&rows.to_le_bytes());
     matrix_body.extend_from_slice(&1i32.to_le_bytes());
 
     let name_bytes = var_name.as_bytes();
-    let name_len = u32::try_from(name_bytes.len()).unwrap_or(0);
+    let name_len = u32::try_from(name_bytes.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "MAT-file variable name exceeds u32::MAX",
+        )
+    })?;
     matrix_body.extend_from_slice(&MI_INT8.to_le_bytes());
     matrix_body.extend_from_slice(&name_len.to_le_bytes());
     matrix_body.extend_from_slice(name_bytes);
     let name_pad = (8 - (name_bytes.len() % 8)) % 8;
     matrix_body.resize(matrix_body.len() + name_pad, 0);
 
-    let data_bytes_len = u32::try_from(values.len().saturating_mul(8)).unwrap_or(0);
+    let data_bytes_len = u32::try_from(values.len().saturating_mul(8)).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "MAT-file column byte size exceeds u32::MAX",
+        )
+    })?;
     matrix_body.extend_from_slice(&MI_DOUBLE.to_le_bytes());
     matrix_body.extend_from_slice(&data_bytes_len.to_le_bytes());
     for &v in values {
         matrix_body.extend_from_slice(&v.to_le_bytes());
     }
 
-    let total_body_len = u32::try_from(matrix_body.len()).unwrap_or(0);
+    let total_body_len = u32::try_from(matrix_body.len()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "MAT-file matrix element exceeds u32::MAX",
+        )
+    })?;
     out.write_all(&MI_MATRIX.to_le_bytes())?;
     out.write_all(&total_body_len.to_le_bytes())?;
     out.write_all(&matrix_body)?;

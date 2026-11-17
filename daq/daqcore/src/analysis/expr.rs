@@ -152,68 +152,68 @@ impl ScalarFn {
     }
 
     pub fn eval_scalar(self, args: &[f64]) -> f64 {
+        let a0 = args.first().copied().unwrap_or(f64::NAN);
+        let a1 = args.get(1).copied().unwrap_or(f64::NAN);
+        let a2 = args.get(2).copied().unwrap_or(f64::NAN);
         match self {
-            Self::Abs => args[0].abs(),
-            Self::Sqrt => args[0].sqrt(),
-            Self::Sin => args[0].sin(),
-            Self::Cos => args[0].cos(),
-            Self::Tan => args[0].tan(),
-            Self::Asin => args[0].asin(),
-            Self::Acos => args[0].acos(),
-            Self::Atan => args[0].atan(),
-            Self::Exp => args[0].exp(),
-            Self::Ln => args[0].ln(),
-            Self::Log10 => args[0].log10(),
-            Self::Ceil => args[0].ceil(),
-            Self::Floor => args[0].floor(),
-            Self::Round => args[0].round(),
-            Self::Radians => args[0].to_radians(),
-            Self::Degrees => args[0].to_degrees(),
+            Self::Abs => a0.abs(),
+            Self::Sqrt => a0.sqrt(),
+            Self::Sin => a0.sin(),
+            Self::Cos => a0.cos(),
+            Self::Tan => a0.tan(),
+            Self::Asin => a0.asin(),
+            Self::Acos => a0.acos(),
+            Self::Atan => a0.atan(),
+            Self::Exp => a0.exp(),
+            Self::Ln => a0.ln(),
+            Self::Log10 => a0.log10(),
+            Self::Ceil => a0.ceil(),
+            Self::Floor => a0.floor(),
+            Self::Round => a0.round(),
+            Self::Radians => a0.to_radians(),
+            Self::Degrees => a0.to_degrees(),
             Self::Sign => {
-                let x = args[0];
-                if x.is_nan() {
+                if a0.is_nan() {
                     f64::NAN
-                } else if x > 0.0 {
+                } else if a0 > 0.0 {
                     1.0
-                } else if x < 0.0 {
+                } else if a0 < 0.0 {
                     -1.0
                 } else {
                     0.0
                 }
             }
             Self::Min => {
-                if args[0].is_nan() || args[1].is_nan() {
+                if a0.is_nan() || a1.is_nan() {
                     f64::NAN
                 } else {
-                    args[0].min(args[1])
+                    a0.min(a1)
                 }
             }
             Self::Max => {
-                if args[0].is_nan() || args[1].is_nan() {
+                if a0.is_nan() || a1.is_nan() {
                     f64::NAN
                 } else {
-                    args[0].max(args[1])
+                    a0.max(a1)
                 }
             }
-            Self::Atan2 => args[0].atan2(args[1]),
-            Self::Pow => args[0].powf(args[1]),
-            Self::Hypot => args[0].hypot(args[1]),
+            Self::Atan2 => a0.atan2(a1),
+            Self::Pow => a0.powf(a1),
+            Self::Hypot => a0.hypot(a1),
             Self::Clamp => {
-                let (x, lo, hi) = (args[0], args[1], args[2]);
-                if x.is_nan() || lo.is_nan() || hi.is_nan() {
+                if a0.is_nan() || a1.is_nan() || a2.is_nan() {
                     f64::NAN
                 } else {
-                    x.max(lo).min(hi)
+                    a0.max(a1).min(a2)
                 }
             }
             Self::IfElse => {
-                let cond = args[0];
-                if cond.is_nan() {
+                if a0.is_nan() {
                     f64::NAN
-                } else if cond.abs() > 0.0 {
-                    args[1]
+                } else if a0.abs() > 0.0 {
+                    a1
                 } else {
-                    args[2]
+                    a2
                 }
             }
         }
@@ -269,6 +269,7 @@ impl Expr {
         let mut parser = Parser {
             tokens: &tokens,
             index: 0,
+            depth: 0,
         };
         let expr = parser.parse_or()?;
         if let Some(extra) = parser.peek() {
@@ -450,12 +451,10 @@ impl Expr {
                 let mut out_lo = Vec::with_capacity(n);
                 let mut out_hi = Vec::with_capacity(n);
                 for i in 0..n {
-                    let c1 = eval_binary_scalar(*op, l_lo[i], r_lo[i]);
-                    let c2 = eval_binary_scalar(*op, l_lo[i], r_hi[i]);
-                    let c3 = eval_binary_scalar(*op, l_hi[i], r_lo[i]);
-                    let c4 = eval_binary_scalar(*op, l_hi[i], r_hi[i]);
-                    out_lo.push(c1.min(c2).min(c3).min(c4));
-                    out_hi.push(c1.max(c2).max(c3).max(c4));
+                    let (lo, hi) =
+                        eval_binary_interval_bounds(*op, l_lo[i], l_hi[i], r_lo[i], r_hi[i]);
+                    out_lo.push(lo);
+                    out_hi.push(hi);
                 }
                 Ok((out_lo, out_hi))
             }
@@ -482,19 +481,9 @@ impl Expr {
                         scratch_lo[j] = arg_los[j][i];
                         scratch_hi[j] = arg_his[j][i];
                     }
-                    let v_lo = func.eval_scalar(&scratch_lo);
-                    let v_hi = func.eval_scalar(&scratch_hi);
-                    if matches!(func, ScalarFn::Abs)
-                        && args.len() == 1
-                        && scratch_lo[0] <= 0.0
-                        && scratch_hi[0] >= 0.0
-                    {
-                        out_lo.push(0.0);
-                        out_hi.push(v_lo.max(v_hi));
-                    } else {
-                        out_lo.push(v_lo.min(v_hi));
-                        out_hi.push(v_lo.max(v_hi));
-                    }
+                    let (lo, hi) = eval_scalar_fn_interval_bounds(*func, &scratch_lo, &scratch_hi);
+                    out_lo.push(lo);
+                    out_hi.push(hi);
                 }
                 Ok((out_lo, out_hi))
             }
@@ -526,6 +515,159 @@ fn eval_unary_scalar(op: UnaryOp, x: f64) -> f64 {
             } else {
                 1.0
             }
+        }
+    }
+}
+
+fn eval_binary_interval_bounds(
+    op: BinaryOp,
+    l_lo: f64,
+    l_hi: f64,
+    r_lo: f64,
+    r_hi: f64,
+) -> (f64, f64) {
+    if l_lo.is_nan() || l_hi.is_nan() || r_lo.is_nan() || r_hi.is_nan() {
+        return (f64::NAN, f64::NAN);
+    }
+    let (l_min, l_max) = (l_lo.min(l_hi), l_lo.max(l_hi));
+    let (r_min, r_max) = (r_lo.min(r_hi), r_lo.max(r_hi));
+
+    match op {
+        BinaryOp::Eq => {
+            let overlaps = l_min <= r_max && r_min <= l_max;
+            if !overlaps {
+                return (0.0, 0.0);
+            }
+            if (l_min - l_max).abs() <= f64::EPSILON && (r_min - r_max).abs() <= f64::EPSILON {
+                return (1.0, 1.0);
+            }
+            return (0.0, 1.0);
+        }
+        BinaryOp::Ne => {
+            let overlaps = l_min <= r_max && r_min <= l_max;
+            if !overlaps {
+                return (1.0, 1.0);
+            }
+            if (l_min - l_max).abs() <= f64::EPSILON && (r_min - r_max).abs() <= f64::EPSILON {
+                return (0.0, 0.0);
+            }
+            return (0.0, 1.0);
+        }
+        _ => {}
+    }
+
+    let c1 = eval_binary_scalar(op, l_min, r_min);
+    let c2 = eval_binary_scalar(op, l_min, r_max);
+    let c3 = eval_binary_scalar(op, l_max, r_min);
+    let c4 = eval_binary_scalar(op, l_max, r_max);
+    let mut lo = c1.min(c2).min(c3).min(c4);
+    let mut hi = c1.max(c2).max(c3).max(c4);
+
+    if matches!(op, BinaryOp::Pow) && l_min <= 0.0 && l_max >= 0.0 && r_max > 0.0 {
+        lo = lo.min(0.0);
+        hi = hi.max(0.0);
+    }
+
+    (lo, hi)
+}
+
+fn eval_scalar_fn_interval_bounds(
+    func: ScalarFn,
+    scratch_lo: &[f64],
+    scratch_hi: &[f64],
+) -> (f64, f64) {
+    if scratch_lo.iter().any(|v| v.is_nan()) || scratch_hi.iter().any(|v| v.is_nan()) {
+        return (f64::NAN, f64::NAN);
+    }
+    match func {
+        ScalarFn::Abs if !scratch_lo.is_empty() => {
+            let a = scratch_lo[0].min(scratch_hi[0]);
+            let b = scratch_lo[0].max(scratch_hi[0]);
+            let hi = a.abs().max(b.abs());
+            let lo = if a <= 0.0 && b >= 0.0 {
+                0.0
+            } else {
+                a.abs().min(b.abs())
+            };
+            (lo, hi)
+        }
+        ScalarFn::Hypot if scratch_lo.len() >= 2 => {
+            let (x_min, x_max) = (
+                scratch_lo[0].min(scratch_hi[0]),
+                scratch_lo[0].max(scratch_hi[0]),
+            );
+            let (y_min, y_max) = (
+                scratch_lo[1].min(scratch_hi[1]),
+                scratch_lo[1].max(scratch_hi[1]),
+            );
+            let x_near = if x_min <= 0.0 && x_max >= 0.0 {
+                0.0
+            } else {
+                x_min.abs().min(x_max.abs())
+            };
+            let y_near = if y_min <= 0.0 && y_max >= 0.0 {
+                0.0
+            } else {
+                y_min.abs().min(y_max.abs())
+            };
+            let x_far = x_min.abs().max(x_max.abs());
+            let y_far = y_min.abs().max(y_max.abs());
+            (x_near.hypot(y_near), x_far.hypot(y_far))
+        }
+        ScalarFn::Pow if scratch_lo.len() >= 2 => eval_binary_interval_bounds(
+            BinaryOp::Pow,
+            scratch_lo[0],
+            scratch_hi[0],
+            scratch_lo[1],
+            scratch_hi[1],
+        ),
+        ScalarFn::IfElse if scratch_lo.len() >= 3 => {
+            let c_min = scratch_lo[0].min(scratch_hi[0]);
+            let c_max = scratch_lo[0].max(scratch_hi[0]);
+            let t_min = scratch_lo[1].min(scratch_hi[1]);
+            let t_max = scratch_lo[1].max(scratch_hi[1]);
+            let f_min = scratch_lo[2].min(scratch_hi[2]);
+            let f_max = scratch_lo[2].max(scratch_hi[2]);
+            let can_be_zero = c_min <= 0.0 && c_max >= 0.0;
+            let can_be_nonzero = c_min.abs() > 0.0 || c_max.abs() > 0.0;
+            match (can_be_nonzero, can_be_zero) {
+                (true, false) => (t_min, t_max),
+                (false, true) => (f_min, f_max),
+                _ => (t_min.min(f_min), t_max.max(f_max)),
+            }
+        }
+        ScalarFn::Sin | ScalarFn::Cos if !scratch_lo.is_empty() => {
+            let a = scratch_lo[0].min(scratch_hi[0]);
+            let b = scratch_lo[0].max(scratch_hi[0]);
+            let va = func.eval_scalar(&[a]);
+            let vb = func.eval_scalar(&[b]);
+            let mut lo = va.min(vb);
+            let mut hi = va.max(vb);
+            let shift = if matches!(func, ScalarFn::Sin) {
+                std::f64::consts::FRAC_PI_2
+            } else {
+                0.0
+            };
+            let two_pi = std::f64::consts::TAU;
+            if b - a >= two_pi {
+                lo = -1.0;
+                hi = 1.0;
+            } else {
+                let k_max = ((a - shift) / two_pi).ceil();
+                if shift + k_max * two_pi <= b {
+                    hi = 1.0;
+                }
+                let k_min = ((a - shift - std::f64::consts::PI) / two_pi).ceil();
+                if shift + std::f64::consts::PI + k_min * two_pi <= b {
+                    lo = -1.0;
+                }
+            }
+            (lo, hi)
+        }
+        _ => {
+            let v_lo = func.eval_scalar(scratch_lo);
+            let v_hi = func.eval_scalar(scratch_hi);
+            (v_lo.min(v_hi), v_lo.max(v_hi))
         }
     }
 }
@@ -964,7 +1106,11 @@ pub fn compile_and_sort_derived_signals(
         state.insert(node_id.to_owned(), VisitState::Visiting);
         stack.push(node_id.to_owned());
 
-        let compiled = &by_id[node_id];
+        let Some(compiled) = by_id.get(node_id) else {
+            stack.pop();
+            state.insert(node_id.to_owned(), VisitState::Visited);
+            return Ok(());
+        };
         for dep in &compiled.dependencies {
             if by_id.contains_key(dep) {
                 visit(dep, by_id, state, stack, sorted)?;
@@ -979,6 +1125,9 @@ pub fn compile_and_sort_derived_signals(
 
     // Preserve user declaration order as the primary tie-breaker
     for def in defs {
+        if def.deleted {
+            continue;
+        }
         let id = def.id.trim();
         visit(id, &by_id, &mut state, &mut stack, &mut sorted)?;
     }
@@ -1177,12 +1326,30 @@ fn tokenize(source: &str) -> Result<Vec<Token>, AnalysisError> {
     Ok(tokens)
 }
 
+const MAX_PARSE_DEPTH: usize = 128;
+
 struct Parser<'a> {
     tokens: &'a [Token],
     index: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
+    fn enter_recursion(&mut self, position: usize) -> Result<(), AnalysisError> {
+        if self.depth >= MAX_PARSE_DEPTH {
+            return Err(AnalysisError::Syntax {
+                position,
+                message: format!("expression nesting exceeds maximum depth ({MAX_PARSE_DEPTH})"),
+            });
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn exit_recursion(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+    }
+
     fn peek(&self) -> Option<&'a Token> {
         self.tokens.get(self.index)
     }
@@ -1316,11 +1483,14 @@ impl<'a> Parser<'a> {
                 _ => None,
             };
             if let Some(op) = op {
+                let pos = tok.position;
                 self.advance();
-                let operand = self.parse_unary()?;
+                self.enter_recursion(pos)?;
+                let operand = self.parse_unary();
+                self.exit_recursion();
                 return Ok(Expr::Unary {
                     op,
-                    operand: Box::new(operand),
+                    operand: Box::new(operand?),
                 });
             }
         }
@@ -1332,13 +1502,16 @@ impl<'a> Parser<'a> {
         if let Some(tok) = self.peek()
             && matches!(tok.kind, TokenKind::Caret | TokenKind::StarStar)
         {
+            let pos = tok.position;
             self.advance();
             // Right-associative exponentiation: `2 ^ 3 ^ 2 == 2 ^ (3 ^ 2)` and `-2 ^ 2 == -(2 ^ 2)`
-            let right = self.parse_unary()?;
+            self.enter_recursion(pos)?;
+            let right = self.parse_unary();
+            self.exit_recursion();
             return Ok(Expr::Binary {
                 op: BinaryOp::Pow,
                 left: Box::new(node),
-                right: Box::new(right),
+                right: Box::new(right?),
             });
         }
         Ok(node)
@@ -1355,7 +1528,10 @@ impl<'a> Parser<'a> {
         match &tok.kind {
             TokenKind::Number(val) => Ok(Expr::Literal(*val)),
             TokenKind::LParen => {
-                let inner = self.parse_or()?;
+                self.enter_recursion(tok.position)?;
+                let inner = self.parse_or();
+                self.exit_recursion();
+                let inner = inner?;
                 match self.advance() {
                     Some(close) if close.kind == TokenKind::RParen => Ok(inner),
                     Some(other) => Err(AnalysisError::Syntax {
@@ -1373,7 +1549,10 @@ impl<'a> Parser<'a> {
                     .peek()
                     .is_some_and(|next| next.kind == TokenKind::LParen)
                 {
-                    self.parse_function_call(ident, tok.position)
+                    self.enter_recursion(tok.position)?;
+                    let res = self.parse_function_call(ident, tok.position);
+                    self.exit_recursion();
+                    res
                 } else {
                     Ok(Expr::Signal(canonicalize_signal_ref(ident)))
                 }
@@ -1442,9 +1621,13 @@ impl<'a> Parser<'a> {
                         message: "derivative() window_ms must be >= 0".to_owned(),
                     });
                 }
+                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
+                    position: call_pos,
+                    message: "derivative() missing signal argument".to_owned(),
+                })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Derivative { window_ms },
-                    arg: Box::new(args.into_iter().next().unwrap()),
+                    arg: Box::new(first_arg),
                 });
             }
             "integral" => {
@@ -1469,9 +1652,13 @@ impl<'a> Parser<'a> {
                         });
                     }
                 };
+                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
+                    position: call_pos,
+                    message: "integral() missing signal argument".to_owned(),
+                })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Integral { reset_gap_ms },
-                    arg: Box::new(args.into_iter().next().unwrap()),
+                    arg: Box::new(first_arg),
                 });
             }
             "lowpass" => {
@@ -1491,9 +1678,13 @@ impl<'a> Parser<'a> {
                         message: "lowpass() cutoff_hz must be > 0".to_owned(),
                     });
                 }
+                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
+                    position: call_pos,
+                    message: "lowpass() missing signal argument".to_owned(),
+                })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::Lowpass { cutoff_hz },
-                    arg: Box::new(args.into_iter().next().unwrap()),
+                    arg: Box::new(first_arg),
                 });
             }
             "rolling_mean" => {
@@ -1513,9 +1704,13 @@ impl<'a> Parser<'a> {
                         message: "rolling_mean() window_ms must be >= 0".to_owned(),
                     });
                 }
+                let first_arg = args.into_iter().next().ok_or_else(|| AnalysisError::Syntax {
+                    position: call_pos,
+                    message: "rolling_mean() missing signal argument".to_owned(),
+                })?;
                 return Ok(Expr::SeriesCall {
                     func: SeriesFn::RollingMean { window_ms },
-                    arg: Box::new(args.into_iter().next().unwrap()),
+                    arg: Box::new(first_arg),
                 });
             }
             _ => {}
@@ -1585,7 +1780,9 @@ mod tests {
         let mut cols = BTreeMap::new();
         cols.insert("pack_stats.vbatt_adc".to_owned(), vec![1000.0, 2000.0]);
         let ts = vec![1000, 1010];
-        let out = expr.eval_aligned(&ts, &cols, 250).unwrap();
+        let out = expr
+            .eval_aligned(&ts, &cols, 250)
+            .expect("eval valid expression");
 
         // -2^3 * 3 = -8 * 3 = -24
         assert!((out[0] - (146.59808276 - 24.0)).abs() < 1e-6);
@@ -1595,14 +1792,16 @@ mod tests {
     #[test]
     fn evaluates_scalar_and_comparison_functions() {
         let expr = Expr::parse("ifelse(speed_mps > 2.0, clamp(angle_deg / 4.5, -10.0, 10.0), 0.0)")
-            .unwrap();
+            .expect("parse scalar call");
 
         let ts = vec![0, 100, 200];
         let mut cols = BTreeMap::new();
         cols.insert("speed_mps".to_owned(), vec![1.0, 10.0, 15.0]);
         cols.insert("angle_deg".to_owned(), vec![45.0, 22.5, -90.0]);
 
-        let out = expr.eval_aligned(&ts, &cols, 250).unwrap();
+        let out = expr
+            .eval_aligned(&ts, &cols, 250)
+            .expect("eval scalar call");
         assert_eq!(out, vec![0.0, 5.0, -10.0]);
     }
 
@@ -1616,8 +1815,10 @@ mod tests {
         let mut cols = BTreeMap::new();
         cols.insert("shock.fl_mm".to_owned(), pos);
 
-        let deriv_expr = Expr::parse("derivative(shock.fl_mm, 200)").unwrap();
-        let deriv = deriv_expr.eval_aligned(&ts, &cols, 250).unwrap();
+        let deriv_expr = Expr::parse("derivative(shock.fl_mm, 200)").expect("parse derivative");
+        let deriv = deriv_expr
+            .eval_aligned(&ts, &cols, 250)
+            .expect("eval derivative");
         for &v in &deriv[0..4] {
             assert!((v - 100.0).abs() < 1e-6, "expected +100 mm/s, got {v}");
         }
@@ -1631,8 +1832,10 @@ mod tests {
             "power_w".to_owned(),
             vec![10.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0],
         );
-        let int_expr = Expr::parse("integral(power_w)").unwrap();
-        let integrated = int_expr.eval_aligned(&ts, &cols, 250).unwrap();
+        let int_expr = Expr::parse("integral(power_w)").expect("parse integral");
+        let integrated = int_expr
+            .eval_aligned(&ts, &cols, 250)
+            .expect("eval integral");
         assert!((integrated[0] - 0.0).abs() < 1e-9);
         assert!((integrated[1] - 1.0).abs() < 1e-9);
         assert!((integrated[2] - 2.0).abs() < 1e-9);
@@ -1643,8 +1846,10 @@ mod tests {
         assert!((integrated[6] - 4.0).abs() < 1e-9);
 
         // Rolling mean over 150ms window
-        let rm_expr = Expr::parse("rolling_mean(shock.fl_mm, 150)").unwrap();
-        let rm = rm_expr.eval_aligned(&ts, &cols, 250).unwrap();
+        let rm_expr = Expr::parse("rolling_mean(shock.fl_mm, 150)").expect("parse rolling_mean");
+        let rm = rm_expr
+            .eval_aligned(&ts, &cols, 250)
+            .expect("eval rolling_mean");
         assert!((rm[0] - 0.0).abs() < 1e-9);
         assert!((rm[1] - 5.0).abs() < 1e-9);
         assert!((rm[2] - 15.0).abs() < 1e-9);
@@ -1660,6 +1865,14 @@ mod tests {
                 label: "Battery Power (kW)".to_owned(),
                 expression: "battery.power_w / 1000.0".to_owned(),
                 unit: "kW".to_owned(),
+                ..Default::default()
+            },
+            DerivedSignalDef {
+                id: "deleted.channel".to_owned(),
+                label: "Deleted Channel".to_owned(),
+                expression: "nonexistent.sig * 2.0".to_owned(),
+                unit: "V".to_owned(),
+                deleted: true,
                 ..Default::default()
             },
             DerivedSignalDef {
@@ -1701,7 +1914,36 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let err = compile_and_sort_derived_signals(&cyclic).unwrap_err();
+        let err = compile_and_sort_derived_signals(&cyclic).expect_err("cycle should fail");
         assert!(matches!(err, AnalysisError::DependencyCycle(_)));
+    }
+
+    #[test]
+    fn interval_bounds_capture_zero_crossings_for_hypot_and_pow() {
+        let hypot_expr = Expr::parse("hypot(ax, ay)").expect("parse hypot");
+        let pow_expr = Expr::parse("ax ^ 2").expect("parse pow");
+
+        let ts = vec![1000];
+        let mut mean_cols = BTreeMap::new();
+        let mut min_cols = BTreeMap::new();
+        let mut max_cols = BTreeMap::new();
+        mean_cols.insert("ax".to_owned(), vec![0.0]);
+        mean_cols.insert("ay".to_owned(), vec![0.0]);
+        min_cols.insert("ax".to_owned(), vec![-2.0]);
+        max_cols.insert("ax".to_owned(), vec![1.0]);
+        min_cols.insert("ay".to_owned(), vec![-1.0]);
+        max_cols.insert("ay".to_owned(), vec![2.0]);
+
+        let (h_lo, h_hi) = hypot_expr
+            .eval_bounds_aligned(&ts, &mean_cols, &min_cols, &max_cols, 250)
+            .expect("eval hypot bounds");
+        assert!((h_lo[0] - 0.0).abs() < 1e-9);
+        assert!((h_hi[0] - 8.0_f64.sqrt()).abs() < 1e-9);
+
+        let (p_lo, p_hi) = pow_expr
+            .eval_bounds_aligned(&ts, &mean_cols, &min_cols, &max_cols, 250)
+            .expect("eval pow bounds");
+        assert!((p_lo[0] - 0.0).abs() < 1e-9);
+        assert!((p_hi[0] - 4.0).abs() < 1e-9);
     }
 }

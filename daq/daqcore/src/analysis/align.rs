@@ -58,11 +58,13 @@ impl TargetGrid {
                     return Vec::new();
                 }
                 let span_ms = (*end_utc_ms - *start_utc_ms) as f64;
-                let period_ms = 1000.0 / *rate_hz;
-                if period_ms <= 0.0 || !period_ms.is_finite() {
+                // Millisecond integer timestamps cannot have sub-millisecond spacing (< 1.0 ms).
+                let period_ms = (1000.0 / *rate_hz).max(1.0);
+                if !period_ms.is_finite() {
                     return Vec::new();
                 }
-                let steps = (span_ms / period_ms).floor() as usize;
+                const MAX_UNIFORM_GRID_STEPS: usize = 10_000_000;
+                let steps = ((span_ms / period_ms).floor() as usize).min(MAX_UNIFORM_GRID_STEPS);
                 let mut grid = Vec::with_capacity(steps.saturating_add(1));
                 let mut prev: Option<i64> = None;
                 for i in 0..=steps {

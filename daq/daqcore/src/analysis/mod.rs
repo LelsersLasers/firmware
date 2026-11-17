@@ -320,19 +320,71 @@ impl FormulaEngine {
             self.max_staleness_ms
         };
 
-        let (timestamps_ms, mut mean_cols) =
-            align_series_map(&raw_series_map, grid, effective_staleness_ms);
-        if timestamps_ms.is_empty() {
-            return Ok(SignalSeries::empty_for(resolution));
-        }
+        let has_series_fn =
+            expr.contains_series_fn() || derived_plan.iter().any(|s| s.ast.contains_series_fn());
 
-        for step in &derived_plan {
-            let vals = step
-                .ast
-                .eval_aligned(&timestamps_ms, &mean_cols, effective_staleness_ms)?;
-            mean_cols.insert(step.def.id.clone(), vals);
-        }
-        let mean_out = expr.eval_aligned(&timestamps_ms, &mean_cols, effective_staleness_ms)?;
+        // Stateful calculus/window functions (`derivative`, `integral`, `lowpass`, `rolling_mean`)
+        // must be evaluated on the native union grid first before resampling onto an explicit/uniform
+        // target grid so coarse export grids do not distort derivatives/filters or exceed staleness.
+        let (timestamps_ms, mean_cols, mean_out) =
+            if has_series_fn && !matches!(grid, TargetGrid::Union) {
+                let (union_ts, mut union_cols) =
+                    align_series_map(&raw_series_map, &TargetGrid::Union, effective_staleness_ms);
+                if union_ts.is_empty() {
+                    return Ok(SignalSeries::empty_for(resolution));
+                }
+                for step in &derived_plan {
+                    let vals =
+                        step.ast
+                            .eval_aligned(&union_ts, &union_cols, effective_staleness_ms)?;
+                    union_cols.insert(step.def.id.clone(), vals);
+                }
+                let union_out =
+                    expr.eval_aligned(&union_ts, &union_cols, effective_staleness_ms)?;
+
+                let target_ts = grid.build_timestamps([union_ts.as_slice()]);
+                if target_ts.is_empty() {
+                    return Ok(SignalSeries::empty_for(resolution));
+                }
+                let resampled_out = resample_continuous_linear(
+                    &union_ts,
+                    &union_out,
+                    &target_ts,
+                    effective_staleness_ms,
+                );
+                let mut resampled_cols = BTreeMap::new();
+                if all_envelope {
+                    for (k, v) in &union_cols {
+                        resampled_cols.insert(
+                            k.clone(),
+                            resample_continuous_linear(
+                                &union_ts,
+                                v,
+                                &target_ts,
+                                effective_staleness_ms,
+                            ),
+                        );
+                    }
+                }
+                (target_ts, resampled_cols, resampled_out)
+            } else {
+                let (timestamps_ms, mut mean_cols) =
+                    align_series_map(&raw_series_map, grid, effective_staleness_ms);
+                if timestamps_ms.is_empty() {
+                    return Ok(SignalSeries::empty_for(resolution));
+                }
+                for step in &derived_plan {
+                    let vals = step.ast.eval_aligned(
+                        &timestamps_ms,
+                        &mean_cols,
+                        effective_staleness_ms,
+                    )?;
+                    mean_cols.insert(step.def.id.clone(), vals);
+                }
+                let mean_out =
+                    expr.eval_aligned(&timestamps_ms, &mean_cols, effective_staleness_ms)?;
+                (timestamps_ms, mean_cols, mean_out)
+            };
 
         // If an overview resolution was requested (or all inputs were fallback Envelopes),
         // produce a SignalSeries::Envelope preserving min/max bounds.
