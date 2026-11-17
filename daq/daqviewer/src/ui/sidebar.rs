@@ -137,21 +137,30 @@ pub fn show(
         .width_range(175.0..=360.0)
         .frame(drawer_frame)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
-            let panel_width = ui.available_width().max(1.0);
+            let content_rect = ui.max_rect();
+            let panel_width = content_rect.width().max(1.0);
+            let _ = ui.allocate_rect(content_rect, eframe::egui::Sense::hover());
+            let mut ui = ui.new_child(
+                eframe::egui::UiBuilder::new()
+                    .max_rect(content_rect)
+                    .layout(eframe::egui::Layout::top_down(eframe::egui::Align::Min)),
+            );
+            ui.set_clip_rect(content_rect.intersect(ui.clip_rect()));
+            ui.set_width(panel_width);
             ui.set_max_width(panel_width);
-            ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+            ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
 
             match app.sidebar_tab {
                 SidebarTab::Sessions => {
-                    show_sessions_tab(ui, app, muted_color);
+                    show_sessions_tab(&mut ui, app, muted_color);
                 }
                 SidebarTab::Channels => {
                     app.signal_browser.hover_utc_ms = app.hover_utc_ms;
                     eframe::egui::ScrollArea::vertical()
                         .id_salt("sidebar_channels_scroll")
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.set_max_width(ui.available_width().max(1.0));
+                        .show(&mut ui, |ui| {
+                            ui.set_max_width(panel_width);
                             ui::signal_browser::show_signal_browser(
                                 ui,
                                 &mut app.signal_browser,
@@ -165,8 +174,8 @@ pub fn show(
                     eframe::egui::ScrollArea::vertical()
                         .id_salt("sidebar_widgets_scroll")
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.set_max_width(ui.available_width().max(1.0));
+                        .show(&mut ui, |ui| {
+                            ui.set_max_width(panel_width);
                             show_widgets_tab(
                                 ui,
                                 app,
@@ -179,8 +188,8 @@ pub fn show(
                     eframe::egui::ScrollArea::vertical()
                         .id_salt("sidebar_settings_scroll")
                         .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.set_max_width(ui.available_width().max(1.0));
+                        .show(&mut ui, |ui| {
+                            ui.set_max_width(panel_width);
                             show_settings_tab(ui, app, platform, muted_color);
                         });
                 }
@@ -737,8 +746,12 @@ fn show_widgets_tab(
         })
         .collect();
     for (preset_id, preset_name, preset_desc) in preset_summaries {
+        let btn = eframe::egui::Button::new(
+            eframe::egui::RichText::new(format!("📁 {preset_name}")).small(),
+        )
+        .truncate();
         if ui
-            .button(format!("📁 {preset_name}"))
+            .add_sized([ui.available_width(), 22.0], btn)
             .on_hover_text(preset_desc)
             .clicked()
         {
@@ -882,5 +895,65 @@ fn show_settings_tab(
     ui.separator();
     if ui.small_button("Reload formatter").clicked() {
         app.value_formatter = platform.reload_formatter();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{NoopViewerPlatform, ViewerState};
+
+    #[test]
+    fn sidebar_width_stays_identical_across_all_tabs() {
+        let ctx = eframe::egui::Context::default();
+        let mut state = ViewerState::new(
+            daqcore::router::VirtualTimelineRouter::live(
+                daqcore::time::Time::from_unix_millis(1_794_500_000_000),
+                30.0,
+            )
+            .expect("live router"),
+            ui::theme::ThemeSelection::default(),
+            None,
+            String::new(),
+            false,
+            None,
+            None,
+        );
+        state.is_sidebar_open = true;
+        let mut platform = NoopViewerPlatform;
+
+        let mut recorded_lefts = Vec::new();
+        for tab in [
+            SidebarTab::Channels,
+            SidebarTab::Sessions,
+            SidebarTab::Widgets,
+            SidebarTab::Settings,
+            SidebarTab::Channels,
+        ] {
+            state.sidebar_tab = tab;
+            for _ in 0..2 {
+                let raw = eframe::egui::RawInput {
+                    screen_rect: Some(eframe::egui::Rect::from_min_size(
+                        eframe::egui::Pos2::ZERO,
+                        eframe::egui::vec2(1280.0, 800.0),
+                    )),
+                    ..Default::default()
+                };
+                let mut central_left = 0.0_f32;
+                let _ = ctx.run(raw, |ctx| {
+                    show(&mut state, &mut platform, ctx);
+                    central_left = ctx.available_rect().left();
+                });
+                recorded_lefts.push((tab, central_left));
+            }
+        }
+
+        let first_left = recorded_lefts[0].1;
+        for (tab, left) in &recorded_lefts {
+            assert!(
+                (*left - first_left).abs() < 0.1,
+                "Sidebar width changed on tab {tab:?}: expected {first_left}, got {left} ({recorded_lefts:?})"
+            );
+        }
     }
 }
