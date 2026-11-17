@@ -574,7 +574,7 @@ fn show_transport_bar(
     row_ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
 
     // -------------------------------------------------------------------------
-    // Left: Playhead Timestamp & Compact Provenance Badge
+    // 1. Left: Playhead Timestamp & Compact Provenance Badge
     // -------------------------------------------------------------------------
     let ts_btn = eframe::egui::Button::new(
         eframe::egui::RichText::new(format!("{active_date_lbl}  {playhead_lbl}"))
@@ -606,7 +606,7 @@ fn show_transport_bar(
         );
     });
 
-    if row_rect.width() >= 540.0 {
+    if row_rect.width() >= 680.0 {
         let prov_pill = eframe::egui::Button::new(
             eframe::egui::RichText::new(format!("{prov_text} · {active_res}"))
                 .color(prov_color)
@@ -624,13 +624,28 @@ fn show_transport_bar(
         ));
     }
 
-    row_ui.add_space(4.0);
+    let left_end_x = row_ui.cursor().left().max(row_rect.left());
 
     // -------------------------------------------------------------------------
-    // Center-Left: Compact Transport Deck (`[◀] [‹] [▶/⏸] [›] [▶] [1x] [●]`)
+    // 2. Center: Centered Play / Time Control Deck (`[⏮] [‹] [▶/⏸] [›] [⏭] [1x] [●]`)
     // -------------------------------------------------------------------------
+    let has_stints = !stint_annotations.is_empty();
+    let show_speed = row_rect.width() >= 460.0;
+    let estimated_deck_width = 18.0
+        + 24.0
+        + 18.0
+        + 22.0
+        + if has_stints { 48.0 } else { 0.0 }
+        + if show_speed { 50.0 } else { 0.0 }
+        + 16.0;
+    let ideal_deck_left = row_rect.center().x - estimated_deck_width * 0.5;
+    let deck_left = ideal_deck_left.max(left_end_x + 6.0).min(row_rect.right());
+    if deck_left > left_end_x {
+        row_ui.add_space(deck_left - left_end_x);
+    }
+
     let cur_start = router.timeline().start_utc_ms();
-    if !stint_annotations.is_empty()
+    if has_stints
         && row_ui
             .add(
                 eframe::egui::Button::new(eframe::egui::RichText::new("⏮").size(11.0))
@@ -697,7 +712,7 @@ fn show_transport_bar(
             .step_by_ms(if fine { 10 } else { 100 });
     }
 
-    if !stint_annotations.is_empty()
+    if has_stints
         && row_ui
             .add(
                 eframe::egui::Button::new(eframe::egui::RichText::new("⏭").size(11.0))
@@ -716,7 +731,7 @@ fn show_transport_bar(
         }
     }
 
-    if row_rect.width() >= 420.0 {
+    if show_speed {
         let current_speed = router.timeline().playback_speed();
         eframe::egui::ComboBox::from_id_salt("timeline_playback_speed")
             .width(46.0)
@@ -767,7 +782,7 @@ fn show_transport_bar(
     }
 
     // -------------------------------------------------------------------------
-    // Right: Quick Actions (`[⋯]`, `[Fit Day]`, `[Fold Gaps]`, `[+ Mark]`, `[⚠ Faults (N)]`, `[Comparing]`)
+    // 3. Right: Explicit Mark Timestamp & Mark Interval Buttons + Quick Actions
     // -------------------------------------------------------------------------
     let right_left = row_ui.cursor().left().max(row_rect.left());
     let right_rect = eframe::egui::Rect::from_min_max(
@@ -854,11 +869,11 @@ fn show_transport_bar(
                     ui.checkbox(&mut timeline_ui.show_stints, "Show runs & event pills");
                     ui.checkbox(&mut timeline_ui.show_faults, "Show severity fault ticks");
                     ui.separator();
-                    if ui.button("📍 Add Bookmark at Playhead (M)").clicked() {
+                    if ui.button("📍 Mark Timestamp at Playhead (M)").clicked() {
                         open_new_bookmark = true;
                         ui.close();
                     }
-                    if ui.button("🏷 Add Interval Event [start..end]").clicked() {
+                    if ui.button("🏷 Mark Interval [start..end]").clicked() {
                         open_new_interval = true;
                         ui.close();
                     }
@@ -888,7 +903,7 @@ fn show_transport_bar(
                                     ("Prev / Next Stint", "[ / ]"),
                                     ("Fit Track Day", "F"),
                                     ("Fold Idle Gaps", "G"),
-                                    ("Drop Bookmark", "M"),
+                                    ("Mark Timestamp", "M"),
                                     ("Focus Search", "/"),
                                 ] {
                                     ui.label(act);
@@ -899,8 +914,30 @@ fn show_transport_bar(
                     });
                 });
 
-                // 2. Fit Day Button
-                if ui.available_width() >= 68.0
+                // 2. Explicit `🏷 Mark Interval` button (marks active [start..end] viewport)
+                if ui.available_width() >= 96.0
+                    && ui
+                        .small_button("🏷 Mark Interval")
+                        .on_hover_text(
+                            "Create an interval event annotation spanning the active viewport [start..end]",
+                        )
+                        .clicked()
+                {
+                    open_new_interval = true;
+                }
+
+                // 3. Explicit `📍 Mark Time` button (marks single playhead timestamp)
+                if ui.available_width() >= 84.0
+                    && ui
+                        .small_button("📍 Mark Time")
+                        .on_hover_text("Drop a point bookmark at Playhead (M)")
+                        .clicked()
+                {
+                    open_new_bookmark = true;
+                }
+
+                // 4. Fit Day Button
+                if ui.available_width() >= 64.0
                     && let Some((day_min, day_max)) = router.timeline().day_bounds_ms()
                     && ui
                         .small_button("Fit Day")
@@ -911,7 +948,7 @@ fn show_transport_bar(
                     timeline_ui.reset_ruler();
                 }
 
-                // 3. Fold Gaps Toggle Pill
+                // 5. Fold Gaps Toggle Pill
                 if ui.available_width() >= 76.0 {
                     let mut fold_gaps = router.timeline().collapse_idle_gaps();
                     let fold_btn = eframe::egui::Button::new(
@@ -947,18 +984,6 @@ fn show_transport_bar(
                         fold_gaps = !fold_gaps;
                         router.timeline_mut().set_collapse_idle_gaps(fold_gaps);
                     }
-                }
-
-                // 4. `+ Mark` button
-                if ui.available_width() >= 64.0
-                    && ui
-                        .small_button("+ Mark")
-                        .on_hover_text(
-                            "Drop a point bookmark at Playhead (M) · Right-click for Interval Event",
-                        )
-                        .clicked()
-                {
-                    open_new_bookmark = true;
                 }
 
                 // 5. Severity-Colored `[⚠ Faults (N)]` Dropdown Menu
@@ -2341,8 +2366,7 @@ pub fn show_chunk_navigator_contents(
     let active_day_id = router
         .timeline()
         .active_track_day_id()
-        .map(str::to_owned)
-        .or_else(|| day_ids.last().cloned());
+        .map(str::to_owned);
 
     let mut req_select_day: Option<Option<String>> = None;
     let mut req_set_day_label: Option<(String, String)> = None;
@@ -2356,17 +2380,19 @@ pub fn show_chunk_navigator_contents(
             .as_ref()
             .and_then(|id| day_ids.iter().position(|d| d == id));
 
+        let can_prev = cur_idx.map_or(!day_ids.is_empty(), |i| i > 0);
         if ui
-            .add_enabled(
-                cur_idx.is_some_and(|i| i > 0),
-                eframe::egui::Button::new("‹").small(),
-            )
+            .add_enabled(can_prev, eframe::egui::Button::new("‹").small())
             .on_hover_text("Previous Track Day")
             .clicked()
-            && let Some(i) = cur_idx
-            && i > 0
         {
-            req_select_day = Some(Some(day_ids[i - 1].clone()));
+            if let Some(i) = cur_idx {
+                if i > 0 {
+                    req_select_day = Some(Some(day_ids[i - 1].clone()));
+                }
+            } else if let Some(last_day) = day_ids.last() {
+                req_select_day = Some(Some(last_day.clone()));
+            }
         }
 
         let active_meta = active_day_id
@@ -2379,16 +2405,14 @@ pub fn show_chunk_navigator_contents(
             (None, _) => "All Track Days".to_owned(),
         };
 
-        let combo_w = (ui.available_width() - 56.0).max(75.0);
+        let trailing_reserve = if active_day_id.is_some() { 56.0 } else { 36.0 };
+        let combo_w = (ui.available_width() - trailing_reserve).max(75.0);
         eframe::egui::ComboBox::from_id_salt("sidebar_sessions_day_combo")
             .width(combo_w)
             .selected_text(eframe::egui::RichText::new(selected_label).size(11.0).strong())
             .show_ui(ui, |ui| {
                 if ui
-                    .selectable_label(
-                        router.timeline().active_track_day_id().is_none(),
-                        "All Track Days",
-                    )
+                    .selectable_label(active_day_id.is_none(), "All Track Days")
                     .clicked()
                 {
                     req_select_day = Some(None);
@@ -2410,17 +2434,19 @@ pub fn show_chunk_navigator_contents(
                 }
             });
 
+        let can_next = cur_idx.map_or(!day_ids.is_empty(), |i| i + 1 < day_ids.len());
         if ui
-            .add_enabled(
-                cur_idx.is_some_and(|i| i + 1 < day_ids.len()),
-                eframe::egui::Button::new("›").small(),
-            )
+            .add_enabled(can_next, eframe::egui::Button::new("›").small())
             .on_hover_text("Next Track Day")
             .clicked()
-            && let Some(i) = cur_idx
-            && i + 1 < day_ids.len()
         {
-            req_select_day = Some(Some(day_ids[i + 1].clone()));
+            if let Some(i) = cur_idx {
+                if i + 1 < day_ids.len() {
+                    req_select_day = Some(Some(day_ids[i + 1].clone()));
+                }
+            } else if let Some(first_day) = day_ids.first() {
+                req_select_day = Some(Some(first_day.clone()));
+            }
         }
 
         if let Some(d_id) = &active_day_id {
@@ -2442,6 +2468,12 @@ pub fn show_chunk_navigator_contents(
                     timeline_ui.editing_track_day = Some((d_id.clone(), active_loc.to_owned()));
                 }
             }
+        } else if ui
+            .small_button("↔")
+            .on_hover_text("Fit all Track Days (F)")
+            .clicked()
+        {
+            req_select_day = Some(None);
         }
     });
 
