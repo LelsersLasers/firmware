@@ -264,24 +264,32 @@ fn read_series_body(bytes: &[u8], cursor: &mut usize) -> Result<SignalSeries, St
 
             let timestamps_ms: Vec<i64> = if cfg!(target_endian = "little") {
                 ts_slice
-                    .chunks_exact(std::mem::size_of::<i64>())
-                    .map(bytemuck::pod_read_unaligned)
+                    .as_chunks::<{ std::mem::size_of::<i64>() }>()
+                    .0
+                    .iter()
+                    .map(|c| bytemuck::pod_read_unaligned(c))
                     .collect()
             } else {
                 ts_slice
-                    .chunks_exact(8)
-                    .map(|c| i64::from_le_bytes(c.try_into().unwrap()))
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|c| i64::from_le_bytes(*c))
                     .collect()
             };
             let values: Vec<f64> = if cfg!(target_endian = "little") {
                 val_slice
-                    .chunks_exact(std::mem::size_of::<f64>())
-                    .map(bytemuck::pod_read_unaligned)
+                    .as_chunks::<{ std::mem::size_of::<f64>() }>()
+                    .0
+                    .iter()
+                    .map(|c| bytemuck::pod_read_unaligned(c))
                     .collect()
             } else {
                 val_slice
-                    .chunks_exact(8)
-                    .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .map(|c| f64::from_le_bytes(*c))
                     .collect()
             };
             Ok(SignalSeries::Exact {
@@ -300,12 +308,16 @@ fn read_series_body(bytes: &[u8], cursor: &mut usize) -> Result<SignalSeries, St
 
             let points: Vec<EnvelopePoint> = if cfg!(target_endian = "little") {
                 env_slice
-                    .chunks_exact(std::mem::size_of::<EnvelopePoint>())
-                    .map(bytemuck::pod_read_unaligned)
+                    .as_chunks::<{ std::mem::size_of::<EnvelopePoint>() }>()
+                    .0
+                    .iter()
+                    .map(|c| bytemuck::pod_read_unaligned(c))
                     .collect()
             } else {
                 env_slice
-                    .chunks_exact(32)
+                    .as_chunks::<32>()
+                    .0
+                    .iter()
                     .map(|c| EnvelopePoint {
                         utc_ms: i64::from_le_bytes(c[0..8].try_into().unwrap()),
                         min: f64::from_le_bytes(c[8..16].try_into().unwrap()),
