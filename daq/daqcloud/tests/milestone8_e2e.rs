@@ -205,7 +205,7 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     let mut router_b = VirtualTimelineRouter::open_store(
         store_dir_b.path(),
         Time::from_unix_millis(1_700_000_000_000),
-        30.0,
+        1200.0,
     )
     .expect("open Router B on empty folder");
     assert!(router_b.partitions().is_empty());
