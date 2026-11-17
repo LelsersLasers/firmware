@@ -337,9 +337,9 @@ impl StateLane {
                         .or_else(|| intervals.iter().rfind(|iv| iv.start_utc_ms <= cursor_ms));
 
                     ui.horizontal(|ui| {
-                        let (label_rect, _) = ui.allocate_exact_size(
+                        let (label_rect, label_resp) = ui.allocate_exact_size(
                             eframe::egui::vec2(label_col_w, row_h),
-                            eframe::egui::Sense::hover(),
+                            eframe::egui::Sense::click(),
                         );
                         let mut label_ui = ui.new_child(
                             eframe::egui::UiBuilder::new().max_rect(label_rect).layout(
@@ -522,7 +522,7 @@ impl StateLane {
                                     resolve_state_label(&lane.signal_id, iv, is_fault_sig);
                                 let dur_s =
                                     ((iv.end_utc_ms - iv.start_utc_ms).max(0) as f64) / 1000.0;
-                                strip_resp.on_hover_text(format!(
+                                strip_resp.clone().on_hover_text(format!(
                                     "{} ({})\nState: {} (raw = {})\nDuration: {:.2}s\nAt: {}",
                                     lane.label,
                                     lane.signal_id,
@@ -532,7 +532,7 @@ impl StateLane {
                                     daqcore::time::Time::from_unix_millis(ptr_ms).label()
                                 ));
                             } else {
-                                strip_resp.on_hover_text(format!(
+                                strip_resp.clone().on_hover_text(format!(
                                     "{} ({})\nAt: {}",
                                     lane.label,
                                     lane.signal_id,
@@ -540,6 +540,137 @@ impl StateLane {
                                 ));
                             }
                         }
+
+                        // Right-click context menu on either the lane label or the state strip
+                        let mut add_lane_context_menu = |ui: &mut eframe::egui::Ui| {
+                            ui.label(eframe::egui::RichText::new(&lane.signal_id).strong());
+                            if is_fault_sig {
+                                let (day_min, day_max) = view
+                                    .timeline
+                                    .day_bounds_ms()
+                                    .unwrap_or((start_ms, end_ms));
+                                let active_day = view.timeline.active_track_day_id();
+                                let mut fault_occs: Vec<daqcore::storage::Annotation> = view
+                                    .router
+                                    .query_annotations_in_range(day_min..=day_max)
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .filter(|a| {
+                                        a.category == "fault"
+                                            && active_day.is_none_or(|d| a.track_day_id == d)
+                                            && a.fault_signal_id() == Some(lane.signal_id.as_str())
+                                    })
+                                    .collect();
+                                fault_occs.sort_by_key(|a| a.start_utc_ms);
+                                if let Some(sev) = daqcore::storage::FaultSeverity::resolve_for_signal(
+                                    &lane.signal_id,
+                                    None,
+                                ) {
+                                    ui.colored_label(
+                                        theme.fault_severity_color(sev),
+                                        eframe::egui::RichText::new(format!(
+                                            "Severity: {} ({} occurrences in day)",
+                                            sev.display_name(),
+                                            fault_occs.len()
+                                        ))
+                                        .small(),
+                                    );
+                                }
+                                if !fault_occs.is_empty() {
+                                    if let Some(lcd) = fault_occs[0].fault_lcd_message() {
+                                        ui.label(
+                                            eframe::egui::RichText::new(lcd).small().weak(),
+                                        );
+                                    }
+                                    ui.separator();
+                                    let jump_to = |t_ms: i64| {
+                                        let half_win =
+                                            ((end_ms - start_ms) / 2).clamp(2_500, 10_000);
+                                        view.request_zoom_range_ms(
+                                            t_ms.saturating_sub(half_win),
+                                            t_ms.saturating_add(half_win),
+                                        );
+                                        view.request_setpoint_utc_ms(t_ms);
+                                    };
+                                    let first_ms = fault_occs[0].start_utc_ms;
+                                    if ui
+                                        .button(format!(
+                                            "Jump to First Occurrence ({})",
+                                            daqcore::time::Time::from_unix_millis(first_ms).label()
+                                        ))
+                                        .clicked()
+                                    {
+                                        jump_to(first_ms);
+                                        ui.close();
+                                    }
+                                    let next_occ = fault_occs
+                                        .iter()
+                                        .find(|o| o.start_utc_ms > setpoint_ms + 50)
+                                        .unwrap_or(&fault_occs[0]);
+                                    if ui
+                                        .button(format!(
+                                            "Jump to Next after Playhead ({})",
+                                            daqcore::time::Time::from_unix_millis(
+                                                next_occ.start_utc_ms
+                                            )
+                                            .label()
+                                        ))
+                                        .clicked()
+                                    {
+                                        jump_to(next_occ.start_utc_ms);
+                                        ui.close();
+                                    }
+                                    ui.menu_button(
+                                        format!("View All Occurrences ({})", fault_occs.len()),
+                                        |ui| {
+                                            eframe::egui::ScrollArea::vertical()
+                                                .max_height(240.0)
+                                                .show(ui, |ui| {
+                                                    for (occ_idx, occ) in
+                                                        fault_occs.iter().enumerate()
+                                                    {
+                                                        let t_lbl =
+                                                            daqcore::time::Time::from_unix_millis(
+                                                                occ.start_utc_ms,
+                                                            )
+                                                            .label();
+                                                        let dur_str = occ
+                                                            .end_utc_ms
+                                                            .filter(|&e| e > occ.start_utc_ms)
+                                                            .map(|e| {
+                                                                format!(
+                                                                    " ({:.2}s)",
+                                                                    (e - occ.start_utc_ms) as f64
+                                                                        / 1000.0
+                                                                )
+                                                            })
+                                                            .unwrap_or_default();
+                                                        if ui
+                                                            .button(format!(
+                                                                "#{} @ {}{}",
+                                                                occ_idx + 1,
+                                                                t_lbl,
+                                                                dur_str
+                                                            ))
+                                                            .clicked()
+                                                        {
+                                                            jump_to(occ.start_utc_ms);
+                                                            ui.close();
+                                                        }
+                                                    }
+                                                });
+                                        },
+                                    );
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Remove Lane").clicked() {
+                                remove_idx = Some(idx);
+                                ui.close();
+                            }
+                        };
+                        label_resp.context_menu(&mut add_lane_context_menu);
+                        strip_resp.context_menu(&mut add_lane_context_menu);
                     });
                     ui.add_space(2.0);
                 }

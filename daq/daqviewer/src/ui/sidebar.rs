@@ -41,6 +41,7 @@ pub fn show(
     platform: &mut dyn app::ViewerPlatform,
     ctx: &eframe::egui::Context,
 ) {
+    ui::timeline::show(app, platform, ctx);
     show_top_header_bar(app, platform, ctx);
     show_share_popover(app, ctx);
 
@@ -132,8 +133,8 @@ pub fn show(
 
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
-        .default_width(250.0)
-        .width_range(190.0..=440.0)
+        .default_width(215.0)
+        .width_range(175.0..=360.0)
         .frame(drawer_frame)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
             let panel_width = ui.available_width().max(1.0);
@@ -592,16 +593,9 @@ fn show_share_popover(app: &mut app::ViewerState, ctx: &eframe::egui::Context) {
 fn show_sessions_tab(
     ui: &mut eframe::egui::Ui,
     app: &mut app::ViewerState,
-    muted_color: eframe::egui::Color32,
+    _muted_color: eframe::egui::Color32,
 ) {
     ui.set_max_width(ui.available_width().max(1.0));
-    ui.label(
-        eframe::egui::RichText::new("SESSIONS, STINTS & PARTITIONS")
-            .small()
-            .strong()
-            .color(muted_color),
-    );
-    ui.add_space(4.0);
     let list_h = ui.available_height().max(120.0);
     ui::timeline::show_chunk_navigator_contents(
         ui,

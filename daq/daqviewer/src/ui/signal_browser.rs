@@ -381,6 +381,105 @@ fn show_clean_channel_row(
             ));
             ui.close();
         }
+        let sig_id = drag_payload.signal_id();
+        let (msg_part, sig_part) = sig_id.split_once('.').unwrap_or(("", sig_id.as_str()));
+        if daqcore::log_parse::auto_annotate::is_fault_flag_signal(msg_part, sig_part) {
+            let (day_min, day_max) = router
+                .timeline()
+                .day_bounds_ms()
+                .unwrap_or_else(|| (router.timeline().start_utc_ms(), router.timeline().end_utc_ms()));
+            let active_day = router.timeline().active_track_day_id().map(str::to_owned);
+            let mut fault_occs: Vec<daqcore::storage::Annotation> = router
+                .query_annotations_in_range(day_min..=day_max)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| {
+                    a.category == "fault"
+                        && active_day.as_deref().is_none_or(|d| a.track_day_id == d)
+                        && a.fault_signal_id() == Some(sig_id.as_str())
+                })
+                .collect();
+            fault_occs.sort_by_key(|a| a.start_utc_ms);
+            if !fault_occs.is_empty() {
+                ui.separator();
+                if let Some(sev) = fault_occs[0].fault_severity() {
+                    let theme = ui::theme::get_theme(ui.ctx());
+                    ui.colored_label(
+                        theme.fault_severity_color(sev),
+                        eframe::egui::RichText::new(format!(
+                            "[{}] {} occurrences in day",
+                            sev.badge_label(),
+                            fault_occs.len()
+                        ))
+                        .small()
+                        .strong(),
+                    );
+                }
+                if let Some(lcd) = fault_occs[0].fault_lcd_message() {
+                    ui.label(eframe::egui::RichText::new(lcd).small().weak());
+                }
+                let first_ms = fault_occs[0].start_utc_ms;
+                if ui
+                    .button(format!(
+                        "Jump to First Occurrence ({})",
+                        daqcore::time::Time::from_unix_millis(first_ms).label()
+                    ))
+                    .clicked()
+                {
+                    ui::timeline::jump_to_fault_occurrence(router, first_ms);
+                    ui.close();
+                }
+                let playhead_ms = router.timeline().setpoint_utc_ms();
+                let next_occ = fault_occs
+                    .iter()
+                    .find(|o| o.start_utc_ms > playhead_ms + 50)
+                    .unwrap_or(&fault_occs[0]);
+                if ui
+                    .button(format!(
+                        "Jump to Next after Playhead ({})",
+                        daqcore::time::Time::from_unix_millis(next_occ.start_utc_ms).label()
+                    ))
+                    .clicked()
+                {
+                    ui::timeline::jump_to_fault_occurrence(router, next_occ.start_utc_ms);
+                    ui.close();
+                }
+                ui.menu_button(
+                    format!("View All Occurrences ({})", fault_occs.len()),
+                    |ui| {
+                        eframe::egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                for (idx, occ) in fault_occs.iter().enumerate() {
+                                    let t_lbl =
+                                        daqcore::time::Time::from_unix_millis(occ.start_utc_ms)
+                                            .label();
+                                    let dur_str = occ
+                                        .end_utc_ms
+                                        .filter(|&e| e > occ.start_utc_ms)
+                                        .map(|e| {
+                                            format!(
+                                                " ({:.2}s)",
+                                                (e - occ.start_utc_ms) as f64 / 1000.0
+                                            )
+                                        })
+                                        .unwrap_or_default();
+                                    if ui
+                                        .button(format!("#{} @ {}{}", idx + 1, t_lbl, dur_str))
+                                        .clicked()
+                                    {
+                                        ui::timeline::jump_to_fault_occurrence(
+                                            router,
+                                            occ.start_utc_ms,
+                                        );
+                                        ui.close();
+                                    }
+                                }
+                            });
+                    },
+                );
+            }
+        }
         if let Some(compiled) = edit_formula {
             if ui.button("Edit Formula…").clicked() {
                 state.formula_draft = Some(FormulaDraft::from_compiled(compiled));
@@ -733,11 +832,22 @@ pub fn show_signal_browser(
                             sig.description.as_str()
                         }
                     );
+                    let is_fault = daqcore::log_parse::auto_annotate::is_fault_flag_signal(
+                        &sig.msg_name,
+                        &sig.signal_name,
+                    );
+                    let row_icon_color = if is_fault {
+                        daqcore::storage::FaultSeverity::resolve_for_signal(&canonical_id, None)
+                            .map(|sev| theme.fault_severity_color(sev))
+                            .unwrap_or(muted_color)
+                    } else {
+                        muted_color
+                    };
                     show_clean_channel_row(
                         ui,
                         eframe::egui::Id::new(("dnd_raw_flat", &canonical_id)),
                         "•",
-                        muted_color,
+                        row_icon_color,
                         &canonical_id,
                         &canonical_id,
                         &sig.unit,
@@ -840,11 +950,22 @@ pub fn show_signal_browser(
                             "Channel: {}\nBus: {} · Node: {}\n{}",
                             canonical_id, group.bus_name, group.transmitter, sig.description
                         );
+                        let is_fault = daqcore::log_parse::auto_annotate::is_fault_flag_signal(
+                            &sig.msg_name,
+                            &sig.signal_name,
+                        );
+                        let row_icon_color = if is_fault {
+                            daqcore::storage::FaultSeverity::resolve_for_signal(&canonical_id, None)
+                                .map(|sev| theme.fault_severity_color(sev))
+                                .unwrap_or(muted_color)
+                        } else {
+                            muted_color
+                        };
                         show_clean_channel_row(
                             ui,
                             eframe::egui::Id::new(("dnd_raw_signal", &canonical_id)),
                             "•",
-                            muted_color,
+                            row_icon_color,
                             &canonical_id,
                             &sig.signal_name,
                             &sig.unit,

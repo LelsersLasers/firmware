@@ -220,7 +220,6 @@ pub fn show(
     platform: &mut dyn app::ViewerPlatform,
     ctx: &eframe::egui::Context,
 ) {
-    ui::timeline::show(app, platform, ctx);
     show_workspace_tabs_bar(app, platform.supports_hardware_widgets(), ctx);
     app.router.poll_background_tiles();
     const MAX_BUS_LOAD_SAMPLES: usize = 10_000;

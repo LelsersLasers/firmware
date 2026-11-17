@@ -1,7 +1,7 @@
 use crate::widget_constructor;
 use std::path;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum AppAction {
     SpawnWidget(widget_constructor::WidgetConstructor),
     AttachStore(path::PathBuf),
