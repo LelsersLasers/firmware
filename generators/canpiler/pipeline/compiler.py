@@ -447,6 +447,7 @@ def _compile_signal(
             if signal.display_format is not None
             else infer_display_format(base_type, bool(choices), signal.scale, signal.offset)
         ),
+        fault_priority=signal.fault_priority,
     )
 
 
