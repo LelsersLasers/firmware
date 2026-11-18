@@ -517,6 +517,8 @@ mod tests {
         assert!(engine.contains("battery.power_w"));
         assert!(engine.contains("battery.power_kw"));
         assert!(engine.contains("battery.energy_wh"));
+        assert!(engine.contains("vd.total_distance_m"));
+        assert_eq!(engine.unit_for("vd.total_distance_m"), Some("m"));
         assert!(engine.contains("vd.front_roll_displacement_mm"));
         assert!(!engine.contains("vd.front_heave_mm"));
         assert!(!engine.contains("vd.fl_damper_vel_mms"));

@@ -37,6 +37,12 @@
       "unit": "rpm"
     },
     {
+      "id": "vd.total_distance_m",
+      "label": "Total distance traveled",
+      "expression": "integral(max(gps_speed_heading.gps_speed, 0.0))",
+      "unit": "m"
+    },
+    {
       "id": "vd.front_roll_displacement_mm",
       "label": "Front roll displacement (FL - FR)",
       "expression": "front_shockpots.left - front_shockpots.right",

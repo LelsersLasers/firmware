@@ -1126,6 +1126,17 @@ impl VirtualTimelineRouter {
                     }
                 }
             }
+            let is_series_fn = self
+                .formula_engine
+                .get(signal_id)
+                .is_some_and(|c| self.formula_engine.plan_contains_series_fn(&c.ast));
+            if is_series_fn {
+                let start_ms = self.timeline.start_utc_ms().min(target_utc_ms);
+                let end_ms = self.timeline.end_utc_ms().max(target_utc_ms);
+                let res = Resolution::for_window_ms((end_ms - start_ms).max(1), 1600.0);
+                let series = self.query_signal(signal_id, start_ms..=end_ms, res);
+                return series.latest_at_or_before(target_utc_ms);
+            }
             let lookback_ms = (self.formula_engine.max_staleness_ms() * 8).max(2_000);
             let window =
                 target_utc_ms.saturating_sub(lookback_ms)..=target_utc_ms.saturating_add(lookback_ms);
