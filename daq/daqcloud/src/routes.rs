@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppState, CacheHitMarker};
 use axum::{
     Json, Router,
     body::Bytes,
@@ -16,8 +16,9 @@ use daqcore::{
     router::{Resolution, TileKey, wire::encode_tile_payload},
     storage::{
         Annotation, AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse,
-        CHECKSUM_HEADER, CatalogResponse, CloudWsMessage, DerivedSignalUpsertPayload,
-        PartitionManifest, RANGE_CHECKSUM_HEADER, compute_sha256_hex, is_safe_path_segment,
+        CHECKSUM_HEADER, CatalogResponse, CloudStatsResponse, CloudWsMessage,
+        DerivedSignalUpsertPayload, PartitionManifest, RANGE_CHECKSUM_HEADER, compute_sha256_hex,
+        is_safe_path_segment,
     },
     time::Time,
 };
@@ -44,6 +45,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/daqview/{*payload}", get(web_daqview_handler))
         .route("/assets/{*asset_path}", get(web_asset_handler))
         .route("/api/v1/health", get(health_handler))
+        .route("/api/v1/stats", get(get_stats_handler))
         .route("/api/v1/catalog", get(get_catalog_handler))
         .route(
             "/api/v1/track-days",
@@ -93,6 +95,62 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+fn classify_endpoint(method: &axum::http::Method, path: &str) -> (&'static str, bool) {
+    if path == "/api/v1/stats" {
+        return ("GET /api/v1/stats", false);
+    }
+    if path == "/api/v1/health" {
+        return ("GET /api/v1/health", false);
+    }
+    if path == "/api/v1/ws" {
+        return ("WS /api/v1/ws", false);
+    }
+    if path == "/api/v1/catalog" {
+        return ("GET /api/v1/catalog", true);
+    }
+    if path == "/api/v1/export" {
+        return ("POST /api/v1/export", true);
+    }
+    if path == "/api/v1/track-days" {
+        return ("POST /api/v1/track-days", true);
+    }
+    if path.starts_with("/api/v1/partitions/") {
+        if path.ends_with("/tile") {
+            return ("GET /partitions/{id}/tile", true);
+        }
+        if path.ends_with("/preload") {
+            return ("GET /partitions/{id}/preload", true);
+        }
+        return match *method {
+            axum::http::Method::PUT => ("PUT /partitions/{id}/{file}", true),
+            axum::http::Method::HEAD => ("HEAD /partitions/{id}/{file}", true),
+            _ => ("GET /partitions/{id}/{file}", true),
+        };
+    }
+    if path.starts_with("/api/v1/superdbcs/") {
+        return match *method {
+            axum::http::Method::PUT => ("PUT /superdbcs/{hash}", true),
+            _ => ("GET /superdbcs/{hash}", true),
+        };
+    }
+    if path.starts_with("/api/v1/annotations") {
+        return match *method {
+            axum::http::Method::GET => ("GET /api/v1/annotations", true),
+            _ => ("WRITE /api/v1/annotations", true),
+        };
+    }
+    if path.starts_with("/api/v1/derived-signals") {
+        return match *method {
+            axum::http::Method::GET => ("GET /api/v1/derived-signals", true),
+            _ => ("WRITE /api/v1/derived-signals", true),
+        };
+    }
+    if path == "/" || path.starts_with("/daqview/") || path.starts_with("/assets/") || path == "/favicon.ico" {
+        return ("GET Web UI & Assets", true);
+    }
+    ("Other HTTP", true)
+}
+
 async fn log_request_middleware(
     State(state): State<AppState>,
     req: axum::extract::Request,
@@ -100,10 +158,25 @@ async fn log_request_middleware(
 ) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
+    let (category, include_in_overall) = classify_endpoint(&method, uri.path());
     let start = std::time::Instant::now();
-    let resp = next.run(req).await;
+    let resp = {
+        let _in_flight = state.track_http_in_flight();
+        next.run(req).await
+    };
     let status = resp.status();
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let cache_hit = resp
+        .extensions()
+        .get::<CacheHitMarker>()
+        .is_some_and(|m| m.0);
+    state.record_http_request(
+        category,
+        status.as_u16(),
+        elapsed_ms,
+        cache_hit,
+        include_in_overall,
+    );
     let (cache_used, cache_max) = state.cache_usage_bytes();
     let cache_used_mb = cache_used as f64 / (1024.0 * 1024.0);
     let cache_max_mb = cache_max as f64 / (1024.0 * 1024.0);
@@ -124,6 +197,10 @@ async fn log_request_middleware(
 
 async fn health_handler() -> &'static str {
     "daqcloud\n"
+}
+
+async fn get_stats_handler(State(state): State<AppState>) -> Json<CloudStatsResponse> {
+    Json(state.collect_stats_response())
 }
 
 async fn web_index_handler(State(state): State<AppState>) -> Response {
@@ -198,8 +275,8 @@ async fn web_asset_handler(
 }
 
 async fn get_catalog_handler(State(state): State<AppState>) -> Response {
-    let payload = if let Some(cached) = state.get_cached_catalog() {
-        cached
+    let (payload, is_hit) = if let Some(cached) = state.get_cached_catalog() {
+        (cached, true)
     } else {
         let track_days = match state.registry.list_track_days() {
             Ok(v) => v,
@@ -238,7 +315,7 @@ async fn get_catalog_handler(State(state): State<AppState>) -> Response {
             }
         };
         state.insert_cached_catalog(bytes.clone());
-        bytes
+        (bytes, false)
     };
 
     let mut headers = HeaderMap::new();
@@ -246,7 +323,11 @@ async fn get_catalog_handler(State(state): State<AppState>) -> Response {
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    (StatusCode::OK, headers, payload).into_response()
+    let mut resp = (StatusCode::OK, headers, payload).into_response();
+    if is_hit {
+        resp.extensions_mut().insert(CacheHitMarker(true));
+    }
+    resp
 }
 
 async fn post_track_day_handler(
@@ -353,7 +434,9 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),
         );
-        return (StatusCode::OK, headers, cached).into_response();
+        let mut resp = (StatusCode::OK, headers, cached).into_response();
+        resp.extensions_mut().insert(CacheHitMarker(true));
+        return resp;
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -434,7 +517,9 @@ async fn serve_partition_tile(
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/octet-stream"),
         );
-        return (StatusCode::OK, headers, encoded).into_response();
+        let mut resp = (StatusCode::OK, headers, encoded).into_response();
+        resp.extensions_mut().insert(CacheHitMarker(true));
+        return resp;
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -1504,6 +1589,7 @@ async fn ws_upgrade_handler(
 }
 
 async fn handle_ws_client(mut socket: WebSocket, state: AppState) {
+    let _ws_guard = state.track_ws_client();
     let mut rx = state.ws_tx.subscribe();
 
     loop {
