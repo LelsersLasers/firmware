@@ -144,7 +144,11 @@ fn classify_endpoint(method: &axum::http::Method, path: &str) -> (&'static str, 
             _ => ("WRITE /api/v1/derived-signals", true),
         };
     }
-    if path == "/" || path.starts_with("/daqview/") || path.starts_with("/assets/") || path == "/favicon.ico" {
+    if path == "/"
+        || path.starts_with("/daqview/")
+        || path.starts_with("/assets/")
+        || path == "/favicon.ico"
+    {
         return ("GET Web UI & Assets", true);
     }
     ("Other HTTP", true)
@@ -422,20 +426,30 @@ fn parse_resolution_param(raw: &str) -> Option<Resolution> {
     }
 }
 
+fn binary_tile_response(bytes: Bytes, cache_hit: bool) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    let mut resp = (StatusCode::OK, headers, bytes).into_response();
+    if cache_hit {
+        resp.extensions_mut().insert(CacheHitMarker(true));
+    }
+    resp
+}
+
 async fn serve_partition_preload(state: AppState, partition_id: String) -> Response {
     if let Some(cached) = state.get_cached_preload(&partition_id) {
         log::info!(
             "Preload {partition_id} [cache hit, {:.1} KiB]",
             cached.len() as f64 / 1024.0
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let mut resp = (StatusCode::OK, headers, cached).into_response();
-        resp.extensions_mut().insert(CacheHitMarker(true));
-        return resp;
+        return binary_tile_response(cached, true);
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -449,14 +463,7 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
             "Preload {partition_id} [cache hit after wait, {:.1} KiB]",
             cached.len() as f64 / 1024.0
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let mut resp = (StatusCode::OK, headers, cached).into_response();
-        resp.extensions_mut().insert(CacheHitMarker(true));
-        return resp;
+        return binary_tile_response(cached, true);
     }
 
     let part_id_clone = partition_id.clone();
@@ -489,12 +496,7 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
         bytes.len() as f64 / 1024.0
     );
     state.insert_cached_preload(partition_id, bytes.clone());
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
-    );
-    (StatusCode::OK, headers, bytes).into_response()
+    binary_tile_response(bytes, false)
 }
 
 async fn serve_partition_tile(
@@ -526,14 +528,7 @@ async fn serve_partition_tile(
             "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB]",
             encoded.len() as f64 / 1024.0
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let mut resp = (StatusCode::OK, headers, encoded).into_response();
-        resp.extensions_mut().insert(CacheHitMarker(true));
-        return resp;
+        return binary_tile_response(encoded, true);
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -553,14 +548,7 @@ async fn serve_partition_tile(
             "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit after wait, {:.1} KiB]",
             encoded.len() as f64 / 1024.0
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let mut resp = (StatusCode::OK, headers, encoded).into_response();
-        resp.extensions_mut().insert(CacheHitMarker(true));
-        return resp;
+        return binary_tile_response(encoded, true);
     }
 
     let sig_clone = signal_id.clone();
@@ -597,12 +585,7 @@ async fn serve_partition_tile(
         encoded.len() as f64 / 1024.0
     );
     state.insert_cached_tile(key, encoded.clone());
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
-    );
-    (StatusCode::OK, headers, encoded).into_response()
+    binary_tile_response(encoded, false)
 }
 
 async fn post_export_handler(

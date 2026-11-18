@@ -8,6 +8,8 @@ FLAKE_DIR="${REPO_ROOT}/nix_flake"
 
 REMOTE_HOST="${DAQ_REMOTE_HOST:-root@45.76.8.71}"
 REMOTE_DIR="${DAQ_REMOTE_DIR:-/opt/daqstuff}"
+MAX_CACHE_MB="${DAQ_MAX_CACHE_MB:-96}"
+MAX_CONCURRENT_DECODES="${DAQ_MAX_CONCURRENT_DECODES:-2}"
 
 SYNC_DATA=false
 for arg in "$@"; do
@@ -72,6 +74,26 @@ ssh "${REMOTE_HOST}" "
     set -e
     mv '${REMOTE_DIR}/daqcloud.new' '${REMOTE_DIR}/daqcloud'
     chmod +x '${REMOTE_DIR}/daqcloud'
+    cat << EOF > /etc/systemd/system/daqcloud.service
+[Unit]
+Description=PER DAQ Cloud Server & Web Demo
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${REMOTE_DIR}
+Environment=RUST_LOG=info
+Environment=MALLOC_ARENA_MAX=2
+Environment=DAQCLOUD_WEB_DIST_DIR=${REMOTE_DIR}/dist
+Environment=DAQCLOUD_MAX_CONCURRENT_DECODES=${MAX_CONCURRENT_DECODES}
+ExecStart=${REMOTE_DIR}/daqcloud --bind 0.0.0.0:80 --store-dir ${REMOTE_DIR}/cloud_store --db-path ${REMOTE_DIR}/cloud_store/cloud_registry.sqlite --max-cache-mb ${MAX_CACHE_MB}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
     systemctl restart daqcloud.service
     sleep 1
     systemctl status daqcloud.service --no-pager | head -n 15
