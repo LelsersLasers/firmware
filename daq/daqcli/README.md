@@ -34,7 +34,7 @@ cargo run --manifest-path daq/Cargo.toml --release -p daqcli -- export \
 - `--event <NAME_OR_ID>` — Named event/stint annotation (e.g. `"Driving Stint 1"`). If omitted, uses `--start-ms` / `--end-ms` or the full track-day span.
 - `--start-ms <UTC_MS>` / `--end-ms <UTC_MS>` — Optional explicit UTC millisecond bounds.
 - `--preset <ID>` — Subteam signal preset from `daq/config/export_presets.json` (`vd`, `aero`, `powertrain_thermals`, `controls`, `raw_all`; defaults to `vd` when `--signals` is omitted).
-- `--signals <GLOBS>` — Optional comma-separated signal IDs or glob patterns (e.g. `"IMU_acceleration.*,battery.power_w"`).
+- `--signals <GLOBS>` — Optional comma-separated signal IDs or glob patterns (e.g. `"IMU_acceleration.*,battery.power_kw"`).
 - `--format <parquet|csv|mat>` — Output file format (inferred from `-o` extension if omitted; defaults to `parquet`).
 - `--rate-hz <HZ>` — Override the uniform resampling rate in Hz (e.g. `100.0`).
 - `--sparse` — Export at exact union timestamps without uniform grid resampling.

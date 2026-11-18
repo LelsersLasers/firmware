@@ -534,9 +534,12 @@ mod tests {
     fn builtin_derived_signals_json_compiles_and_sorts_cleanly() {
         let engine = FormulaEngine::with_builtin_config();
         assert!(engine.contains("battery.voltage_v"));
-        assert!(engine.contains("battery.power_w"));
+        assert!(!engine.contains("battery.power_w"));
+        assert!(!engine.contains("battery.pack_power_w"));
+        assert!(!engine.contains("battery.energy_wh"));
         assert!(engine.contains("battery.power_kw"));
-        assert!(engine.contains("battery.energy_wh"));
+        assert!(engine.contains("battery.pack_power_kw"));
+        assert!(engine.contains("battery.energy_kwh"));
         assert!(engine.contains("vd.total_distance_m"));
         assert_eq!(engine.unit_for("vd.total_distance_m"), Some("m"));
         assert!(engine.contains("vd.front_roll_displacement_mm"));
@@ -554,7 +557,9 @@ mod tests {
             )
         );
         assert!(engine.contains("thermals.max_igbt_temp_c"));
-        assert_eq!(engine.unit_for("battery.power_w"), Some("W"));
+        assert_eq!(engine.unit_for("battery.power_kw"), Some("kW"));
+        assert_eq!(engine.unit_for("battery.pack_power_kw"), Some("kW"));
+        assert_eq!(engine.unit_for("battery.energy_kwh"), Some("kWh"));
     }
 
     /// Milestone 4 Verification (Roadmap Step 4.4):
@@ -610,7 +615,7 @@ mod tests {
 
         let power_series = engine
             .evaluate_channel_with(
-                "battery.power_w",
+                "battery.power_kw",
                 &TargetGrid::Union,
                 Resolution::FullRes,
                 |raw_id| match raw_id {
@@ -619,7 +624,7 @@ mod tests {
                     other => panic!("unexpected raw signal request: {other}"),
                 },
             )
-            .expect("evaluate battery.power_w");
+            .expect("evaluate battery.power_kw");
 
         let SignalSeries::Exact {
             timestamps_ms,
@@ -635,10 +640,10 @@ mod tests {
         let v1_expected = 300.0;
         for (idx, &val) in values.iter().enumerate().take(51) {
             let t = (idx * 2) as f64;
-            let expected_w = v1_expected * (10.0 + 0.1 * t);
+            let expected_kw = (v1_expected * (10.0 + 0.1 * t)) / 1000.0;
             assert!(
-                (val - expected_w).abs() < 1e-6,
-                "mismatch at idx={idx} (t={t}): got {val}, expected {expected_w}",
+                (val - expected_kw).abs() < 1e-6,
+                "mismatch at idx={idx} (t={t}): got {val}, expected {expected_kw}",
             );
         }
 
@@ -653,10 +658,10 @@ mod tests {
         // Stint 2 (idx 52..=102, t = 10,100 ..= 10,200 ms)
         let v2_expected = 400.0;
         for (idx, &val) in values.iter().enumerate().take(103).skip(52) {
-            let expected_w = v2_expected * 50.0;
+            let expected_kw = (v2_expected * 50.0) / 1000.0;
             assert!(
-                (val - expected_w).abs() < 1e-6,
-                "mismatch at idx={idx}: got {val}, expected {expected_w}",
+                (val - expected_kw).abs() < 1e-6,
+                "mismatch at idx={idx}: got {val}, expected {expected_kw}",
             );
         }
     }
@@ -665,7 +670,7 @@ mod tests {
     fn integrated_signal_at_overview_resolutions_integrates_then_downscales_without_diverging_bounds()
      {
         let engine = FormulaEngine::with_builtin_config();
-        let energy_expr = Expr::parse("battery.energy_wh").expect("parse energy_wh");
+        let energy_expr = Expr::parse("battery.energy_kwh").expect("parse energy_kwh");
         assert!(engine.plan_contains_series_fn(&energy_expr));
 
         // 1. High-rate (100 Hz) oscillating current around 20 A (between 0 A and 40 A) over 10 seconds,
@@ -678,7 +683,7 @@ mod tests {
             let t_ms = step * 10;
             ts.push(t_ms);
             v_vals.push(vbatt_adc_const);
-            // Alternate 0 A and 40 A every 10 ms -> exact mean is 20 A (2,000 W)
+            // Alternate 0 A and 40 A every 10 ms -> exact mean is 20 A (2.0 kW)
             i_vals.push(if step % 2 == 0 { 0.0 } else { 40.0 });
         }
 
@@ -693,7 +698,7 @@ mod tests {
 
         let downscaled = engine
             .evaluate_channel_with(
-                "battery.energy_wh",
+                "battery.energy_kwh",
                 &TargetGrid::Union,
                 Resolution::Overview1Hz,
                 |raw_id| match raw_id {
@@ -702,20 +707,20 @@ mod tests {
                     other => panic!("unexpected raw signal: {other}"),
                 },
             )
-            .expect("evaluate downscaled energy_wh");
+            .expect("evaluate downscaled energy_kwh");
 
         let SignalSeries::Envelope(buckets) = downscaled else {
             panic!("expected Envelope at Overview1Hz");
         };
         let last_bucket = buckets.last().expect("non-empty buckets");
-        // 2,000 W * 10 s = 20,000 J = 5.555555... Wh
-        let expected_total_wh = 20_000.0 / 3_600.0;
-        assert!((last_bucket.max - expected_total_wh).abs() < 1e-4);
-        // Within a single 1-second bucket, energy only changes by 2,000 J / 3,600 = 0.5555 Wh,
-        // never diverging into [0, 2 * expected_total_wh].
+        // 2.0 kW * 10 s = 20.0 kJ = 0.005555555... kWh
+        let expected_total_kwh = 20.0 / 3_600.0;
+        assert!((last_bucket.max - expected_total_kwh).abs() < 1e-6);
+        // Within a single 1-second bucket, energy only changes by 2.0 kJ / 3,600 = 0.0005555 kWh,
+        // never diverging into [0, 2 * expected_total_kwh].
         for b in &buckets {
             assert!(
-                (b.max - b.min) <= (2_000.0 / 3_600.0) + 1e-4,
+                (b.max - b.min) <= (2.0 / 3_600.0) + 1e-6,
                 "bucket at {}ms had diverging span [{}, {}]",
                 b.utc_ms,
                 b.min,
@@ -745,7 +750,7 @@ mod tests {
         }
         let fallback_series = engine
             .evaluate_channel_with(
-                "battery.energy_wh",
+                "battery.energy_kwh",
                 &TargetGrid::Union,
                 Resolution::Overview1Hz,
                 |raw_id| match raw_id {
@@ -754,17 +759,17 @@ mod tests {
                     other => panic!("unexpected raw signal: {other}"),
                 },
             )
-            .expect("evaluate fallback envelope energy_wh");
+            .expect("evaluate fallback envelope energy_kwh");
 
         let SignalSeries::Envelope(fb_buckets) = fallback_series else {
             panic!("expected Envelope from fallback inputs");
         };
         let fb_last = fb_buckets.last().expect("non-empty fallback buckets");
-        assert!((fb_last.mean - expected_total_wh).abs() < 1e-4);
-        // At t = 10s, min must be the start of the 9s..10s step (9 * 2000 / 3600 = 5.0 Wh)
-        // and max must be the end of the step (10 * 2000 / 3600 = 5.5556 Wh), NOT [0.0, 11.111 Wh]!
-        assert!((fb_last.min - (18_000.0 / 3_600.0)).abs() < 1e-4);
-        assert!((fb_last.max - expected_total_wh).abs() < 1e-4);
+        assert!((fb_last.mean - expected_total_kwh).abs() < 1e-6);
+        // At t = 10s, min must be the start of the 9s..10s step (9 * 2.0 / 3600 = 0.005 kWh)
+        // and max must be the end of the step (10 * 2.0 / 3600 = 0.005556 kWh), NOT [0.0, 0.011111 kWh]!
+        assert!((fb_last.min - (18.0 / 3_600.0)).abs() < 1e-6);
+        assert!((fb_last.max - expected_total_kwh).abs() < 1e-6);
     }
 
     #[test]

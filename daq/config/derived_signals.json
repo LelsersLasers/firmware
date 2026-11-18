@@ -7,28 +7,22 @@
       "unit": "V"
     },
     {
-      "id": "battery.power_w",
-      "label": "Battery power (I * V, vbatt source)",
-      "expression": "battery.voltage_v * pack_stats.pack_current",
-      "unit": "W"
-    },
-    {
       "id": "battery.power_kw",
       "label": "Battery power (kW, vbatt source)",
-      "expression": "battery.power_w / 1000.0",
+      "expression": "(battery.voltage_v * pack_stats.pack_current) / 1000.0",
       "unit": "kW"
     },
     {
-      "id": "battery.pack_power_w",
-      "label": "Battery pack power (pack_voltage * pack_current)",
-      "expression": "pack_stats.pack_voltage * pack_stats.pack_current",
-      "unit": "W"
+      "id": "battery.pack_power_kw",
+      "label": "Battery pack power (kW, pack_voltage * pack_current)",
+      "expression": "(pack_stats.pack_voltage * pack_stats.pack_current) / 1000.0",
+      "unit": "kW"
     },
     {
-      "id": "battery.energy_wh",
-      "label": "Cumulative battery energy (Wh)",
-      "expression": "integral(battery.power_w) / 3600.0",
-      "unit": "Wh"
+      "id": "battery.energy_kwh",
+      "label": "Cumulative battery energy (kWh)",
+      "expression": "integral(battery.power_kw) / 3600.0",
+      "unit": "kWh"
     },
     {
       "id": "vd.wheel_speed_avg_rpm",

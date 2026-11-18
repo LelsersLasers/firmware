@@ -49,7 +49,7 @@ enum Command {
         /// Subteam export preset ID (vd, aero, powertrain_thermals, controls, raw_all)
         #[arg(long)]
         preset: Option<String>,
-        /// Optional comma-separated signal IDs or glob patterns (e.g. "IMU_acceleration.*,battery.power_w")
+        /// Optional comma-separated signal IDs or glob patterns (e.g. "IMU_acceleration.*,battery.power_kw")
         #[arg(long)]
         signals: Option<String>,
         /// Output format: parquet, csv, or mat (inferred from -o extension or defaults to parquet)
@@ -464,7 +464,7 @@ mod tests {
         let (rows, cols) = read_exported_parquet_info(&pq_out).expect("read parquet info");
         assert_eq!(rows, 501);
         assert!(cols.iter().any(|(n, _)| n == "IMU_acceleration.X_axis"));
-        assert!(cols.iter().any(|(n, _)| n == "battery.power_w"));
+        assert!(cols.iter().any(|(n, _)| n == "battery.power_kw"));
 
         // 2. Export "Driving Stint 1" with preset "powertrain_thermals" to CSV (50 Hz -> 251 rows)
         let csv_summary = execute_export(&ExportCommandArgs {
@@ -491,7 +491,7 @@ mod tests {
             start_ms: Some(win_start),
             end_ms: Some(win_end),
             preset: Some("aero".to_owned()),
-            signals: Some("battery.power_w".to_owned()),
+            signals: Some("battery.power_kw".to_owned()),
             format: None, // inferred from .mat extension
             rate_hz: None,
             sparse: false,
@@ -501,6 +501,6 @@ mod tests {
         assert_eq!(mat_summary.row_count, 251);
         let mat_vars = read_matlab_mat_vars(&mat_out).expect("read mat vars");
         assert_eq!(mat_vars.get("utc_ms").map(Vec::len), Some(251));
-        assert_eq!(mat_vars.get("battery_power_w").map(Vec::len), Some(251));
+        assert_eq!(mat_vars.get("battery_power_kw").map(Vec::len), Some(251));
     }
 }

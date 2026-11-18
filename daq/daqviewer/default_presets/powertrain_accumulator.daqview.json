@@ -20,11 +20,11 @@
             "title": "Battery Power and Current",
             "x_mode": "utc_time",
             "channels": [
-              { "signal_id": "battery.power_w" },
+              { "signal_id": "battery.power_kw" },
               { "signal_id": "pack_stats.pack_current" },
               { "signal_id": "battery.voltage_v" },
               { "signal_id": "pack_stats.pack_voltage" },
-              { "signal_id": "battery.energy_wh" }
+              { "signal_id": "battery.energy_kwh" }
             ]
           },
           {
@@ -90,8 +90,8 @@
                 "widget": "xy_scatter",
                 "title": "Total Battery Power vs Battery Voltage",
                 "x_signal": "battery.voltage_v",
-                "y_signal": "battery.power_w",
-                "z_color_signal": "battery.energy_wh",
+                "y_signal": "battery.power_kw",
+                "z_color_signal": "battery.energy_kwh",
                 "equal_aspect": false,
                 "show_g_rings": false
               },

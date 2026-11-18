@@ -21,7 +21,6 @@
         "wheel_speeds.*",
         "motor_speeds.*",
         "vcu_torque_request.*",
-        "battery.power_w",
         "battery.power_kw",
         "vd.*",
         "imu.*",
