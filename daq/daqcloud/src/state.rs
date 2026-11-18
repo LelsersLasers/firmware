@@ -278,7 +278,6 @@ impl EncodedTileLruCache {
 struct PreloadLruCache {
     max_bytes: usize,
     used_bytes: usize,
-    order: VecDeque<String>,
     entries: HashMap<String, Bytes>,
 }
 
@@ -287,7 +286,6 @@ impl PreloadLruCache {
         Self {
             max_bytes,
             used_bytes: 0,
-            order: VecDeque::new(),
             entries: HashMap::new(),
         }
     }
@@ -301,39 +299,30 @@ impl PreloadLruCache {
     }
 
     fn get(&mut self, partition_id: &str) -> Option<Bytes> {
-        let bytes = self.entries.get(partition_id)?.clone();
-        if let Some(pos) = self.order.iter().position(|k| k == partition_id) {
-            self.order.remove(pos);
-        }
-        self.order.push_back(partition_id.to_owned());
-        Some(bytes)
+        self.entries.get(partition_id).cloned()
     }
 
+    /// Scan-resistant admission: web clients always scan all partitions sequentially on boot.
+    /// A standard FIFO/LRU cache smaller than the total catalog preload footprint would suffer
+    /// 0% hit rate due to cyclic eviction. By pinning admitted entries up to `max_bytes`
+    /// (and only replacing on explicit partition invalidation or same-key update), repeated
+    /// sequential catalog scans deterministically hit the cached working set.
     fn insert(&mut self, partition_id: String, payload: Bytes) {
         let len = payload.len();
         if self.max_bytes == 0 || len > self.max_bytes {
             return;
         }
         self.remove(&partition_id);
-        while self.used_bytes.saturating_add(len) > self.max_bytes {
-            let Some(oldest) = self.order.pop_front() else {
-                break;
-            };
-            if let Some(removed) = self.entries.remove(&oldest) {
-                self.used_bytes = self.used_bytes.saturating_sub(removed.len());
-            }
+        if self.used_bytes.saturating_add(len) > self.max_bytes {
+            return;
         }
         self.used_bytes = self.used_bytes.saturating_add(len);
-        self.order.push_back(partition_id.clone());
         self.entries.insert(partition_id, payload);
     }
 
     fn remove(&mut self, partition_id: &str) {
         if let Some(removed) = self.entries.remove(partition_id) {
             self.used_bytes = self.used_bytes.saturating_sub(removed.len());
-        }
-        if let Some(pos) = self.order.iter().position(|k| k == partition_id) {
-            self.order.remove(pos);
         }
     }
 }
@@ -395,7 +384,7 @@ impl AppState {
         fs::create_dir_all(store_dir.join("superdbcs"))?;
         let _ = registry.sync_from_store_dir(&store_dir)?;
         let (ws_tx, _) = broadcast::channel(WS_BROADCAST_CAPACITY);
-        let preload_bytes = max_cache_bytes / 4;
+        let preload_bytes = max_cache_bytes / 10;
         let tile_bytes = max_cache_bytes.saturating_sub(preload_bytes);
         Ok(Self {
             registry,
@@ -867,5 +856,21 @@ SwapFree:         524288 kB
         assert!((percentile_sorted(&vals, 0.90) - 9.1).abs() < 1e-9);
         assert!((percentile_sorted(&vals, 0.0) - 1.0).abs() < 1e-9);
         assert!((percentile_sorted(&vals, 1.0) - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_preload_cache_scan_resistant_admission() {
+        let mut cache = PreloadLruCache::new(10);
+        cache.insert("p1".to_owned(), Bytes::from_static(b"12345"));
+        cache.insert("p2".to_owned(), Bytes::from_static(b"67890"));
+        // Cache is now full (10/10 bytes). A sequential scan over p3..p5 must not evict p1/p2.
+        cache.insert("p3".to_owned(), Bytes::from_static(b"abcde"));
+        assert!(cache.get("p1").is_some());
+        assert!(cache.get("p2").is_some());
+        assert!(cache.get("p3").is_none());
+        // Explicit invalidation frees space for new admissions.
+        cache.remove("p1");
+        cache.insert("p3".to_owned(), Bytes::from_static(b"abcde"));
+        assert!(cache.get("p3").is_some());
     }
 }
