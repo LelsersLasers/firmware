@@ -18,9 +18,10 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{Semaphore, broadcast};
 
 const WS_BROADCAST_CAPACITY: usize = 64;
+const DEFAULT_MAX_CONCURRENT_DECODES: usize = 2;
 const OVERALL_LATENCY_WINDOW: usize = 1024;
 const ENDPOINT_LATENCY_WINDOW: usize = 256;
 const RECENT_LATENCY_SAMPLES_CAP: usize = 120;
@@ -335,6 +336,18 @@ fn resolve_default_max_cache_bytes() -> usize {
         .saturating_mul(1024 * 1024)
 }
 
+fn resolve_default_max_concurrent_decodes() -> usize {
+    env::var("DAQCLOUD_MAX_CONCURRENT_DECODES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|&n| n >= 1)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().clamp(2, 4))
+                .unwrap_or(DEFAULT_MAX_CONCURRENT_DECODES)
+        })
+}
+
 fn resolve_default_web_dist_dir() -> path::PathBuf {
     if let Ok(custom) = env::var("DAQCLOUD_WEB_DIST_DIR") {
         return path::PathBuf::from(custom);
@@ -365,6 +378,7 @@ pub struct AppState {
     tile_cache: Arc<Mutex<EncodedTileLruCache>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
     catalog_cache: Arc<Mutex<Option<Bytes>>>,
+    decode_semaphore: Arc<Semaphore>,
     metrics: Arc<CloudMetrics>,
 }
 
@@ -386,6 +400,7 @@ impl AppState {
         let (ws_tx, _) = broadcast::channel(WS_BROADCAST_CAPACITY);
         let preload_bytes = max_cache_bytes / 10;
         let tile_bytes = max_cache_bytes.saturating_sub(preload_bytes);
+        let max_decodes = resolve_default_max_concurrent_decodes();
         Ok(Self {
             registry,
             store_dir,
@@ -396,8 +411,13 @@ impl AppState {
             tile_cache: Arc::new(Mutex::new(EncodedTileLruCache::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
             catalog_cache: Arc::new(Mutex::new(None)),
+            decode_semaphore: Arc::new(Semaphore::new(max_decodes)),
             metrics: Arc::new(CloudMetrics::default()),
         })
+    }
+
+    pub fn decode_semaphore(&self) -> &Arc<Semaphore> {
+        &self.decode_semaphore
     }
 
     pub fn open(

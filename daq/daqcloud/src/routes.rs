@@ -443,6 +443,22 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    let _decode_permit = state.decode_semaphore().acquire().await;
+    if let Some(cached) = state.get_cached_preload(&partition_id) {
+        log::info!(
+            "Preload {partition_id} [cache hit after wait, {:.1} KiB]",
+            cached.len() as f64 / 1024.0
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        let mut resp = (StatusCode::OK, headers, cached).into_response();
+        resp.extensions_mut().insert(CacheHitMarker(true));
+        return resp;
+    }
+
     let part_id_clone = partition_id.clone();
     let encoded_res = tokio::task::spawn_blocking(move || {
         build_partition_preload_payload(&part_id_clone, &part_dir)
@@ -531,6 +547,22 @@ async fn serve_partition_tile(
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    let _decode_permit = state.decode_semaphore().acquire().await;
+    if let Some(encoded) = state.get_cached_tile(&key) {
+        log::info!(
+            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit after wait, {:.1} KiB]",
+            encoded.len() as f64 / 1024.0
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        let mut resp = (StatusCode::OK, headers, encoded).into_response();
+        resp.extensions_mut().insert(CacheHitMarker(true));
+        return resp;
+    }
+
     let sig_clone = signal_id.clone();
     let series_res = tokio::task::spawn_blocking(move || match resolution {
         Resolution::Overview1Hz | Resolution::Overview10Hz => {
@@ -577,6 +609,7 @@ async fn post_export_handler(
     State(state): State<AppState>,
     Json(req): Json<DatasetExportRequest>,
 ) -> Response {
+    let _decode_permit = state.decode_semaphore().acquire().await;
     let store_dir = state.store_dir.clone();
     let cloud_derived = state
         .registry
