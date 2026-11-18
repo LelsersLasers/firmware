@@ -65,6 +65,62 @@ pub struct ChannelStats {
     pub cursor: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SectionStats {
+    pub min: f64,
+    pub max: f64,
+    pub avg: f64,
+    pub sum: f64,
+    pub delta: f64,
+    pub integral: f64,
+    pub count: usize,
+}
+
+pub(super) fn compute_section_stats(timestamps_ms: &[i64], values: &[f64]) -> Option<SectionStats> {
+    let n = timestamps_ms.len().min(values.len());
+    let mut min_v = f64::INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+    let mut sum_v = 0.0;
+    let mut count = 0usize;
+    let mut first_v = None;
+    let mut last_v = 0.0;
+    let mut prev_pt: Option<(i64, f64)> = None;
+    let mut integral = 0.0;
+
+    for i in 0..n {
+        let v = values[i];
+        let t = timestamps_ms[i];
+        if v.is_finite() {
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+            sum_v += v;
+            count += 1;
+            if first_v.is_none() {
+                first_v = Some(v);
+            }
+            last_v = v;
+            if let Some((pt_t, pt_v)) = prev_pt
+                && t > pt_t
+            {
+                let dt_s = (t - pt_t) as f64 / 1000.0;
+                integral += 0.5 * (pt_v + v) * dt_s;
+            }
+            prev_pt = Some((t, v));
+        }
+    }
+
+    let first = first_v?;
+    Some(SectionStats {
+        min: min_v,
+        max: max_v,
+        avg: sum_v / (count as f64),
+        sum: sum_v,
+        delta: last_v - first,
+        integral,
+        count,
+    })
+}
+
 /// Affine mapping between a secondary unit group's physical Y values and the primary Y-axis plot space.
 #[derive(Debug, Clone, Copy)]
 pub struct UnitAxisTransform {
@@ -148,6 +204,26 @@ impl ChannelCursorLookup {
                 let idx = (pos - 1).min(vals.len() - 1);
                 let v = vals[idx];
                 v.is_finite().then_some(v)
+            }
+            Self::Fallback => None,
+        }
+    }
+
+    pub(super) fn section_stats(&self, start_ms: i64, end_ms: i64) -> Option<SectionStats> {
+        let (lo_ms, hi_ms) = (start_ms.min(end_ms), start_ms.max(end_ms));
+        match self {
+            Self::Series(series) => {
+                let sliced = series.slice_range(lo_ms..=hi_ms);
+                let (ts, vals) = daqcore::analysis::series_to_timestamp_values(&sliced);
+                compute_section_stats(&ts, &vals)
+            }
+            Self::Distance(ts, vals) => {
+                if ts.is_empty() || vals.is_empty() {
+                    return None;
+                }
+                let lo = ts.partition_point(|&t| t < lo_ms).min(ts.len());
+                let hi = ts.partition_point(|&t| t <= hi_ms).min(vals.len()).max(lo);
+                compute_section_stats(&ts[lo..hi], &vals[lo..hi])
             }
             Self::Fallback => None,
         }

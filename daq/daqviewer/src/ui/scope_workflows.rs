@@ -268,10 +268,11 @@ fn selecting_a_range_zoom_is_shared_and_escape_cancels() {
     let mut h = Harness::new(false);
     let a = h.point(0, 0.2);
     let b = h.point(0, 0.8);
-    assert!(h.press(a, PointerButton::Primary).pause);
+    // Right-drag (`PointerButton::Secondary`) selects a range to zoom into.
+    assert!(h.press(a, PointerButton::Secondary).pause);
     assert_eq!(h.frame(vec![Event::PointerMoved(b)]).pan, None);
-    let requests = h.release(b, PointerButton::Primary);
-    let (start, end) = requests.range.expect("Left drag selects the shared window");
+    let requests = h.release(b, PointerButton::Secondary);
+    let (start, end) = requests.range.expect("Right drag selects the shared window");
     assert!((start - BASE - 2_000).abs() < 20);
     assert!((end - BASE - 8_000).abs() < 20);
     assert_eq!(requests.cursor, None);
@@ -285,7 +286,7 @@ fn selecting_a_range_zoom_is_shared_and_escape_cancels() {
     assert_eq!(h.scope.cached_data.as_ref().unwrap().key.end_ms, end);
     let a = h.point(0, 0.2);
     let b = h.point(0, 0.8);
-    h.press(a, PointerButton::Primary);
+    h.press(a, PointerButton::Secondary);
     h.frame(vec![
         Event::PointerMoved(b),
         Event::Key {
@@ -296,24 +297,54 @@ fn selecting_a_range_zoom_is_shared_and_escape_cancels() {
             modifiers: Modifiers::NONE,
         },
     ]);
-    assert_eq!(h.release(b, PointerButton::Primary).range, None);
+    assert_eq!(h.release(b, PointerButton::Secondary).range, None);
     assert!(h.scope.gesture.is_none());
 }
 
 #[test]
-fn right_drag_pans_but_click_scrubs() {
+fn left_drag_highlights_section_stats_without_zooming_and_click_scrubs() {
     let mut h = Harness::new(false);
-    let a = h.point(0, 0.6);
-    let b = h.point(0, 0.4);
-    h.press(a, PointerButton::Secondary);
+    let a = h.point(0, 0.2);
+    let b = h.point(0, 0.8);
+    h.press(a, PointerButton::Primary);
     let request = h.frame(vec![Event::PointerMoved(b)]);
-    assert!((request.pan.unwrap() - 2_000).abs() < 20);
     assert_eq!(request.range, None);
-    h.release(b, PointerButton::Secondary);
+    let release_req = h.release(b, PointerButton::Primary);
+    assert_eq!(release_req.range, None, "Left drag must not zoom");
+    assert_eq!(release_req.cursor, None);
+    let (sel_start, sel_end) = h
+        .scope
+        .measurements
+        .selection
+        .expect("Left drag stores highlighted section for stats");
+    assert!((sel_start - BASE - 2_000).abs() < 20);
+    assert!((sel_end - BASE - 8_000).abs() < 20);
+
+    // Render frame and verify the on-graph stats overlay displays min/max/avg/sum.
+    h.frame(vec![]);
+    assert!(
+        h.output
+            .as_ref()
+            .unwrap()
+            .shapes
+            .iter()
+            .any(|shape| match &shape.shape {
+                egui::Shape::Text(text) =>
+                    text.galley.text().contains("min ")
+                        && text.galley.text().contains("max ")
+                        && text.galley.text().contains("avg ")
+                        && text.galley.text().contains("sum "),
+                _ => false,
+            }),
+        "Expected section stats overlay with min/max/avg/sum"
+    );
+
+    // Simple left-click clears the selection and scrubs the playhead.
     let point = h.point(0, 0.4);
     let request = h.click(point);
     assert!((request.cursor.unwrap() - BASE - 4_000).abs() < 20);
     assert_eq!(request.range, None);
+    assert!(h.scope.measurements.selection.is_none());
 }
 
 #[test]
@@ -443,10 +474,10 @@ fn distance_selection_maps_back_to_shared_timestamps() {
     }
     let a = h.point(0, 0.25);
     let b = h.point(0, 0.81);
-    h.press(a, PointerButton::Primary);
+    h.press(a, PointerButton::Secondary);
     h.frame(vec![Event::PointerMoved(b)]);
     let (start, end) = h
-        .release(b, PointerButton::Primary)
+        .release(b, PointerButton::Secondary)
         .range
         .expect("Distance range maps to time");
     // Speed is 2t so traveled distance is t squared.

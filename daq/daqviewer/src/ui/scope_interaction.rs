@@ -7,10 +7,20 @@ pub(super) struct Measurements {
     pub enabled: bool,
     pub pins: [Option<i64>; 2],
     pub next: usize,
+    pub selection: Option<(i64, i64)>,
 }
 
 pub(super) enum Gesture {
-    Select {
+    /// Left-click drag: highlights a section of the graph and displays section statistics
+    /// (`min`, `max`, `avg`, `sum`, `Δ`); simple left-click (`< 5 px`) scrubs the playhead.
+    SelectStats {
+        lane: usize,
+        origin: Pos2,
+        start: i64,
+        end: i64,
+    },
+    /// Right-click drag: box-selects a time/distance range to zoom into.
+    ZoomRange {
         lane: usize,
         origin: Pos2,
         start: i64,
@@ -20,6 +30,7 @@ pub(super) enum Gesture {
         lane: usize,
         slot: usize,
     },
+    /// Middle-click drag: pans the timeline horizontally.
     Pan {
         lane: usize,
         previous: Pos2,
@@ -28,9 +39,10 @@ pub(super) enum Gesture {
 impl Gesture {
     fn lane(&self) -> usize {
         match self {
-            Self::Select { lane, .. } | Self::Measure { lane, .. } | Self::Pan { lane, .. } => {
-                *lane
-            }
+            Self::SelectStats { lane, .. }
+            | Self::ZoomRange { lane, .. }
+            | Self::Measure { lane, .. }
+            | Self::Pan { lane, .. } => *lane,
         }
     }
 }
@@ -59,13 +71,28 @@ pub(super) fn handle(
                 .pointer
                 .button_released(egui::PointerButton::Secondary),
             input.pointer.button_down(egui::PointerButton::Secondary),
+            input.pointer.button_pressed(egui::PointerButton::Middle),
+            input.pointer.button_released(egui::PointerButton::Middle),
+            input.pointer.button_down(egui::PointerButton::Middle),
             input.key_pressed(egui::Key::Escape),
         )
     });
-    let (pointer, pressed, released, down, right_pressed, right_released, right_down, cancel) =
-        input;
+    let (
+        pointer,
+        pressed,
+        released,
+        down,
+        right_pressed,
+        right_released,
+        right_down,
+        mid_pressed,
+        mid_released,
+        mid_down,
+        cancel,
+    ) = input;
     if cancel {
         *gesture = None;
+        measurements.selection = None;
     }
     let time_at = |pos: Pos2| to_ms(plot.plot_from_screen(pos).x.clamp(0.0, max_x));
     if !blocked
@@ -73,11 +100,19 @@ pub(super) fn handle(
         && gesture.is_none()
         && let Some(pointer) = pointer.filter(|pos| frame.contains(*pos))
     {
-        if right_pressed {
+        if mid_pressed {
             view.request_pause();
             *gesture = Some(Gesture::Pan {
                 lane,
                 previous: pointer,
+            });
+        } else if right_pressed && let Some(time) = time_at(pointer) {
+            view.request_pause();
+            *gesture = Some(Gesture::ZoomRange {
+                lane,
+                origin: pointer,
+                start: time,
+                end: time,
             });
         } else if pressed && let Some(time) = time_at(pointer) {
             view.request_pause();
@@ -99,7 +134,7 @@ pub(super) fn handle(
                 measurements.next = 1 - slot;
                 *gesture = Some(Gesture::Measure { lane, slot });
             } else {
-                *gesture = Some(Gesture::Select {
+                *gesture = Some(Gesture::SelectStats {
                     lane,
                     origin: pointer,
                     start: time,
@@ -113,18 +148,33 @@ pub(super) fn handle(
         .is_some_and(|gesture| gesture.lane() == lane);
     if owns && let Some(pointer) = pointer {
         match gesture.as_mut().unwrap() {
-            Gesture::Select {
+            Gesture::SelectStats {
                 origin, start, end, ..
             } => {
                 if let Some(time) = time_at(pointer) {
                     *end = time;
                 }
+                if (pointer.x - origin.x).abs() >= 5.0 {
+                    measurements.selection = Some(((*start).min(*end), (*start).max(*end)));
+                }
                 if released {
                     if (pointer.x - origin.x).abs() >= 5.0 {
-                        view.request_range_ms(*start, *end);
+                        measurements.selection = Some(((*start).min(*end), (*start).max(*end)));
                     } else {
+                        measurements.selection = None;
                         view.request_setpoint_utc_ms(*end);
                     }
+                }
+            }
+            Gesture::ZoomRange {
+                origin, start, end, ..
+            } => {
+                if let Some(time) = time_at(pointer) {
+                    *end = time;
+                }
+                if right_released && (pointer.x - origin.x).abs() >= 5.0 {
+                    measurements.selection = None;
+                    view.request_range_ms(*start, *end);
                 }
             }
             Gesture::Measure { slot, .. } => {
@@ -133,7 +183,7 @@ pub(super) fn handle(
                 }
             }
             Gesture::Pan { previous, .. } => {
-                if right_down || right_released {
+                if mid_down || mid_released {
                     if let (Some(before), Some(after)) = (time_at(*previous), time_at(pointer)) {
                         view.request_pan_delta_ms(before.saturating_sub(after));
                     }
@@ -143,10 +193,10 @@ pub(super) fn handle(
         }
     }
     if owns
-        && let Some(Gesture::Select {
+        && let Some(Gesture::ZoomRange {
             origin, start, end, ..
         }) = gesture.as_ref()
-        && down
+        && right_down
         && pointer.is_some_and(|pos| (pos.x - origin.x).abs() >= 5.0)
         && let (Some(a), Some(b)) = (to_x(*start), to_x(*end))
     {
@@ -171,7 +221,7 @@ pub(super) fn handle(
                 "",
                 point,
                 egui::RichText::new(format!(
-                    "Δt ({:.3} s)",
+                    "Zoom Δt ({:.3} s)",
                     end.abs_diff(*start) as f64 / 1000.0
                 ))
                 .monospace()
@@ -181,7 +231,12 @@ pub(super) fn handle(
             .color(Color32::LIGHT_BLUE),
         );
     }
-    if owns && (released || right_released || (!down && !right_down)) {
+    if owns
+        && (released
+            || right_released
+            || mid_released
+            || (!down && !right_down && !mid_down))
+    {
         *gesture = None;
     }
     if measurements.enabled {
