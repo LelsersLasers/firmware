@@ -25,6 +25,7 @@ pub enum Widget {
     BusLoad(ui::bus_load::BusLoad),
     GpsPlot(ui::gps_plot::GpsPlot),
     Jitter(ui::jitter::Jitter),
+    CloudStats(ui::cloud_stats::CloudStats),
     Platform(Box<dyn PlatformWidget>),
 }
 
@@ -47,6 +48,7 @@ impl Widget {
             Widget::BusLoad(w) => &w.title,
             Widget::GpsPlot(w) => &w.title,
             Widget::Jitter(w) => &w.title,
+            Widget::CloudStats(w) => &w.title,
             Widget::Platform(w) => w.title(),
         }
     }
@@ -61,6 +63,7 @@ impl Widget {
             Widget::BusLoad(w) => w.title = new_title,
             Widget::GpsPlot(w) => w.set_title(new_title),
             Widget::Jitter(w) => w.title = new_title,
+            Widget::CloudStats(w) => w.title = new_title,
             Widget::Platform(w) => w.set_title(new_title),
         }
     }
@@ -95,6 +98,7 @@ impl Widget {
             Widget::BusLoad(_) => widget_constructor::WidgetKind::BusLoad,
             Widget::GpsPlot(_) => widget_constructor::WidgetKind::GpsPlot,
             Widget::Jitter(_) => widget_constructor::WidgetKind::Jitter,
+            Widget::CloudStats(_) => widget_constructor::WidgetKind::CloudStats,
             Widget::Platform(w) => w.kind(),
         }
     }
@@ -115,6 +119,7 @@ impl Widget {
             Widget::BusLoad(w) => w.show(ui, context.bus_load, context.view),
             Widget::GpsPlot(w) => w.show(ui, context.view),
             Widget::Jitter(w) => w.show(ui, context.view),
+            Widget::CloudStats(w) => w.show(ui, context.view, context.action_queue),
             Widget::Platform(w) => w.show(ui, context),
         }
     }

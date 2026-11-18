@@ -1,4 +1,5 @@
 pub mod bus_load;
+pub mod cloud_stats;
 pub mod command_palette;
 pub mod export_modal;
 pub mod gps_plot;

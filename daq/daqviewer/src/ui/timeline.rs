@@ -620,6 +620,14 @@ fn show_transport_bar(
         ));
     }
 
+    if ui::cloud_stats::show_loading_activity_pill(&mut row_ui, router, false, 0, false) {
+        timeline_ui
+            .pending_actions
+            .push(action::AppAction::SpawnWidget(
+                widget_constructor::WidgetConstructor::CloudStats,
+            ));
+    }
+
     let left_end_x = row_ui.cursor().left().max(row_rect.left());
 
     // -------------------------------------------------------------------------

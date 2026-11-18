@@ -232,6 +232,10 @@ pub enum PaneSpec {
         #[serde(default)]
         title: String,
     },
+    CloudStats {
+        #[serde(default)]
+        title: String,
+    },
     LogParser {
         #[serde(default)]
         title: String,
@@ -828,6 +832,9 @@ fn capture_widget_spec(widget: &widgets::Widget) -> PaneSpec {
         widgets::Widget::Jitter(w) => PaneSpec::Jitter {
             title: w.title.clone(),
         },
+        widgets::Widget::CloudStats(w) => PaneSpec::CloudStats {
+            title: w.title.clone(),
+        },
         widgets::Widget::Platform(w) => w.capture_spec(),
     }
 }
@@ -1129,6 +1136,14 @@ fn instantiate_pane_spec(
                 w.title = title.clone();
             }
             Some(widgets::Widget::Jitter(w))
+        }
+        PaneSpec::CloudStats { title } => {
+            let id = widget_ids.next(widget_constructor::WidgetKind::CloudStats);
+            let mut w = ui::cloud_stats::CloudStats::new(id);
+            if !title.is_empty() {
+                w.title = title.clone();
+            }
+            Some(widgets::Widget::CloudStats(w))
         }
         spec @ (PaneSpec::LogParser { .. }
         | PaneSpec::SendUi { .. }

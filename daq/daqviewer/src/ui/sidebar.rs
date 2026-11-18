@@ -437,13 +437,20 @@ fn show_sidebar_header(
                     ws_connected,
                     ..
                 } => {
-                    let (cloud_label, cloud_color) = if pending_downloads > 0 || pending_uploads > 0
+                    let loading_summary = ui::cloud_stats::ViewerLoadingSummary::from_state(
+                        &app.router,
+                        app.selection_pending,
+                        platform.pending_platform_requests(),
+                    );
+                    let tile_in_flight = loading_summary.tiles.total();
+                    let preload_in_flight = loading_summary.backend.in_flight_preloads;
+                    let (cloud_label, cloud_color) = if tile_in_flight > 0
+                        || preload_in_flight > 0
+                        || pending_downloads > 0
+                        || pending_uploads > 0
                     {
                         (
-                            format!(
-                                "☁ Syncing (dl:{} ul:{})",
-                                pending_downloads, pending_uploads
-                            ),
+                            format!("☁ {}", loading_summary.badge_label()),
                             accent_color,
                         )
                     } else if ws_connected {
@@ -454,7 +461,7 @@ fn show_sidebar_header(
                     } else {
                         ("☁ Cloud HTTP".to_owned(), muted_color)
                     };
-                    if ui
+                    let resp = ui
                         .add(
                             eframe::egui::Button::new(
                                 eframe::egui::RichText::new(cloud_label)
@@ -463,9 +470,15 @@ fn show_sidebar_header(
                             )
                             .frame(false),
                         )
-                        .on_hover_text("daqcloud sync active — click to open settings")
-                        .clicked()
-                    {
+                        .on_hover_text(format!(
+                            "{}\n(Right-click for Cloud Settings)",
+                            loading_summary.tooltip_breakdown(&app.router)
+                        ));
+                    if resp.clicked() {
+                        app.action_queue.push(action::AppAction::SpawnWidget(
+                            widget_constructor::WidgetConstructor::CloudStats,
+                        ));
+                    } else if resp.secondary_clicked() {
                         app.sidebar_tab = SidebarTab::Settings;
                         app.is_sidebar_open = true;
                     }
@@ -716,6 +729,10 @@ fn show_widgets_tab(
             "Jitter Histogram",
             widget_constructor::WidgetConstructor::Jitter,
         ),
+        (
+            "daqcloud Stats",
+            widget_constructor::WidgetConstructor::CloudStats,
+        ),
     ];
     if supports_hardware_widgets {
         tools.extend([
@@ -862,6 +879,17 @@ fn show_settings_tab(
         } else if ui.button("☁ Connect to daqcloud").clicked() {
             app.action_queue
                 .push(action::AppAction::ConnectCloud(app.cloud_url.clone()));
+        }
+        if ui
+            .button("☁ Cloud Stats")
+            .on_hover_text(
+                "Open the daqcloud Stats Dashboard pane (response latencies, cache usage, RSS, and VPS memory)",
+            )
+            .clicked()
+        {
+            app.action_queue.push(action::AppAction::SpawnWidget(
+                widget_constructor::WidgetConstructor::CloudStats,
+            ));
         }
     });
 

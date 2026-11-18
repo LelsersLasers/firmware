@@ -162,6 +162,10 @@ impl AppAction {
                 "Spawn Jitter",
                 Self::SpawnWidget(widget_constructor::WidgetConstructor::Jitter),
             ),
+            (
+                "Spawn daqcloud Stats Dashboard",
+                Self::SpawnWidget(widget_constructor::WidgetConstructor::CloudStats),
+            ),
         ];
 
         if supports_hardware_widgets {

@@ -15,6 +15,7 @@ fn short_preset_tab_name<'a>(preset_id: &str, full_name: &'a str) -> &'a str {
 fn show_workspace_tabs_bar(
     app: &mut app::ViewerState,
     supports_hardware_widgets: bool,
+    platform_requests: usize,
     ctx: &eframe::egui::Context,
 ) {
     let theme = ui::theme::get_theme(ctx);
@@ -157,6 +158,10 @@ fn show_workspace_tabs_bar(
                                 "Jitter Histogram",
                                 widget_constructor::WidgetConstructor::Jitter,
                             ),
+                            (
+                                "daqcloud Stats Dashboard",
+                                widget_constructor::WidgetConstructor::CloudStats,
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 app.action_queue.push(action::AppAction::SpawnWidget(ctor));
@@ -211,6 +216,24 @@ fn show_workspace_tabs_bar(
                 {
                     app.action_queue.push(action::AppAction::ClearWorkspace);
                 }
+
+                ui.with_layout(
+                    eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+                    |ui| {
+                        let show_idle_cloud_btn = app.router.cloud_status().is_connected();
+                        if ui::cloud_stats::show_loading_activity_pill(
+                            ui,
+                            &app.router,
+                            app.selection_pending,
+                            platform_requests,
+                            show_idle_cloud_btn,
+                        ) {
+                            app.action_queue.push(action::AppAction::SpawnWidget(
+                                widget_constructor::WidgetConstructor::CloudStats,
+                            ));
+                        }
+                    },
+                );
             });
         });
 }
@@ -220,7 +243,12 @@ pub fn show(
     platform: &mut dyn app::ViewerPlatform,
     ctx: &eframe::egui::Context,
 ) {
-    show_workspace_tabs_bar(app, platform.supports_hardware_widgets(), ctx);
+    show_workspace_tabs_bar(
+        app,
+        platform.supports_hardware_widgets(),
+        platform.pending_platform_requests(),
+        ctx,
+    );
     app.router.poll_background_tiles();
     const MAX_BUS_LOAD_SAMPLES: usize = 10_000;
     if app.router.timeline().is_live() {

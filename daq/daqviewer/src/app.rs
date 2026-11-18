@@ -325,7 +325,21 @@ impl ViewerState {
                 let created =
                     widget_type.create_all(&mut self.widget_ids, platform, existing_count);
                 if created.is_empty() {
-                    log::warn!("Maximum number of {:?} widgets already open", kind);
+                    let existing_id = self.tile_tree.tiles.iter().find_map(|(id, tile)| {
+                        matches!(tile, egui_tiles::Tile::Pane(w) if w.kind() == kind).then_some(*id)
+                    });
+                    if let Some(target_id) = existing_id {
+                        for (_, tile) in self.tile_tree.tiles.iter_mut() {
+                            if let egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs)) =
+                                tile
+                                && tabs.children.contains(&target_id)
+                            {
+                                tabs.set_active(target_id);
+                            }
+                        }
+                    } else {
+                        log::warn!("Maximum number of {:?} widgets already open", kind);
+                    }
                 } else {
                     for mut widget in created {
                         platform.on_widget_spawned(&mut widget);

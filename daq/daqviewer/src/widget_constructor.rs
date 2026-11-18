@@ -13,13 +13,14 @@ pub enum WidgetKind {
     BusLoad,
     GpsPlot,
     Jitter,
+    CloudStats,
     Hil,
 }
 
 impl WidgetKind {
     pub fn max_tabs_allowed(&self) -> usize {
         match self {
-            WidgetKind::Hil => 1,
+            WidgetKind::Hil | WidgetKind::CloudStats => 1,
             _ => usize::MAX,
         }
     }
@@ -55,6 +56,7 @@ pub enum WidgetConstructor {
     BusLoad,
     GpsPlot,
     Jitter,
+    CloudStats,
     Hil,
 }
 
@@ -79,6 +81,7 @@ impl WidgetConstructor {
             WidgetConstructor::BusLoad => WidgetKind::BusLoad,
             WidgetConstructor::GpsPlot => WidgetKind::GpsPlot,
             WidgetConstructor::Jitter => WidgetKind::Jitter,
+            WidgetConstructor::CloudStats => WidgetKind::CloudStats,
             WidgetConstructor::Hil => WidgetKind::Hil,
         }
     }
@@ -241,6 +244,9 @@ impl WidgetConstructor {
             }
             WidgetConstructor::Jitter => {
                 vec![widgets::Widget::Jitter(ui::jitter::Jitter::new(id))]
+            }
+            WidgetConstructor::CloudStats => {
+                vec![widgets::Widget::CloudStats(ui::cloud_stats::CloudStats::new(id))]
             }
             ctor @ (WidgetConstructor::Bootloader
             | WidgetConstructor::LogParser
