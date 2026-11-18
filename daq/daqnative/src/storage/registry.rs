@@ -973,8 +973,14 @@ impl Registry {
         let builtins = daqcore::analysis::FormulaEngine::builtin_defs();
         let builtin_ids: Vec<String> = builtins.iter().map(|d| d.id.clone()).collect();
 
-        // Remove unmodified legacy built-in derived signals (`updated_at_ms == 0`) that are
-        // no longer present in `daq/config/derived_signals.json`.
+        // Remove retired built-in derived signals and unmodified legacy built-in rows (`updated_at_ms == 0`)
+        // that are no longer present in `daq/config/derived_signals.json`.
+        let retired_ids: Vec<String> = daqcore::analysis::RETIRED_BUILTIN_SIGNAL_IDS
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        diesel::delete(derived_signals::table.filter(derived_signals::id.eq_any(&retired_ids)))
+            .execute(conn)?;
         diesel::delete(
             derived_signals::table
                 .filter(derived_signals::updated_at_ms.eq(0))

@@ -25,6 +25,20 @@ use std::{
     fs, path,
 };
 
+/// Legacy built-in derived signal IDs that were retired from `daq/config/derived_signals.json`
+/// and should not be resurrected from older synced registries.
+pub const RETIRED_BUILTIN_SIGNAL_IDS: &[&str] = &[
+    "vd.front_heave_mm",
+    "vd.rear_heave_mm",
+    "vd.fl_damper_vel_mms",
+    "vd.fr_damper_vel_mms",
+    "vd.rl_damper_vel_mms",
+    "vd.rr_damper_vel_mms",
+    "vd.fl_shockpot_50hz_mm",
+    "vd.fr_shockpot_50hz_mm",
+    "vd.rl_shockpot_50hz_mm",
+    "vd.rr_shockpot_50hz_mm",
+];
 /// Embedded JSON configuration from `daq/config/derived_signals.json`.
 pub const BUILTIN_DERIVED_SIGNALS_JSON: &str = include_str!("../../../config/derived_signals.json");
 
@@ -194,6 +208,12 @@ impl FormulaEngine {
         for def in defs {
             let target_id = def.id.trim();
             if target_id.is_empty() {
+                continue;
+            }
+            if RETIRED_BUILTIN_SIGNAL_IDS.contains(&target_id) {
+                if self.remove_formula(target_id) {
+                    changed = true;
+                }
                 continue;
             }
             if def.deleted {
