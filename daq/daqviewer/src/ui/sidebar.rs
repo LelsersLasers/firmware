@@ -42,7 +42,6 @@ pub fn show(
     ctx: &eframe::egui::Context,
 ) {
     ui::timeline::show(app, platform, ctx);
-    show_top_header_bar(app, platform, ctx);
     show_share_popover(app, ctx);
 
     let theme = ui::theme::get_theme(ctx);
@@ -62,6 +61,13 @@ pub fn show(
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
+                ui.add(
+                    eframe::egui::Image::from_bytes(assets::PER_LOGO_PATH, assets::PER_LOGO_BYTES)
+                        .max_size(eframe::egui::vec2(20.0, 20.0))
+                        .corner_radius(3),
+                )
+                .on_hover_text("PER DAQ");
+
                 for tab in SidebarTab::ALL {
                     let is_active = app.is_sidebar_open && app.sidebar_tab == tab;
                     let fill = if is_active {
@@ -100,10 +106,11 @@ pub fn show(
                 }
             });
 
-            // Subtle FPS status indicator at the bottom of the rail
+            // Quick Export / Share controls + FPS indicator at the bottom of the rail
             ui.with_layout(
                 eframe::egui::Layout::bottom_up(eframe::egui::Align::Center),
                 |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
                     let fps_color = if app.fps >= 50.0 {
                         eframe::egui::Color32::from_rgb(63, 185, 80)
                     } else if app.fps >= 25.0 {
@@ -121,6 +128,52 @@ pub fn show(
                         "UI Render Rate: {:.1} FPS ({:.2} ms/frame)",
                         app.fps, app.frame_time_ms
                     ));
+
+                    let share_active = app.show_share_popover;
+                    let share_btn = eframe::egui::Button::new(
+                        eframe::egui::RichText::new("🔗").color(if share_active {
+                            ui.visuals().text_color()
+                        } else {
+                            muted_color
+                        }),
+                    )
+                    .fill(if share_active {
+                        accent_color.gamma_multiply(0.22_f32)
+                    } else {
+                        eframe::egui::Color32::TRANSPARENT
+                    })
+                    .stroke(if share_active {
+                        eframe::egui::Stroke::new(1.0_f32, accent_color)
+                    } else {
+                        eframe::egui::Stroke::NONE
+                    })
+                    .min_size(eframe::egui::vec2(26.0, 26.0));
+
+                    if ui
+                        .add(share_btn)
+                        .on_hover_text(
+                            "Share workspace view (.daqview.json, Share URL, or daqview1:... link)",
+                        )
+                        .clicked()
+                    {
+                        app.show_share_popover = !app.show_share_popover;
+                    }
+
+                    let export_btn = eframe::egui::Button::new(
+                        eframe::egui::RichText::new("📤").color(muted_color),
+                    )
+                    .fill(eframe::egui::Color32::TRANSPARENT)
+                    .stroke(eframe::egui::Stroke::NONE)
+                    .min_size(eframe::egui::vec2(26.0, 26.0));
+
+                    if ui
+                        .add(export_btn)
+                        .on_hover_text("Export dataset (Parquet / CSV / MATLAB .mat)")
+                        .clicked()
+                    {
+                        app.action_queue
+                            .push(action::AppAction::OpenExportDataModal);
+                    }
                 },
             );
         });
@@ -149,6 +202,9 @@ pub fn show(
             ui.set_width(panel_width);
             ui.set_max_width(panel_width);
             ui.style_mut().wrap_mode = Some(eframe::egui::TextWrapMode::Truncate);
+
+            show_sidebar_header(&mut ui, app, platform, ctx, panel_width);
+            ui.separator();
 
             match app.sidebar_tab {
                 SidebarTab::Sessions => {
@@ -197,302 +253,263 @@ pub fn show(
         });
 }
 
-fn show_top_header_bar(
+fn show_sidebar_header(
+    ui: &mut eframe::egui::Ui,
     app: &mut app::ViewerState,
     platform: &mut dyn app::ViewerPlatform,
     ctx: &eframe::egui::Context,
+    panel_width: f32,
 ) {
     let theme = ui::theme::get_theme(ctx);
-    let border_color = theme.border_color();
     let accent_color = theme.accent_color();
     let muted_color = theme.muted_text_color();
 
-    let header_frame = eframe::egui::Frame::side_top_panel(&ctx.style())
-        .inner_margin(eframe::egui::Margin::symmetric(8, 3))
-        .stroke(eframe::egui::Stroke::new(1.0_f32, border_color));
+    ui.set_max_width(panel_width);
 
-    eframe::egui::TopBottomPanel::top("top_app_header_bar")
-        .exact_height(28.0)
-        .frame(header_frame)
-        .show(ctx, |ui| {
-            let full_rect = ui.max_rect();
-            ui.horizontal_centered(|ui| {
-                // Left: Brand + Context Breadcrumb (`PER DAQ  /  2026-09-06  /  Stints`)
-                ui.add(
-                    eframe::egui::Image::from_bytes(assets::PER_LOGO_PATH, assets::PER_LOGO_BYTES)
-                        .max_size(eframe::egui::vec2(16.0, 16.0))
-                        .corner_radius(3),
-                );
-                ui.label(eframe::egui::RichText::new("PER DAQ").strong().small());
-                ui.label(eframe::egui::RichText::new("/").color(muted_color).small());
+    // Row 1: Track Day Selector
+    let track_days = app.router.list_track_days().unwrap_or_default();
+    let active_day_id = app
+        .router
+        .timeline()
+        .active_track_day_id()
+        .map(str::to_owned);
+    let mut requested_day_change: Option<Option<String>> = None;
 
-                // Track Day Selector in Breadcrumb
-                let track_days = app.router.list_track_days().unwrap_or_default();
-                let active_day_id = app
-                    .router
-                    .timeline()
-                    .active_track_day_id()
-                    .map(str::to_owned);
-                let mut requested_day_change: Option<Option<String>> = None;
-
-                let day_text = match active_day_id.as_deref() {
-                    Some(id) => track_days
-                        .iter()
-                        .find(|td| td.id == id)
-                        .map(|td| {
-                            if td.location.is_empty() {
-                                td.id.clone()
-                            } else {
-                                format!("{} ({})", td.id, td.location)
-                            }
-                        })
-                        .unwrap_or_else(|| id.to_owned()),
-                    None => "All Track Days".to_owned(),
-                };
-                eframe::egui::ComboBox::from_id_salt("header_track_day_selector")
-                    .selected_text(eframe::egui::RichText::new(day_text).small().strong())
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(active_day_id.is_none(), "All Track Days")
-                            .clicked()
-                        {
-                            requested_day_change = Some(None);
-                        }
-                        for td in &track_days {
-                            let label = if td.location.is_empty() {
-                                td.id.clone()
-                            } else {
-                                format!("{} ({})", td.id, td.location)
-                            };
-                            if ui
-                                .selectable_label(
-                                    active_day_id.as_deref() == Some(td.id.as_str()),
-                                    label,
-                                )
-                                .clicked()
-                            {
-                                requested_day_change = Some(Some(td.id.clone()));
-                            }
-                        }
-                    });
-
-                if let Some(day_choice) = requested_day_change
-                    && let Err(err) = app.router.select_track_day(day_choice)
-                {
-                    app.diagnostic = Some(format!("Failed to switch track day: {err}"));
+    let day_text = match active_day_id.as_deref() {
+        Some(id) => track_days
+            .iter()
+            .find(|td| td.id == id)
+            .map(|td| {
+                if td.location.is_empty() {
+                    td.id.clone()
+                } else {
+                    format!("{} ({})", td.id, td.location)
                 }
-
-                // Connection / Provenance compact pill
-                let (conn_label, conn_color) = match &app.connection_status {
-                    app::ConnectionStatus::Connected => {
-                        ("✔ Connected", eframe::egui::Color32::from_rgb(34, 197, 94))
-                    }
-                    app::ConnectionStatus::Error(_) => {
-                        ("🔴 CAN Error", eframe::egui::Color32::from_rgb(239, 68, 68))
-                    }
-                    app::ConnectionStatus::Disconnected => {
-                        let setpoint_ms = app.router.timeline().setpoint_utc_ms();
-                        match app.router.clock_provenance_at(setpoint_ms) {
-                            Some(daqcore::router::ClockProvenance::CanonicalPartition(_)) => {
-                                ("🕒 SD Synced", eframe::egui::Color32::from_rgb(34, 197, 94))
-                            }
-                            Some(daqcore::router::ClockProvenance::LiveProvisional) => {
-                                ("📡 Live Stream", accent_color)
-                            }
-                            None => ("• Offline", muted_color),
-                        }
-                    }
+            })
+            .unwrap_or_else(|| id.to_owned()),
+        None => "All Track Days".to_owned(),
+    };
+    eframe::egui::ComboBox::from_id_salt("header_track_day_selector")
+        .width(panel_width)
+        .selected_text(eframe::egui::RichText::new(day_text).small().strong())
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(active_day_id.is_none(), "All Track Days")
+                .clicked()
+            {
+                requested_day_change = Some(None);
+            }
+            for td in &track_days {
+                let label = if td.location.is_empty() {
+                    td.id.clone()
+                } else {
+                    format!("{} ({})", td.id, td.location)
                 };
                 if ui
-                    .add(
-                        eframe::egui::Button::new(
-                            eframe::egui::RichText::new(conn_label)
-                                .small()
-                                .color(conn_color),
-                        )
-                        .frame(false),
-                    )
-                    .on_hover_text("Click to open Connection & Cloud settings")
+                    .selectable_label(active_day_id.as_deref() == Some(td.id.as_str()), label)
                     .clicked()
                 {
-                    app.sidebar_tab = SidebarTab::Settings;
-                    app.is_sidebar_open = true;
-                }
-
-                match app.router.cloud_status() {
-                    daqcore::storage::CloudSyncStatus::Connected {
-                        pending_downloads,
-                        pending_uploads,
-                        ws_connected,
-                        ..
-                    } => {
-                        let (cloud_label, cloud_color) =
-                            if pending_downloads > 0 || pending_uploads > 0 {
-                                (
-                                    format!(
-                                        "☁ Syncing (dl:{} ul:{})",
-                                        pending_downloads, pending_uploads
-                                    ),
-                                    accent_color,
-                                )
-                            } else if ws_connected {
-                                (
-                                    "☁ Cloud Live".to_owned(),
-                                    eframe::egui::Color32::from_rgb(34, 197, 94),
-                                )
-                            } else {
-                                ("☁ Cloud HTTP".to_owned(), muted_color)
-                            };
-                        if ui
-                            .add(
-                                eframe::egui::Button::new(
-                                    eframe::egui::RichText::new(cloud_label)
-                                        .small()
-                                        .color(cloud_color),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("daqcloud sync active — click to open settings")
-                            .clicked()
-                        {
-                            app.sidebar_tab = SidebarTab::Settings;
-                            app.is_sidebar_open = true;
-                        }
-                    }
-                    daqcore::storage::CloudSyncStatus::Connecting { .. } => {
-                        if ui
-                            .add(
-                                eframe::egui::Button::new(
-                                    eframe::egui::RichText::new("☁ Connecting…")
-                                        .small()
-                                        .color(muted_color),
-                                )
-                                .frame(false),
-                            )
-                            .clicked()
-                        {
-                            app.sidebar_tab = SidebarTab::Settings;
-                            app.is_sidebar_open = true;
-                        }
-                    }
-                    daqcore::storage::CloudSyncStatus::Error { error, .. } => {
-                        if ui
-                            .add(
-                                eframe::egui::Button::new(
-                                    eframe::egui::RichText::new("☁ Cloud Error")
-                                        .small()
-                                        .color(eframe::egui::Color32::from_rgb(239, 68, 68)),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text(error)
-                            .clicked()
-                        {
-                            app.sidebar_tab = SidebarTab::Settings;
-                            app.is_sidebar_open = true;
-                        }
-                    }
-                    daqcore::storage::CloudSyncStatus::Disconnected => {}
-                }
-
-                // Right: Theme selector, Export, and Nominal-style SHARE button
-                ui.with_layout(
-                    eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                    |ui| {
-                        let share_btn = eframe::egui::Button::new(
-                            eframe::egui::RichText::new("SHARE")
-                                .size(10.5)
-                                .strong()
-                                .color(if theme.is_light {
-                                    eframe::egui::Color32::WHITE
-                                } else {
-                                    ui.visuals().text_color()
-                                }),
-                        )
-                        .fill(if theme.is_light {
-                            eframe::egui::Color32::from_rgb(15, 23, 42)
-                        } else {
-                            accent_color.gamma_multiply(0.32_f32)
-                        })
-                        .stroke(eframe::egui::Stroke::new(1.0_f32, accent_color));
-
-                        if ui
-                            .add(share_btn)
-                            .on_hover_text(
-                                "Share workspace view (.daqview.json, Share URL, or daqview1:... link)",
-                            )
-                            .clicked()
-                        {
-                            app.show_share_popover = !app.show_share_popover;
-                        }
-
-                        if ui
-                            .small_button("📤 Export")
-                            .on_hover_text("Export dataset (Parquet / CSV / MATLAB .mat)")
-                            .clicked()
-                        {
-                            app.action_queue
-                                .push(action::AppAction::OpenExportDataModal);
-                        }
-
-                        let mut next_theme = app.theme_selection;
-                        eframe::egui::ComboBox::from_id_salt("header_theme_selector")
-                            .width(105.0)
-                            .selected_text(
-                                eframe::egui::RichText::new(format!(
-                                    "🎨 {}",
-                                    app.theme_selection.get_name()
-                                ))
-                                .small(),
-                            )
-                            .show_ui(ui, |ui| {
-                                for candidate in ui::theme::ThemeSelection::ALL {
-                                    ui.selectable_value(
-                                        &mut next_theme,
-                                        candidate,
-                                        candidate.get_name(),
-                                    );
-                                }
-                            });
-                        if next_theme != app.theme_selection {
-                            app.set_theme(ctx, next_theme);
-                            platform.save_settings(app);
-                        }
-                    },
-                );
-            });
-
-            // Centered Nominal-style Command & Search Bar (drawn when window is wide enough)
-            if full_rect.width() >= 720.0 {
-                let cmd_w = (full_rect.width() * 0.26).clamp(200.0, 320.0);
-                let cmd_rect = eframe::egui::Rect::from_center_size(
-                    full_rect.center(),
-                    eframe::egui::vec2(cmd_w, 20.0),
-                );
-                let mut cmd_ui =
-                    ui.new_child(eframe::egui::UiBuilder::new().max_rect(cmd_rect).layout(
-                        eframe::egui::Layout::centered_and_justified(
-                            eframe::egui::Direction::LeftToRight,
-                        ),
-                    ));
-                let cmd_btn = eframe::egui::Button::new(
-                    eframe::egui::RichText::new("🔍 Search or type a command… (Ctrl+P)")
-                        .small()
-                        .color(muted_color),
-                )
-                .fill(theme.canvas_color())
-                .stroke(eframe::egui::Stroke::new(1.0_f32, border_color));
-
-                if cmd_ui
-                    .add(cmd_btn)
-                    .on_hover_text("Open Command Palette (Ctrl+P / Cmd+P)")
-                    .clicked()
-                {
-                    app.action_queue
-                        .push(action::AppAction::ToggleCommandPalette);
+                    requested_day_change = Some(Some(td.id.clone()));
                 }
             }
         });
+
+    if let Some(day_choice) = requested_day_change
+        && let Err(err) = app.router.select_track_day(day_choice)
+    {
+        app.diagnostic = Some(format!("Failed to switch track day: {err}"));
+    }
+
+    ui.add_space(2.0);
+
+    // Row 2: Export, Share, and Theme selector
+    ui.allocate_ui_with_layout(
+        eframe::egui::vec2(panel_width, 20.0),
+        eframe::egui::Layout::left_to_right(eframe::egui::Align::Center),
+        |ui| {
+            ui.set_max_width(panel_width);
+            ui.spacing_mut().item_spacing.x = 4.0;
+
+            if ui
+                .small_button("📤 Export")
+                .on_hover_text("Export dataset (Parquet / CSV / MATLAB .mat)")
+                .clicked()
+            {
+                app.action_queue
+                    .push(action::AppAction::OpenExportDataModal);
+            }
+
+            let share_btn = eframe::egui::Button::new(
+                eframe::egui::RichText::new("🔗 Share")
+                    .small()
+                    .strong()
+                    .color(if theme.is_light {
+                        eframe::egui::Color32::WHITE
+                    } else {
+                        ui.visuals().text_color()
+                    }),
+            )
+            .fill(if theme.is_light {
+                eframe::egui::Color32::from_rgb(15, 23, 42)
+            } else {
+                accent_color.gamma_multiply(0.32_f32)
+            })
+            .stroke(eframe::egui::Stroke::new(1.0_f32, accent_color));
+
+            if ui
+                .add(share_btn)
+                .on_hover_text(
+                    "Share workspace view (.daqview.json, Share URL, or daqview1:... link)",
+                )
+                .clicked()
+            {
+                app.show_share_popover = !app.show_share_popover;
+            }
+
+            let mut next_theme = app.theme_selection;
+            let theme_w = ui.available_width().max(54.0);
+            eframe::egui::ComboBox::from_id_salt("header_theme_selector")
+                .width(theme_w)
+                .selected_text(
+                    eframe::egui::RichText::new(format!(
+                        "🎨 {}",
+                        app.theme_selection.get_name()
+                    ))
+                    .small(),
+                )
+                .show_ui(ui, |ui| {
+                    for candidate in ui::theme::ThemeSelection::ALL {
+                        ui.selectable_value(&mut next_theme, candidate, candidate.get_name());
+                    }
+                });
+            if next_theme != app.theme_selection {
+                app.set_theme(ctx, next_theme);
+                platform.save_settings(app);
+            }
+        },
+    );
+
+    // Row 3: Connection / Provenance & Cloud Sync status pills
+    ui.allocate_ui_with_layout(
+        eframe::egui::vec2(panel_width, 18.0),
+        eframe::egui::Layout::left_to_right(eframe::egui::Align::Center),
+        |ui| {
+            ui.set_max_width(panel_width);
+            ui.spacing_mut().item_spacing.x = 6.0;
+
+            let (conn_label, conn_color) = match &app.connection_status {
+                app::ConnectionStatus::Connected => {
+                    ("✔ Connected", eframe::egui::Color32::from_rgb(34, 197, 94))
+                }
+                app::ConnectionStatus::Error(_) => {
+                    ("🔴 CAN Error", eframe::egui::Color32::from_rgb(239, 68, 68))
+                }
+                app::ConnectionStatus::Disconnected => {
+                    let setpoint_ms = app.router.timeline().setpoint_utc_ms();
+                    match app.router.clock_provenance_at(setpoint_ms) {
+                        Some(daqcore::router::ClockProvenance::CanonicalPartition(_)) => {
+                            ("🕒 SD Synced", eframe::egui::Color32::from_rgb(34, 197, 94))
+                        }
+                        Some(daqcore::router::ClockProvenance::LiveProvisional) => {
+                            ("📡 Live Stream", accent_color)
+                        }
+                        None => ("• Offline", muted_color),
+                    }
+                }
+            };
+            if ui
+                .add(
+                    eframe::egui::Button::new(
+                        eframe::egui::RichText::new(conn_label)
+                            .small()
+                            .color(conn_color),
+                    )
+                    .frame(false),
+                )
+                .on_hover_text("Click to open Connection & Cloud settings")
+                .clicked()
+            {
+                app.sidebar_tab = SidebarTab::Settings;
+                app.is_sidebar_open = true;
+            }
+
+            match app.router.cloud_status() {
+                daqcore::storage::CloudSyncStatus::Connected {
+                    pending_downloads,
+                    pending_uploads,
+                    ws_connected,
+                    ..
+                } => {
+                    let (cloud_label, cloud_color) =
+                        if pending_downloads > 0 || pending_uploads > 0 {
+                            (
+                                format!(
+                                    "☁ Syncing (dl:{} ul:{})",
+                                    pending_downloads, pending_uploads
+                                ),
+                                accent_color,
+                            )
+                        } else if ws_connected {
+                            (
+                                "☁ Cloud Live".to_owned(),
+                                eframe::egui::Color32::from_rgb(34, 197, 94),
+                            )
+                        } else {
+                            ("☁ Cloud HTTP".to_owned(), muted_color)
+                        };
+                    if ui
+                        .add(
+                            eframe::egui::Button::new(
+                                eframe::egui::RichText::new(cloud_label)
+                                    .small()
+                                    .color(cloud_color),
+                            )
+                            .frame(false),
+                        )
+                        .on_hover_text("daqcloud sync active — click to open settings")
+                        .clicked()
+                    {
+                        app.sidebar_tab = SidebarTab::Settings;
+                        app.is_sidebar_open = true;
+                    }
+                }
+                daqcore::storage::CloudSyncStatus::Connecting { .. } => {
+                    if ui
+                        .add(
+                            eframe::egui::Button::new(
+                                eframe::egui::RichText::new("☁ Connecting…")
+                                    .small()
+                                    .color(muted_color),
+                            )
+                            .frame(false),
+                        )
+                        .clicked()
+                    {
+                        app.sidebar_tab = SidebarTab::Settings;
+                        app.is_sidebar_open = true;
+                    }
+                }
+                daqcore::storage::CloudSyncStatus::Error { error, .. } => {
+                    if ui
+                        .add(
+                            eframe::egui::Button::new(
+                                eframe::egui::RichText::new("☁ Cloud Error")
+                                    .small()
+                                    .color(eframe::egui::Color32::from_rgb(239, 68, 68)),
+                            )
+                            .frame(false),
+                        )
+                        .on_hover_text(error)
+                        .clicked()
+                    {
+                        app.sidebar_tab = SidebarTab::Settings;
+                        app.is_sidebar_open = true;
+                    }
+                }
+                daqcore::storage::CloudSyncStatus::Disconnected => {}
+            }
+        },
+    );
 }
 
 fn show_share_popover(app: &mut app::ViewerState, ctx: &eframe::egui::Context) {
@@ -503,7 +520,7 @@ fn show_share_popover(app: &mut app::ViewerState, ctx: &eframe::egui::Context) {
     let mut keep_open = true;
     eframe::egui::Window::new("Share Workspace")
         .id(eframe::egui::Id::new("nominal_share_popover"))
-        .anchor(eframe::egui::Align2::RIGHT_TOP, [-10.0, 32.0])
+        .anchor(eframe::egui::Align2::LEFT_TOP, [40.0, 36.0])
         .collapsible(false)
         .resizable(false)
         .default_width(310.0)
