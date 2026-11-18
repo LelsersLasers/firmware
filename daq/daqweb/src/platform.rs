@@ -189,6 +189,7 @@ pub struct WebPlatform<B: BrowserEnv> {
     browser: B,
     download_tx: mpsc::Sender<PendingDownload>,
     download_rx: mpsc::Receiver<PendingDownload>,
+    in_flight_exports: usize,
     last_pushed_url_path: String,
     last_url_sync_instant: Option<web_time::Instant>,
     pending_initial_time_context: Option<WorkspaceTimeContext>,
@@ -203,6 +204,7 @@ impl<B: BrowserEnv> WebPlatform<B> {
             browser,
             download_tx,
             download_rx,
+            in_flight_exports: 0,
             last_pushed_url_path: initial_path,
             last_url_sync_instant: None,
             pending_initial_time_context: None,
@@ -263,6 +265,10 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
         false
     }
 
+    fn pending_platform_requests(&self) -> usize {
+        self.in_flight_exports
+    }
+
     fn share_base_url(&self, state: &ViewerState) -> String {
         let origin = self.browser.origin_url();
         let trimmed_origin = origin.trim().trim_end_matches('/');
@@ -280,6 +286,7 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
     fn poll_platform(&mut self, state: &mut ViewerState, ctx: &eframe::egui::Context) {
         // 1. Deliver any completed async Parquet dataset exports as browser file downloads.
         while let Ok(pending) = self.download_rx.try_recv() {
+            self.in_flight_exports = self.in_flight_exports.saturating_sub(1);
             match pending.result {
                 Ok(bytes) => {
                     self.browser.trigger_file_download(
@@ -479,6 +486,7 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
                     .map_err(|e| ExportError::Format(e.to_string()))?;
                 let mut req = ehttp::Request::post(export_url, body);
                 req.headers.insert("Content-Type", "application/json");
+                self.in_flight_exports = self.in_flight_exports.saturating_add(1);
                 let tx = self.download_tx.clone();
                 let dl_filename = filename.clone();
                 ehttp::fetch(req, move |resp_res| {

@@ -27,6 +27,10 @@ pub trait ViewerPlatform {
         false
     }
 
+    fn pending_platform_requests(&self) -> usize {
+        0
+    }
+
     fn share_base_url(&self, state: &ViewerState) -> String {
         let trimmed = state.cloud_url.trim().trim_end_matches('/');
         if trimmed.is_empty() {

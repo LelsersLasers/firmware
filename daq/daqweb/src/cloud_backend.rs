@@ -7,9 +7,9 @@ use daqcore::{
         wire::{decode_preload_payload, decode_tile_payload},
     },
     storage::{
-        Annotation, AnnotationUpsertPayload, CatalogResponse, CloudSyncStatus,
-        DerivedSignalUpsertPayload, InMemoryCatalog, PartitionManifest, RegisteredPartition,
-        TrackDay,
+        Annotation, AnnotationUpsertPayload, BackendLoadingActivity, CatalogResponse,
+        CloudStatsResponse, CloudStatsSnapshot, CloudSyncStatus, DerivedSignalUpsertPayload,
+        InMemoryCatalog, PartitionManifest, RegisteredPartition, TrackDay,
     },
     time::Time,
 };
@@ -188,6 +188,7 @@ pub struct WebCloudRouterBackend {
     initial_catalog_loaded: bool,
     last_annotation_sync_ms: i64,
     last_derived_sync_ms: i64,
+    stats_snapshot: Arc<Mutex<CloudStatsSnapshot>>,
 }
 
 impl WebCloudRouterBackend {
@@ -210,6 +211,7 @@ impl WebCloudRouterBackend {
             initial_catalog_loaded: false,
             last_annotation_sync_ms: 0,
             last_derived_sync_ms: 0,
+            stats_snapshot: Arc::new(Mutex::new(CloudStatsSnapshot::default())),
         }
     }
 
@@ -719,6 +721,62 @@ impl RouterBackend for WebCloudRouterBackend {
         }
 
         outcome
+    }
+
+    fn request_cloud_stats(&self) {
+        let Some(base_url) = self.base_url.clone() else {
+            return;
+        };
+        if let Ok(mut snap) = self.stats_snapshot.lock() {
+            if snap.is_loading {
+                return;
+            }
+            snap.is_loading = true;
+        }
+        let trimmed = base_url.trim_end_matches('/');
+        let stats_url = format!("{trimmed}/api/v1/stats");
+        let stats_snapshot = Arc::clone(&self.stats_snapshot);
+        let repaint = self.repaint_cb.clone();
+
+        ehttp::fetch(ehttp::Request::get(&stats_url), move |resp_res| {
+            if let Ok(mut snap) = stats_snapshot.lock() {
+                match resp_res {
+                    Ok(resp) if resp.ok => {
+                        match serde_json::from_slice::<CloudStatsResponse>(&resp.bytes) {
+                            Ok(stats) => snap.record_response(stats),
+                            Err(e) => snap.record_error(format!("Invalid stats JSON: {e}")),
+                        }
+                    }
+                    Ok(resp) => snap.record_error(format!("Stats HTTP {}", resp.status)),
+                    Err(err) => snap.record_error(err),
+                }
+            }
+            if let Some(cb) = &repaint {
+                cb();
+            }
+        });
+    }
+
+    fn cloud_stats_snapshot(&self) -> CloudStatsSnapshot {
+        self.stats_snapshot
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
+    fn loading_activity(&self) -> BackendLoadingActivity {
+        let stats_fetching = self
+            .stats_snapshot
+            .lock()
+            .is_ok_and(|g| g.is_loading);
+        BackendLoadingActivity {
+            catalog_syncing: self.catalog_in_flight,
+            metadata_syncing: self.annotations_in_flight || self.derived_in_flight,
+            stats_fetching,
+            in_flight_preloads: self.in_flight_preloads.len(),
+            pending_downloads: 0,
+            pending_uploads: 0,
+        }
     }
 }
 

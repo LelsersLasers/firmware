@@ -19,10 +19,11 @@ use std::{
 use tokio::sync::mpsc as tokio_mpsc;
 
 pub use daqcore::storage::{
-    AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse, CHECKSUM_HEADER,
-    CatalogResponse, CloudSyncCommand, CloudSyncEvent, CloudSyncStatus, CloudSyncSummary,
-    CloudWsMessage, DerivedSignalUpsertPayload, RANGE_CHECKSUM_HEADER, compute_sha256_hex,
-    http_base_to_ws_url, is_safe_path_segment, normalize_http_base_url,
+    AnnotationPatchRequest, AnnotationUpsertPayload, AssetUploadResponse, BackendLoadingActivity,
+    CHECKSUM_HEADER, CatalogResponse, CloudStatsResponse, CloudStatsSnapshot, CloudSyncCommand,
+    CloudSyncEvent, CloudSyncStatus, CloudSyncSummary, CloudWsMessage, DerivedSignalUpsertPayload,
+    RANGE_CHECKSUM_HEADER, compute_sha256_hex, http_base_to_ws_url, is_safe_path_segment,
+    normalize_http_base_url,
 };
 
 const UPLOAD_CHUNK_BYTES: usize = 4 * 1024 * 1024;
@@ -58,6 +59,10 @@ struct WorkerMetrics {
     synced_partitions: usize,
     pending_downloads: usize,
     pending_uploads: usize,
+    catalog_syncing: bool,
+    metadata_syncing: bool,
+    stats_fetching: bool,
+    in_flight_preloads: usize,
     last_error: Option<String>,
 }
 
@@ -86,6 +91,17 @@ impl WorkerMetrics {
             }
         }
     }
+
+    fn to_loading_activity(&self) -> BackendLoadingActivity {
+        BackendLoadingActivity {
+            catalog_syncing: self.catalog_syncing,
+            metadata_syncing: self.metadata_syncing,
+            stats_fetching: self.stats_fetching,
+            in_flight_preloads: self.in_flight_preloads,
+            pending_downloads: self.pending_downloads,
+            pending_uploads: self.pending_uploads,
+        }
+    }
 }
 
 /// Handle to the non-blocking background `daqcloud` sync & WebSocket worker.
@@ -94,6 +110,8 @@ pub struct CloudSyncHandle {
     cmd_tx: tokio_mpsc::UnboundedSender<CloudSyncCommand>,
     event_rx: Mutex<mpsc::Receiver<CloudSyncEvent>>,
     status: Arc<Mutex<CloudSyncStatus>>,
+    metrics: Arc<Mutex<WorkerMetrics>>,
+    stats_snapshot: Arc<Mutex<CloudStatsSnapshot>>,
     requested_downloads: Arc<Mutex<HashSet<String>>>,
     localized_partitions: Arc<Mutex<HashSet<String>>>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
@@ -116,6 +134,8 @@ impl CloudSyncHandle {
         let status = Arc::new(Mutex::new(CloudSyncStatus::Connecting {
             url: base_url.clone(),
         }));
+        let metrics = Arc::new(Mutex::new(WorkerMetrics::default()));
+        let stats_snapshot = Arc::new(Mutex::new(CloudStatsSnapshot::default()));
         let requested_downloads = Arc::new(Mutex::new(HashSet::new()));
         let localized_partitions = Arc::new(Mutex::new(HashSet::new()));
         let repaint_cb = Arc::new(Mutex::new(repaint_cb));
@@ -136,6 +156,8 @@ impl CloudSyncHandle {
         let thread_url = base_url.clone();
         let thread_store = store_dir.clone();
         let thread_status = Arc::clone(&status);
+        let thread_metrics = Arc::clone(&metrics);
+        let thread_stats = Arc::clone(&stats_snapshot);
         let thread_req_dl = Arc::clone(&requested_downloads);
         let thread_loc_parts = Arc::clone(&localized_partitions);
         let thread_repaint = Arc::clone(&repaint_cb);
@@ -170,6 +192,8 @@ impl CloudSyncHandle {
                     thread_cmd_tx,
                     event_tx,
                     thread_status,
+                    thread_metrics,
+                    thread_stats,
                     thread_req_dl,
                     thread_loc_parts,
                     thread_repaint,
@@ -187,6 +211,8 @@ impl CloudSyncHandle {
             cmd_tx,
             event_rx: Mutex::new(event_rx),
             status,
+            metrics,
+            stats_snapshot,
             requested_downloads,
             localized_partitions,
             repaint_cb,
@@ -204,6 +230,30 @@ impl CloudSyncHandle {
             .lock()
             .map(|g| g.clone())
             .unwrap_or(CloudSyncStatus::Disconnected)
+    }
+
+    pub fn loading_activity(&self) -> BackendLoadingActivity {
+        self.metrics
+            .lock()
+            .map(|m| m.to_loading_activity())
+            .unwrap_or_default()
+    }
+
+    pub fn request_stats(&self) {
+        if let Ok(mut snap) = self.stats_snapshot.lock() {
+            if snap.is_loading {
+                return;
+            }
+            snap.is_loading = true;
+        }
+        let _ = self.cmd_tx.send(CloudSyncCommand::FetchStats);
+    }
+
+    pub fn stats_snapshot(&self) -> CloudStatsSnapshot {
+        self.stats_snapshot
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_repaint_callback(&self, callback: Option<RepaintCallback>) {
@@ -343,6 +393,8 @@ async fn run_cloud_sync_runtime(
     internal_cmd_tx: tokio_mpsc::UnboundedSender<CloudSyncCommand>,
     event_tx: mpsc::Sender<CloudSyncEvent>,
     status: Arc<Mutex<CloudSyncStatus>>,
+    metrics: Arc<Mutex<WorkerMetrics>>,
+    stats_snapshot: Arc<Mutex<CloudStatsSnapshot>>,
     requested_downloads: Arc<Mutex<HashSet<String>>>,
     localized_partitions: Arc<Mutex<HashSet<String>>>,
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
@@ -353,7 +405,6 @@ async fn run_cloud_sync_runtime(
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
-    let metrics = Arc::new(Mutex::new(WorkerMetrics::default()));
     let uploaded_partitions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let mut active_track_day = initial_track_day;
 
@@ -481,6 +532,10 @@ async fn run_cloud_sync_runtime(
                 active_track_day = track_day_id;
             }
             CloudSyncCommand::SyncCatalog => {
+                update_status_snapshot(&metrics, &status, &base_url, |m| {
+                    m.catalog_syncing = true;
+                });
+                notify_repaint(&repaint_cb);
                 match sync_catalog_and_overviews(
                     &client,
                     &base_url,
@@ -496,6 +551,7 @@ async fn run_cloud_sync_runtime(
                 {
                     Ok(()) => {
                         update_status_snapshot(&metrics, &status, &base_url, |m| {
+                            m.catalog_syncing = false;
                             m.connected = true;
                             m.last_error = None;
                         });
@@ -503,6 +559,7 @@ async fn run_cloud_sync_runtime(
                     }
                     Err(err) => {
                         update_status_snapshot(&metrics, &status, &base_url, |m| {
+                            m.catalog_syncing = false;
                             m.last_error = Some(err.clone());
                         });
                         let _ = event_tx.send(CloudSyncEvent::Error(err));
@@ -511,6 +568,10 @@ async fn run_cloud_sync_runtime(
                 }
             }
             CloudSyncCommand::PrefetchOverview { manifest } => {
+                update_status_snapshot(&metrics, &status, &base_url, |m| {
+                    m.in_flight_preloads = m.in_flight_preloads.saturating_add(1);
+                });
+                notify_repaint(&repaint_cb);
                 if let Err(err) = prefetch_single_manifest_overview(
                     &client,
                     &base_url,
@@ -528,6 +589,10 @@ async fn run_cloud_sync_runtime(
                         manifest.partition_id
                     );
                 }
+                update_status_snapshot(&metrics, &status, &base_url, |m| {
+                    m.in_flight_preloads = m.in_flight_preloads.saturating_sub(1);
+                });
+                notify_repaint(&repaint_cb);
             }
             CloudSyncCommand::DownloadPartition { partition_id } => {
                 update_status_snapshot(&metrics, &status, &base_url, |m| {
@@ -653,7 +718,38 @@ async fn run_cloud_sync_runtime(
                     Ok(_) => {}
                 }
             }
-            CloudSyncCommand::FetchStats => {}
+            CloudSyncCommand::FetchStats => {
+                update_status_snapshot(&metrics, &status, &base_url, |m| {
+                    m.stats_fetching = true;
+                });
+                notify_repaint(&repaint_cb);
+                let stats_url = format!("{base_url}/api/v1/stats");
+                let fetch_res = async {
+                    let resp = client
+                        .get(&stats_url)
+                        .send()
+                        .await
+                        .map_err(|e| format!("GET {stats_url} failed: {e}"))?;
+                    if !resp.status().is_success() {
+                        return Err(format!("GET {stats_url} returned HTTP {}", resp.status()));
+                    }
+                    resp.json::<CloudStatsResponse>()
+                        .await
+                        .map_err(|e| format!("Invalid stats JSON from {stats_url}: {e}"))
+                }
+                .await;
+
+                if let Ok(mut snap) = stats_snapshot.lock() {
+                    match fetch_res {
+                        Ok(stats) => snap.record_response(stats),
+                        Err(err) => snap.record_error(err),
+                    }
+                }
+                update_status_snapshot(&metrics, &status, &base_url, |m| {
+                    m.stats_fetching = false;
+                });
+                notify_repaint(&repaint_cb);
+            }
         }
     }
 

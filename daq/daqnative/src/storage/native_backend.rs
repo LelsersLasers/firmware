@@ -584,6 +584,26 @@ impl RouterBackend for NativeRouterBackend {
 
         outcome
     }
+
+    fn request_cloud_stats(&self) {
+        if let Some(cloud) = &self.cloud_sync {
+            cloud.request_stats();
+        }
+    }
+
+    fn cloud_stats_snapshot(&self) -> daqcore::storage::CloudStatsSnapshot {
+        self.cloud_sync
+            .as_ref()
+            .map(CloudSyncHandle::stats_snapshot)
+            .unwrap_or_default()
+    }
+
+    fn loading_activity(&self) -> daqcore::storage::BackendLoadingActivity {
+        self.cloud_sync
+            .as_ref()
+            .map(CloudSyncHandle::loading_activity)
+            .unwrap_or_default()
+    }
 }
 
 /// Create a live-only [`VirtualTimelineRouter`] backed by [`NativeRouterBackend::in_memory`]

@@ -284,7 +284,7 @@ mod tests {
         assert!(
             pq_cols
                 .iter()
-                .any(|(name, unit)| name == "battery.power_w" && unit == "W")
+                .any(|(name, unit)| name == "battery.power_kw" && unit == "kW")
         );
 
         let csv_summary = export_dataset(
@@ -302,7 +302,7 @@ mod tests {
         let header = lines.next().expect("csv header");
         assert!(header.starts_with("utc_ms,elapsed_s,"));
         assert!(header.contains("IMU_acceleration.X_axis"));
-        assert!(header.contains("battery.power_w"));
+        assert!(header.contains("battery.power_kw"));
         assert_eq!(lines.count(), 1001);
 
         let mat_summary = export_dataset(
@@ -322,7 +322,7 @@ mod tests {
             mat_vars.get("IMU_acceleration_X_axis").map(Vec::len),
             Some(1001)
         );
-        assert_eq!(mat_vars.get("battery_power_w").map(Vec::len), Some(1001));
+        assert_eq!(mat_vars.get("battery_power_kw").map(Vec::len), Some(1001));
 
         // Verify annotation-based lookup on both auto-generated annotations and "Driving Stint 1"
         if let Some(first_auto) = m0.annotations.first() {
@@ -392,12 +392,12 @@ mod tests {
         let table = materialize_export_table(
             &router,
             t0.unix_millis()..=(t0.unix_millis() + 100),
-            &["pack_stats.*".to_owned(), "battery.power_w".to_owned()],
+            &["pack_stats.*".to_owned(), "battery.power_kw".to_owned()],
             SamplingMode::SparseRaw,
         )
         .expect("materialize sparse table");
         assert_eq!(table.row_count(), 5);
         assert!(table.column("pack_stats.vbatt_adc").is_some());
-        assert!(table.column("battery.power_w").is_some());
+        assert!(table.column("battery.power_kw").is_some());
     }
 }
