@@ -1,7 +1,7 @@
 use crate::{consts, db};
 use bytes::Bytes;
 use daqcore::{
-    router::{LruTileMap, SignalSeries, TileKey},
+    router::TileKey,
     storage::{
         CloudCacheStats, CloudLatencySample, CloudMemoryStats, CloudStatsResponse, CloudStoreStats,
         CloudWsMessage, EndpointLatencyStats,
@@ -185,6 +185,96 @@ impl Drop for InFlightCounterGuard<'_> {
     }
 }
 
+struct EncodedTileLruCache {
+    max_bytes: usize,
+    used_bytes: usize,
+    order: VecDeque<TileKey>,
+    entries: HashMap<TileKey, Bytes>,
+}
+
+impl EncodedTileLruCache {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            used_bytes: 0,
+            order: VecDeque::new(),
+            entries: HashMap::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn max_bytes(&self) -> usize {
+        self.max_bytes
+    }
+
+    fn current_bytes(&self) -> usize {
+        self.used_bytes
+    }
+
+    fn get(&mut self, key: &TileKey) -> Option<Bytes> {
+        let bytes = self.entries.get(key)?.clone();
+        if let Some(pos) = self.order.iter().position(|k| k == key) {
+            self.order.remove(pos);
+        }
+        self.order.push_back(key.clone());
+        Some(bytes)
+    }
+
+    fn insert(&mut self, key: TileKey, payload: Bytes) {
+        let len = payload.len();
+        if self.max_bytes == 0 || len > self.max_bytes {
+            return;
+        }
+        self.remove_key(&key);
+        while self.used_bytes.saturating_add(len) > self.max_bytes {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.entries.remove(&oldest) {
+                self.used_bytes = self.used_bytes.saturating_sub(removed.len());
+            }
+        }
+        self.used_bytes = self.used_bytes.saturating_add(len);
+        self.order.push_back(key.clone());
+        self.entries.insert(key, payload);
+    }
+
+    fn remove_key(&mut self, key: &TileKey) {
+        if let Some(removed) = self.entries.remove(key) {
+            self.used_bytes = self.used_bytes.saturating_sub(removed.len());
+        }
+        if let Some(pos) = self.order.iter().position(|k| k == key) {
+            self.order.remove(pos);
+        }
+    }
+
+    fn remove_partition(&mut self, partition_id: &str) {
+        let keys_to_remove: Vec<TileKey> = self
+            .entries
+            .keys()
+            .filter(|k| k.partition_id == partition_id)
+            .cloned()
+            .collect();
+        for key in keys_to_remove {
+            self.remove_key(&key);
+        }
+    }
+
+    fn evict_to_target_bytes(&mut self, target_bytes: usize) {
+        while self.used_bytes > target_bytes {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(removed) = self.entries.remove(&oldest) {
+                self.used_bytes = self.used_bytes.saturating_sub(removed.len());
+            }
+        }
+    }
+}
+
 struct PreloadLruCache {
     max_bytes: usize,
     used_bytes: usize,
@@ -283,7 +373,7 @@ pub struct AppState {
     pub ws_tx: broadcast::Sender<CloudWsMessage>,
     max_cache_bytes: usize,
     sha256_cache: Arc<Mutex<HashMap<Sha256CacheKey, String>>>,
-    tile_cache: Arc<Mutex<LruTileMap>>,
+    tile_cache: Arc<Mutex<EncodedTileLruCache>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
     catalog_cache: Arc<Mutex<Option<Bytes>>>,
     metrics: Arc<CloudMetrics>,
@@ -314,7 +404,7 @@ impl AppState {
             ws_tx,
             max_cache_bytes,
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
-            tile_cache: Arc::new(Mutex::new(LruTileMap::new(tile_bytes))),
+            tile_cache: Arc::new(Mutex::new(EncodedTileLruCache::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
             catalog_cache: Arc::new(Mutex::new(None)),
             metrics: Arc::new(CloudMetrics::default()),
@@ -449,7 +539,7 @@ impl AppState {
         self.enforce_memory_budget();
     }
 
-    pub fn get_cached_tile(&self, key: &TileKey) -> Option<Arc<SignalSeries>> {
+    pub fn get_cached_tile(&self, key: &TileKey) -> Option<Bytes> {
         let res = self.tile_cache.lock().ok().and_then(|mut g| g.get(key));
         if res.is_some() {
             self.metrics.tile_hits.fetch_add(1, Ordering::Relaxed);
@@ -459,12 +549,12 @@ impl AppState {
         res
     }
 
-    pub fn insert_cached_tile(&self, key: TileKey, series: Arc<SignalSeries>) {
+    pub fn insert_cached_tile(&self, key: TileKey, payload: Bytes) {
         if self.max_cache_bytes == 0 {
             return;
         }
         if let Ok(mut g) = self.tile_cache.lock() {
-            g.insert(key, series);
+            g.insert(key, payload);
         }
         self.enforce_memory_budget();
     }

@@ -30,7 +30,6 @@ use std::{
     fs,
     io::{Read as _, Seek as _, SeekFrom, Write as _},
     path,
-    sync::Arc,
 };
 use tokio::sync::broadcast::error::RecvError;
 
@@ -506,8 +505,7 @@ async fn serve_partition_tile(
         resolution,
     };
 
-    if let Some(series) = state.get_cached_tile(&key) {
-        let encoded = encode_tile_payload(&series);
+    if let Some(encoded) = state.get_cached_tile(&key) {
         log::info!(
             "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB]",
             encoded.len() as f64 / 1024.0
@@ -543,7 +541,7 @@ async fn serve_partition_tile(
     .await;
 
     let series = match series_res {
-        Ok(Ok(s)) => Arc::new(s),
+        Ok(Ok(s)) => s,
         Ok(Err(err)) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -560,12 +558,13 @@ async fn serve_partition_tile(
         }
     };
 
-    let encoded = encode_tile_payload(&series);
+    let encoded = Bytes::from(encode_tile_payload(&series));
+    drop(series);
     log::info!(
         "Tile {partition_id} signal={signal_id} res={resolution:?} [decoded from parquet, {:.1} KiB]",
         encoded.len() as f64 / 1024.0
     );
-    state.insert_cached_tile(key, series);
+    state.insert_cached_tile(key, encoded.clone());
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
