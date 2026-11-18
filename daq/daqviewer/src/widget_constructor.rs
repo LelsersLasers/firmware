@@ -246,7 +246,9 @@ impl WidgetConstructor {
                 vec![widgets::Widget::Jitter(ui::jitter::Jitter::new(id))]
             }
             WidgetConstructor::CloudStats => {
-                vec![widgets::Widget::CloudStats(ui::cloud_stats::CloudStats::new(id))]
+                vec![widgets::Widget::CloudStats(
+                    ui::cloud_stats::CloudStats::new(id),
+                )]
             }
             ctor @ (WidgetConstructor::Bootloader
             | WidgetConstructor::LogParser

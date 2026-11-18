@@ -765,10 +765,7 @@ impl RouterBackend for WebCloudRouterBackend {
     }
 
     fn loading_activity(&self) -> BackendLoadingActivity {
-        let stats_fetching = self
-            .stats_snapshot
-            .lock()
-            .is_ok_and(|g| g.is_loading);
+        let stats_fetching = self.stats_snapshot.lock().is_ok_and(|g| g.is_loading);
         BackendLoadingActivity {
             catalog_syncing: self.catalog_in_flight,
             metadata_syncing: self.annotations_in_flight || self.derived_in_flight,

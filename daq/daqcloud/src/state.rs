@@ -733,25 +733,22 @@ impl AppState {
     }
 
     pub fn collect_stats_response(&self) -> CloudStatsResponse {
-        let (overall_latency, endpoints, recent_latency_samples) =
-            if let Ok(guard) = self.metrics.latency.lock() {
-                let overall = guard.overall.to_stats("All Data Requests");
-                let mut ep_list: Vec<EndpointLatencyStats> = guard
-                    .endpoints
-                    .iter()
-                    .map(|(k, b)| b.to_stats(k))
-                    .collect();
-                ep_list.sort_by(|a, b| {
-                    b.request_count
-                        .cmp(&a.request_count)
-                        .then_with(|| a.endpoint.cmp(&b.endpoint))
-                });
-                let recent: Vec<CloudLatencySample> =
-                    guard.recent_samples.iter().cloned().collect();
-                (overall, ep_list, recent)
-            } else {
-                (EndpointLatencyStats::default(), Vec::new(), Vec::new())
-            };
+        let (overall_latency, endpoints, recent_latency_samples) = if let Ok(guard) =
+            self.metrics.latency.lock()
+        {
+            let overall = guard.overall.to_stats("All Data Requests");
+            let mut ep_list: Vec<EndpointLatencyStats> =
+                guard.endpoints.iter().map(|(k, b)| b.to_stats(k)).collect();
+            ep_list.sort_by(|a, b| {
+                b.request_count
+                    .cmp(&a.request_count)
+                    .then_with(|| a.endpoint.cmp(&b.endpoint))
+            });
+            let recent: Vec<CloudLatencySample> = guard.recent_samples.iter().cloned().collect();
+            (overall, ep_list, recent)
+        } else {
+            (EndpointLatencyStats::default(), Vec::new(), Vec::new())
+        };
 
         CloudStatsResponse {
             collected_at_utc_ms: Time::now().unix_millis(),

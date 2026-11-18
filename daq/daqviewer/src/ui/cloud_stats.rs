@@ -1,4 +1,4 @@
-use crate::{action, app, ui, widget_constructor, workspace_view};
+use crate::{action, app, ui, workspace_view};
 use daqcore::{
     router::{TileInFlightSummary, VirtualTimelineRouter},
     storage::{
@@ -339,9 +339,10 @@ impl CloudStats {
                 self.last_poll_instant = Some(web_time::Instant::now());
                 view.router.request_cloud_stats();
             }
-            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(
-                self.poll_interval_secs.max(0.5),
-            ));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f32(
+                    self.poll_interval_secs.max(0.5),
+                ));
         }
 
         let theme = ui::theme::get_theme(ui.ctx());
@@ -408,7 +409,14 @@ impl CloudStats {
                 ui.add_space(2.0);
 
                 // Row B: Interactive Charts (Latency Distribution/Timeline + Memory & Cache History)
-                self.show_charts_row(ui, stats, &snapshot, accent_color, muted_color, border_color);
+                self.show_charts_row(
+                    ui,
+                    stats,
+                    &snapshot,
+                    accent_color,
+                    muted_color,
+                    border_color,
+                );
 
                 ui.add_space(2.0);
 
@@ -465,7 +473,12 @@ impl CloudStats {
                 .corner_radius(3.0)
                 .inner_margin(egui::Margin::symmetric(6, 2))
                 .show(ui, |ui| {
-                    ui.label(RichText::new(status_text).size(11.0).strong().color(status_color));
+                    ui.label(
+                        RichText::new(status_text)
+                            .size(11.0)
+                            .strong()
+                            .color(status_color),
+                    );
                 });
 
             if let Some(stats) = &snapshot.latest {
@@ -620,6 +633,9 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
+                if cols == 1 {
+                    ui.end_row();
+                }
 
                 // Card 2: Cache Usage & Efficiency
                 self.render_cache_card(
@@ -630,9 +646,7 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
-                if cols == 2 {
-                    ui.end_row();
-                } else if cols == 1 {
+                if cols <= 2 {
                     ui.end_row();
                 }
 
@@ -647,6 +661,9 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
+                if cols == 1 {
+                    ui.end_row();
+                }
 
                 // Card 4: VPS Host Memory Free / Available & Store Disk
                 self.render_vps_memory_card(
@@ -654,7 +671,6 @@ impl CloudStats {
                     card_w,
                     &stats.memory,
                     &stats.store,
-                    accent_color,
                     muted_color,
                     border_color,
                 );
@@ -866,7 +882,6 @@ impl CloudStats {
         width: f32,
         mem: &CloudMemoryStats,
         store: &daqcore::storage::CloudStoreStats,
-        _accent_color: Color32,
         muted_color: Color32,
         border_color: Color32,
     ) {
@@ -1203,7 +1218,6 @@ impl CloudStats {
             avail_w,
             stats,
             router,
-            accent_color,
             muted_color,
             border_color,
         );
@@ -1244,7 +1258,9 @@ impl CloudStats {
                                 "Max (ms)",
                                 "Last (ms)",
                             ] {
-                                ui.label(RichText::new(header).size(10.5).strong().color(muted_color));
+                                ui.label(
+                                    RichText::new(header).size(10.5).strong().color(muted_color),
+                                );
                             }
                             ui.end_row();
 
@@ -1263,7 +1279,6 @@ impl CloudStats {
         width: f32,
         stats: &CloudStatsResponse,
         router: &VirtualTimelineRouter,
-        _accent_color: Color32,
         muted_color: Color32,
         border_color: Color32,
     ) {
@@ -1425,7 +1440,9 @@ fn render_endpoint_row(
             .size(11.0)
             .color(err_color),
     );
-    for val in [ep.avg_ms, ep.p50_ms, ep.p90_ms, ep.p99_ms, ep.max_ms, ep.last_ms] {
+    for val in [
+        ep.avg_ms, ep.p50_ms, ep.p90_ms, ep.p99_ms, ep.max_ms, ep.last_ms,
+    ] {
         let rt = RichText::new(format!("{val:.2}")).monospace().size(11.0);
         ui.label(if is_summary { rt.strong() } else { rt });
     }
@@ -1472,10 +1489,8 @@ fn draw_split_usage_bar(
     let s_frac = (secondary_bytes as f32 / total_bytes as f32).clamp(0.0, 1.0 - p_frac);
 
     if p_frac > 0.0 {
-        let p_rect = egui::Rect::from_min_size(
-            rect.min,
-            egui::vec2(rect.width() * p_frac, rect.height()),
-        );
+        let p_rect =
+            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * p_frac, rect.height()));
         ui.painter().rect_filled(p_rect, 3.0, primary_color);
     }
     if s_frac > 0.0 {
@@ -1492,6 +1507,7 @@ mod tests {
     use super::*;
     use crate::{
         app::{NoopViewerPlatform, ViewerState},
+        widget_constructor,
         workspace_io::{FlexibleLayout, PaneSpec, WorkspaceLayoutNode, WorkspaceView},
     };
     use daqcore::storage::{CloudLatencySample, CloudStoreStats};
@@ -1569,9 +1585,8 @@ mod tests {
         assert!(!state.tile_tree.is_empty());
 
         // Verify .daqview.json and daqview1:... share string round-trip
-        let captured =
-            WorkspaceView::capture_from_state(&state, "Cloud Stats View", "Test", true)
-                .expect("capture workspace");
+        let captured = WorkspaceView::capture_from_state(&state, "Cloud Stats View", "Test", true)
+            .expect("capture workspace");
         let share = captured.to_share_string().expect("encode share string");
         let restored = WorkspaceView::from_str_flexible(&share).expect("decode share string");
         assert_eq!(

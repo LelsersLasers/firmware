@@ -820,5 +820,48 @@ async fn daqweb_routes_preload_tile_and_export_e2e() {
         "daqweb save_derived_signal must sync to daqcloud"
     );
 
+    // Trigger a cache-hit preload and tile fetch, then verify GET /api/v1/stats and router stats polling
+    let _ = client
+        .get(format!("{base_url}/api/v1/partitions/{part_id}/preload"))
+        .send()
+        .await
+        .expect("GET preload hit");
+    let _ = client
+        .get(format!("{base_url}/api/v1/partitions/{part_id}/tile"))
+        .query(&[
+            ("signal_id", "IMU_acceleration.X_axis"),
+            ("resolution", "full"),
+        ])
+        .send()
+        .await
+        .expect("GET tile hit");
+
+    web_app.state.router.request_cloud_stats();
+    let stats_deadline = Instant::now() + Duration::from_secs(5);
+    let mut fetched_stats = None;
+    while Instant::now() < stats_deadline {
+        let snap = web_app.state.router.cloud_stats_snapshot();
+        if let Some(latest) = snap.latest {
+            fetched_stats = Some(latest);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let stats = fetched_stats.expect("daqweb router must fetch /api/v1/stats from daqcloud");
+    assert!(stats.overall_latency.request_count >= 5);
+    assert!(stats.overall_latency.avg_ms >= 0.0);
+    assert!(stats.overall_latency.p90_ms >= stats.overall_latency.p50_ms);
+    assert!(stats.cache.total_max_bytes > 0);
+    assert!(stats.cache.total_used_bytes > 0);
+    assert!(stats.cache.tile_entries >= 1);
+    assert!(stats.cache.tile_hits >= 1);
+    assert!(stats.cache.preload_entries >= 1);
+    assert!(stats.cache.preload_hits >= 1);
+    assert!(stats.memory.process_rss_bytes.is_some_and(|b| b > 0));
+    assert!(stats.memory.vps_total_bytes.is_some_and(|b| b > 0));
+    assert!(stats.memory.vps_free_bytes.is_some_and(|b| b > 0));
+    assert_eq!(stats.store.partitions, 1);
+    assert!(stats.store.store_disk_bytes > 0);
+
     server_handle.abort();
 }

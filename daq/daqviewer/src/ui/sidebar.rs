@@ -449,10 +449,7 @@ fn show_sidebar_header(
                         || pending_downloads > 0
                         || pending_uploads > 0
                     {
-                        (
-                            format!("☁ {}", loading_summary.badge_label()),
-                            accent_color,
-                        )
+                        (format!("☁ {}", loading_summary.badge_label()), accent_color)
                     } else if ws_connected {
                         (
                             "☁ Cloud Live".to_owned(),
