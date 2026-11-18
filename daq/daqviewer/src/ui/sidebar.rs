@@ -371,11 +371,8 @@ fn show_sidebar_header(
             eframe::egui::ComboBox::from_id_salt("header_theme_selector")
                 .width(theme_w)
                 .selected_text(
-                    eframe::egui::RichText::new(format!(
-                        "🎨 {}",
-                        app.theme_selection.get_name()
-                    ))
-                    .small(),
+                    eframe::egui::RichText::new(format!("🎨 {}", app.theme_selection.get_name()))
+                        .small(),
                 )
                 .show_ui(ui, |ui| {
                     for candidate in ui::theme::ThemeSelection::ALL {
@@ -440,23 +437,23 @@ fn show_sidebar_header(
                     ws_connected,
                     ..
                 } => {
-                    let (cloud_label, cloud_color) =
-                        if pending_downloads > 0 || pending_uploads > 0 {
-                            (
-                                format!(
-                                    "☁ Syncing (dl:{} ul:{})",
-                                    pending_downloads, pending_uploads
-                                ),
-                                accent_color,
-                            )
-                        } else if ws_connected {
-                            (
-                                "☁ Cloud Live".to_owned(),
-                                eframe::egui::Color32::from_rgb(34, 197, 94),
-                            )
-                        } else {
-                            ("☁ Cloud HTTP".to_owned(), muted_color)
-                        };
+                    let (cloud_label, cloud_color) = if pending_downloads > 0 || pending_uploads > 0
+                    {
+                        (
+                            format!(
+                                "☁ Syncing (dl:{} ul:{})",
+                                pending_downloads, pending_uploads
+                            ),
+                            accent_color,
+                        )
+                    } else if ws_connected {
+                        (
+                            "☁ Cloud Live".to_owned(),
+                            eframe::egui::Color32::from_rgb(34, 197, 94),
+                        )
+                    } else {
+                        ("☁ Cloud HTTP".to_owned(), muted_color)
+                    };
                     if ui
                         .add(
                             eframe::egui::Button::new(

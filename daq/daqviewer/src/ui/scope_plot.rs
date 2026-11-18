@@ -29,9 +29,8 @@ pub(super) fn adaptive_trace_width(
     let size_scale = 1.0 + 0.45 * size_t;
 
     let clamped_s = window_s.clamp(2.0, 120.0);
-    let zoom_t =
-        ((120.0_f64.ln() - clamped_s.ln()) / (120.0_f64.ln() - 2.0_f64.ln())).clamp(0.0, 1.0)
-            as f32;
+    let zoom_t = ((120.0_f64.ln() - clamped_s.ln()) / (120.0_f64.ln() - 2.0_f64.ln()))
+        .clamp(0.0, 1.0) as f32;
     let zoom_scale = 1.0 + 0.45 * zoom_t;
 
     (base_width * size_scale * zoom_scale).clamp(base_width, 4.5)
@@ -707,10 +706,16 @@ impl Scope {
                     let trace = cached.mapped_traces.get(ch_idx * traces_per_channel)?;
                     let step = self.config.style(&channel.signal_id).mode == TraceMode::Steps;
                     let tf = cached.unit_transforms[trace.unit_idx];
-                    let v0 =
-                        tf.plot_to_phys(ui::scope_interaction::sample(&trace.mean_points, x0, step)?);
-                    let v1 =
-                        tf.plot_to_phys(ui::scope_interaction::sample(&trace.mean_points, x1, step)?);
+                    let v0 = tf.plot_to_phys(ui::scope_interaction::sample(
+                        &trace.mean_points,
+                        x0,
+                        step,
+                    )?);
+                    let v1 = tf.plot_to_phys(ui::scope_interaction::sample(
+                        &trace.mean_points,
+                        x1,
+                        step,
+                    )?);
                     compute_section_stats(&[sel_start_ms, sel_end_ms], &[v0, v1])
                 });
             if let Some(st) = stats {

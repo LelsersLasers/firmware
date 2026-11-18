@@ -1011,7 +1011,7 @@ fn instantiate_pane_spec(
                 };
             }
             scope.config.sanitize();
-            Some(widgets::Widget::Scope(scope))
+            Some(widgets::Widget::Scope(Box::new(scope)))
         }
         PaneSpec::StateLane {
             title,
@@ -1754,7 +1754,7 @@ mod tests {
             },
         );
         let expected = scope.config.clone();
-        let spec = capture_widget_spec(&widgets::Widget::Scope(scope));
+        let spec = capture_widget_spec(&widgets::Widget::Scope(Box::new(scope)));
         let json = serde_json::to_string(&spec).unwrap();
         let restored: PaneSpec = serde_json::from_str(&json).unwrap();
         let mut platform = NoopViewerPlatform;

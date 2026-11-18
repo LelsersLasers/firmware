@@ -231,12 +231,7 @@ pub(super) fn handle(
             .color(Color32::LIGHT_BLUE),
         );
     }
-    if owns
-        && (released
-            || right_released
-            || mid_released
-            || (!down && !right_down && !mid_down))
-    {
+    if owns && (released || right_released || mid_released || (!down && !right_down && !mid_down)) {
         *gesture = None;
     }
     if measurements.enabled {

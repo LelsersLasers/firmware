@@ -19,7 +19,7 @@ pub trait PlatformWidget: Send {
 pub enum Widget {
     ViewerTable(ui::viewer_table::ViewerTable),
     ViewerList(ui::viewer_list::ViewerList),
-    Scope(ui::scope::Scope),
+    Scope(Box<ui::scope::Scope>),
     StateLane(ui::state_lane::StateLane),
     XYScatter(ui::xy_scatter::XYScatter),
     BusLoad(ui::bus_load::BusLoad),

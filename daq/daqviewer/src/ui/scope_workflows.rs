@@ -272,7 +272,9 @@ fn selecting_a_range_zoom_is_shared_and_escape_cancels() {
     assert!(h.press(a, PointerButton::Secondary).pause);
     assert_eq!(h.frame(vec![Event::PointerMoved(b)]).pan, None);
     let requests = h.release(b, PointerButton::Secondary);
-    let (start, end) = requests.range.expect("Right drag selects the shared window");
+    let (start, end) = requests
+        .range
+        .expect("Right drag selects the shared window");
     assert!((start - BASE - 2_000).abs() < 20);
     assert!((end - BASE - 8_000).abs() < 20);
     assert_eq!(requests.cursor, None);

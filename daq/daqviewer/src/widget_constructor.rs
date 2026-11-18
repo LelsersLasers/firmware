@@ -121,21 +121,23 @@ impl WidgetConstructor {
                 key,
                 msg_name,
                 signal_name,
-            } => vec![widgets::Widget::Scope(ui::scope::Scope::new(
+            } => vec![widgets::Widget::Scope(Box::new(ui::scope::Scope::new(
                 id,
                 key,
                 msg_name,
                 signal_name,
-            ))],
+            )))],
             WidgetConstructor::ScopeChannel {
                 signal_id,
                 label,
                 unit,
-            } => vec![widgets::Widget::Scope(ui::scope::Scope::new_channel(
-                id, signal_id, label, unit,
+            } => vec![widgets::Widget::Scope(Box::new(
+                ui::scope::Scope::new_channel(id, signal_id, label, unit),
             ))],
             WidgetConstructor::ScopeEmpty => {
-                vec![widgets::Widget::Scope(ui::scope::Scope::new_empty(id))]
+                vec![widgets::Widget::Scope(Box::new(
+                    ui::scope::Scope::new_empty(id),
+                ))]
             }
             WidgetConstructor::StateLane => {
                 vec![widgets::Widget::StateLane(ui::state_lane::StateLane::new(
@@ -161,7 +163,7 @@ impl WidgetConstructor {
                 let scatter =
                     widgets::Widget::XYScatter(ui::xy_scatter::XYScatter::preset_understeer(id));
                 let scope_id = widget_ids.next(WidgetKind::Scope);
-                let scope = widgets::Widget::Scope(ui::scope::Scope::new_multi(
+                let scope = widgets::Widget::Scope(Box::new(ui::scope::Scope::new_multi(
                     scope_id,
                     format!("YT Plot: Handling & Understeer #{scope_id}"),
                     vec![
@@ -181,11 +183,11 @@ impl WidgetConstructor {
                             "deg/g".to_owned(),
                         ),
                     ],
-                ));
+                )));
                 vec![scatter, scope]
             }
             WidgetConstructor::PresetBatteryOverview => {
-                let scope = widgets::Widget::Scope(ui::scope::Scope::new_multi(
+                let scope = widgets::Widget::Scope(Box::new(ui::scope::Scope::new_multi(
                     id,
                     format!("YT Plot: Battery Pack Overview #{id}"),
                     vec![
@@ -215,7 +217,7 @@ impl WidgetConstructor {
                             "C".to_owned(),
                         ),
                     ],
-                ));
+                )));
                 let scatter_id = widget_ids.next(WidgetKind::XYScatter);
                 let scatter = widgets::Widget::XYScatter(
                     ui::xy_scatter::XYScatter::preset_battery_scatter(scatter_id),
