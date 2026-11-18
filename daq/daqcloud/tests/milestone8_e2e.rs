@@ -299,6 +299,8 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         );
         if matches!(series, SignalSeries::Exact { .. }) && !series.is_empty() {
             exact_b = Some(series);
+        }
+        if exact_b.is_some() && router_b.partitions().first().is_some_and(|p| p.is_local) {
             break;
         }
         thread::sleep(Duration::from_millis(10));

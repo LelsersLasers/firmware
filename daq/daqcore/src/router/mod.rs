@@ -1138,8 +1138,8 @@ impl VirtualTimelineRouter {
                 return series.latest_at_or_before(target_utc_ms);
             }
             let lookback_ms = (self.formula_engine.max_staleness_ms() * 8).max(2_000);
-            let window =
-                target_utc_ms.saturating_sub(lookback_ms)..=target_utc_ms.saturating_add(lookback_ms);
+            let window = target_utc_ms.saturating_sub(lookback_ms)
+                ..=target_utc_ms.saturating_add(lookback_ms);
             let series = self.query_signal(signal_id, window, Resolution::FullRes);
             return series.latest_at_or_before(target_utc_ms);
         }
