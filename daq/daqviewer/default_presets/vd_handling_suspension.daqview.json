@@ -99,9 +99,8 @@
               {
                 "type": "pane",
                 "widget": "scope",
-                "title": "Roll Displacement (Distance Mode)",
-                "x_mode": "track_distance",
-                "speed_signal_id": "gps_speed_heading.gps_speed",
+                "title": "Roll Displacement vs Time",
+                "x_mode": "utc_time",
                 "channels": [
                   { "signal_id": "vd.front_roll_displacement_mm" },
                   { "signal_id": "vd.rear_roll_displacement_mm" }
