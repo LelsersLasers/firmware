@@ -186,7 +186,7 @@ pub fn show(
 
     eframe::egui::SidePanel::left("left_sidebar")
         .resizable(true)
-        .default_width(265.0)
+        .default_width(330.0)
         .width_range(235.0..=420.0)
         .frame(drawer_frame)
         .show_animated(ctx, app.is_sidebar_open, |ui| {
