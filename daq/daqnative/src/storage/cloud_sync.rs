@@ -653,6 +653,7 @@ async fn run_cloud_sync_runtime(
                     Ok(_) => {}
                 }
             }
+            CloudSyncCommand::FetchStats => {}
         }
     }
 

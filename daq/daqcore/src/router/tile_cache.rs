@@ -91,6 +91,25 @@ pub struct TileLoadResult {
     pub result: Result<Arc<SignalSeries>, RouterError>,
 }
 
+/// Breakdown of currently in-flight background tile loads in [`TileCache`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TileInFlightSummary {
+    pub full_res_count: usize,
+    pub overview_10hz_count: usize,
+    pub overview_1hz_count: usize,
+    pub sample_signals: Vec<String>,
+}
+
+impl TileInFlightSummary {
+    pub fn total(&self) -> usize {
+        self.full_res_count + self.overview_10hz_count + self.overview_1hz_count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.total() == 0
+    }
+}
+
 /// Platform-specific tile loader plugged into [`TileCache`].
 ///
 /// - On Desktop (`daqnative`), `NativeTileLoader` reads `.parquet` files on a background OS thread
@@ -345,6 +364,32 @@ impl TileCache {
 
     pub fn in_flight_count(&self) -> usize {
         self.dynamic.lock().map(|d| d.in_flight.len()).unwrap_or(0)
+    }
+
+    pub fn in_flight_summary(&self) -> TileInFlightSummary {
+        let Ok(dyn_guard) = self.dynamic.lock() else {
+            return TileInFlightSummary::default();
+        };
+        let mut summary = TileInFlightSummary::default();
+        let mut sample_signals: Vec<String> = Vec::new();
+        for key in &dyn_guard.in_flight {
+            match key.resolution {
+                Resolution::FullRes => summary.full_res_count += 1,
+                Resolution::Overview10Hz => summary.overview_10hz_count += 1,
+                Resolution::Overview1Hz => summary.overview_1hz_count += 1,
+            }
+            if !sample_signals.contains(&key.signal_id) && sample_signals.len() < 8 {
+                sample_signals.push(key.signal_id.clone());
+            }
+        }
+        sample_signals.sort();
+        sample_signals.truncate(6);
+        summary.sample_signals = sample_signals;
+        summary
+    }
+
+    pub fn preloaded_partition_count(&self) -> usize {
+        self.resident_1hz.len()
     }
 
     pub fn is_partition_preloaded(&self, partition_id: &str) -> bool {

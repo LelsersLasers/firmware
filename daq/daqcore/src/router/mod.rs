@@ -7,8 +7,8 @@ pub use live_buffer::{
     DEFAULT_MAX_INSPECTOR_FRAMES, DEFAULT_MAX_SAMPLES_PER_SIGNAL, LiveColumnBuffer,
 };
 pub use tile_cache::{
-    DEFAULT_TILE_CACHE_BYTES, LruTileMap, RepaintCallback, RouterError, TileCache, TileKey,
-    TileLoadResult, TileLoader, TileLookup,
+    DEFAULT_TILE_CACHE_BYTES, LruTileMap, RepaintCallback, RouterError, TileCache,
+    TileInFlightSummary, TileKey, TileLoadResult, TileLoader, TileLookup,
 };
 pub use types::{
     ActiveSignalMeta, BUCKET_1HZ_MS, BUCKET_10HZ_MS, ClockProvenance, CoverageSpan, DataSourceKind,
@@ -27,8 +27,8 @@ use crate::{
     },
     frame::ParsedFrame,
     storage::{
-        Annotation, CloudSyncStatus, InMemoryCatalog, PartitionManifest, RegisteredPartition,
-        TrackDay,
+        Annotation, BackendLoadingActivity, CloudStatsSnapshot, CloudSyncStatus, InMemoryCatalog,
+        PartitionManifest, RegisteredPartition, TrackDay,
     },
     time::Time,
     timeline::MasterTimeline,
@@ -159,6 +159,16 @@ pub trait RouterBackend: Send {
 
     fn poll_cloud_sync(&mut self, _tile_cache: &mut TileCache) -> CloudPollOutcome {
         CloudPollOutcome::default()
+    }
+
+    fn request_cloud_stats(&self) {}
+
+    fn cloud_stats_snapshot(&self) -> CloudStatsSnapshot {
+        CloudStatsSnapshot::default()
+    }
+
+    fn loading_activity(&self) -> BackendLoadingActivity {
+        BackendLoadingActivity::default()
     }
 }
 
@@ -574,6 +584,21 @@ impl VirtualTimelineRouter {
     /// Return the current connection and sync status for `daqcloud`.
     pub fn cloud_status(&self) -> CloudSyncStatus {
         self.backend.cloud_status()
+    }
+
+    /// Trigger an asynchronous fetch of `GET /api/v1/stats` from `daqcloud`.
+    pub fn request_cloud_stats(&self) {
+        self.backend.request_cloud_stats();
+    }
+
+    /// Return the latest `daqcloud` stats snapshot and rolling history.
+    pub fn cloud_stats_snapshot(&self) -> CloudStatsSnapshot {
+        self.backend.cloud_stats_snapshot()
+    }
+
+    /// Return the active background network/storage loading activity from the backend.
+    pub fn backend_loading_activity(&self) -> BackendLoadingActivity {
+        self.backend.loading_activity()
     }
 
     /// Trigger an immediate catalog sync and local partition upload pass.

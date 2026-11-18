@@ -418,7 +418,192 @@ pub enum CloudSyncCommand {
     SetActiveTrackDay {
         track_day_id: Option<String>,
     },
+    FetchStats,
     Shutdown,
+}
+
+/// Latency statistics for an individual HTTP endpoint category or overall server traffic.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EndpointLatencyStats {
+    pub endpoint: String,
+    pub request_count: u64,
+    pub error_count: u64,
+    pub avg_ms: f64,
+    pub p50_ms: f64,
+    pub p90_ms: f64,
+    pub p99_ms: f64,
+    pub max_ms: f64,
+    pub last_ms: f64,
+}
+
+/// Individual recent HTTP request latency sample recorded by `daqcloud`.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudLatencySample {
+    pub utc_ms: i64,
+    pub elapsed_ms: f64,
+    pub endpoint: String,
+    pub status: u16,
+    pub cache_hit: bool,
+}
+
+/// In-memory cache utilization and hit/miss statistics on `daqcloud`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CloudCacheStats {
+    pub total_used_bytes: u64,
+    pub total_max_bytes: u64,
+    pub tile_used_bytes: u64,
+    pub tile_max_bytes: u64,
+    pub tile_entries: usize,
+    pub tile_hits: u64,
+    pub tile_misses: u64,
+    pub preload_used_bytes: u64,
+    pub preload_max_bytes: u64,
+    pub preload_entries: usize,
+    pub preload_hits: u64,
+    pub preload_misses: u64,
+    pub catalog_used_bytes: u64,
+    pub catalog_hits: u64,
+    pub catalog_misses: u64,
+    pub sha256_entries: usize,
+    pub sha256_hits: u64,
+    pub sha256_misses: u64,
+}
+
+impl CloudCacheStats {
+    pub fn total_hits(&self) -> u64 {
+        self.tile_hits
+            .saturating_add(self.preload_hits)
+            .saturating_add(self.catalog_hits)
+    }
+
+    pub fn total_misses(&self) -> u64 {
+        self.tile_misses
+            .saturating_add(self.preload_misses)
+            .saturating_add(self.catalog_misses)
+    }
+
+    pub fn hit_rate_pct(&self) -> Option<f64> {
+        let hits = self.total_hits();
+        let total = hits.saturating_add(self.total_misses());
+        if total == 0 {
+            None
+        } else {
+            Some((hits as f64 / total as f64) * 100.0)
+        }
+    }
+
+    pub fn tile_hit_rate_pct(&self) -> Option<f64> {
+        let total = self.tile_hits.saturating_add(self.tile_misses);
+        if total == 0 {
+            None
+        } else {
+            Some((self.tile_hits as f64 / total as f64) * 100.0)
+        }
+    }
+
+    pub fn preload_hit_rate_pct(&self) -> Option<f64> {
+        let total = self.preload_hits.saturating_add(self.preload_misses);
+        if total == 0 {
+            None
+        } else {
+            Some((self.preload_hits as f64 / total as f64) * 100.0)
+        }
+    }
+}
+
+/// Process RSS/virtual memory and host VPS memory statistics reported by `daqcloud`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMemoryStats {
+    pub process_rss_bytes: Option<u64>,
+    pub process_virtual_bytes: Option<u64>,
+    pub vps_total_bytes: Option<u64>,
+    pub vps_free_bytes: Option<u64>,
+    pub vps_available_bytes: Option<u64>,
+    pub vps_buffers_cached_bytes: Option<u64>,
+    pub vps_swap_total_bytes: Option<u64>,
+    pub vps_swap_free_bytes: Option<u64>,
+}
+
+/// On-disk store inventory and disk usage statistics reported by `daqcloud`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStoreStats {
+    pub track_days: usize,
+    pub partitions: usize,
+    pub annotations: usize,
+    pub derived_signals: usize,
+    pub store_disk_bytes: u64,
+}
+
+/// Telemetry & system health snapshot returned by `GET /api/v1/stats` on `daqcloud`.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudStatsResponse {
+    pub collected_at_utc_ms: i64,
+    pub uptime_secs: f64,
+    pub active_ws_clients: usize,
+    pub in_flight_http_requests: usize,
+    pub overall_latency: EndpointLatencyStats,
+    #[serde(default)]
+    pub endpoints: Vec<EndpointLatencyStats>,
+    #[serde(default)]
+    pub recent_latency_samples: Vec<CloudLatencySample>,
+    pub cache: CloudCacheStats,
+    pub memory: CloudMemoryStats,
+    pub store: CloudStoreStats,
+}
+
+/// Client-side state and rolling snapshot history for `daqcloud` server statistics.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CloudStatsSnapshot {
+    pub latest: Option<CloudStatsResponse>,
+    pub history: Vec<CloudStatsResponse>,
+    pub is_loading: bool,
+    pub last_error: Option<String>,
+}
+
+impl CloudStatsSnapshot {
+    pub const MAX_HISTORY_LEN: usize = 120;
+
+    pub fn record_response(&mut self, resp: CloudStatsResponse) {
+        self.is_loading = false;
+        self.last_error = None;
+        self.history.push(resp.clone());
+        if self.history.len() > Self::MAX_HISTORY_LEN {
+            let excess = self.history.len() - Self::MAX_HISTORY_LEN;
+            self.history.drain(..excess);
+        }
+        self.latest = Some(resp);
+    }
+
+    pub fn record_error(&mut self, err: String) {
+        self.is_loading = false;
+        self.last_error = Some(err);
+    }
+}
+
+/// Summary of active background network/storage requests inside a [`crate::router::RouterBackend`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackendLoadingActivity {
+    pub catalog_syncing: bool,
+    pub metadata_syncing: bool,
+    pub stats_fetching: bool,
+    pub in_flight_preloads: usize,
+    pub pending_downloads: usize,
+    pub pending_uploads: usize,
+}
+
+impl BackendLoadingActivity {
+    pub fn total_active(&self) -> usize {
+        usize::from(self.catalog_syncing)
+            + usize::from(self.metadata_syncing)
+            + usize::from(self.stats_fetching)
+            + self.in_flight_preloads
+            + self.pending_downloads
+            + self.pending_uploads
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.total_active() > 0
+    }
 }
 
 /// Events emitted by a `daqcloud` sync worker for [`crate::router::VirtualTimelineRouter`] to drain.
