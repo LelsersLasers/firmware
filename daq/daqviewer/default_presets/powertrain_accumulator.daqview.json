@@ -82,14 +82,40 @@
         "shares": [0.5, 0.5],
         "children": [
           {
-            "type": "pane",
-            "widget": "xy_scatter",
-            "title": "Total Battery Power vs Battery Voltage",
-            "x_signal": "battery.voltage_v",
-            "y_signal": "battery.power_w",
-            "z_color_signal": "battery.energy_wh",
-            "equal_aspect": false,
-            "show_g_rings": false
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Total Battery Power vs Battery Voltage",
+                "x_signal": "battery.voltage_v",
+                "y_signal": "battery.power_w",
+                "z_color_signal": "battery.energy_wh",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Motor Overload vs Actual Torque",
+                "x_signal": "INVC_CRIT.AMK_ActualTorque",
+                "y_signal": "INVC_CRIT.AMK_DisplayOverloadMotor",
+                "z_color_signal": "INVC_CRIT.AMK_DisplayOverloadInverter",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Inverter Overload vs Actual Torque",
+                "x_signal": "INVC_CRIT.AMK_ActualTorque",
+                "y_signal": "INVC_CRIT.AMK_DisplayOverloadInverter",
+                "z_color_signal": "INVC_CRIT.AMK_DisplayOverloadMotor",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
           },
           {
             "type": "tabs",
