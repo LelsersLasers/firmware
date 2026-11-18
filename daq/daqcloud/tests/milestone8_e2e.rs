@@ -183,10 +183,41 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     // 1. Instance A: Import SD card log (or CI synthetic fixture) and connect to daqcloud
     // -------------------------------------------------------------------------
     let store_dir_a = tempfile::tempdir().expect("store_dir_a");
-    let (_db, import_summary) = prepare_fixture_store(store_dir_a.path());
+    let (db, import_summary) = prepare_fixture_store(store_dir_a.path());
     assert_eq!(import_summary.partitions_written, 1);
-    let manifest_a = &import_summary.manifests[0];
+    let manifest_a = import_summary.manifests[0].clone();
     let part_id = manifest_a.partition_id.clone();
+
+    // Ensure the track day spans > OVERVIEW_1HZ_THRESHOLD_MS (15 min) so Instance B's initial
+    // day-fit snap stays in 1Hz overview mode instead of auto-downloading full_res.parquet.
+    let second_start_ms = manifest_a.start_utc_ms + 20 * 60 * 1_000;
+    let accel_payload = db.encode(0, 100, &[("X_axis", 0.25)]).unwrap();
+    let second_msgs = vec![ParsedMessage {
+        timestamp: 0,
+        source_file_idx: 0,
+        bus_name: "VCAN".to_owned(),
+        decoded: db.decode(0, 100, &accel_payload).unwrap(),
+    }];
+    let second_source = vec![SourceLogFile {
+        file_name: "log-2026-09-06--20-41-44.log".to_owned(),
+        sha256_hex: "synthetic_ci_log_sha256_part2".to_owned(),
+        rtc_timestamp_ms: Some(second_start_ms),
+        mtime_unix_ms: second_start_ms,
+    }];
+    let second_epochs = vec![CorrelationChunkResult {
+        clock_mapping: ClockMapping {
+            slope: 1.0,
+            intercept_ms: second_start_ms as f64,
+            confidence: ClockConfidence::RtcEstimated,
+        },
+        parsed_msgs: second_msgs,
+    }];
+    let second_summary =
+        write_correlated_epochs_to_store(store_dir_a.path(), &second_source, second_epochs, &db)
+            .expect("write second synthetic partition");
+    assert_eq!(second_summary.partitions_written, 1);
+    let manifest_2 = second_summary.manifests[0].clone();
+    let part_id_2 = manifest_2.partition_id.clone();
 
     let mut router_a = VirtualTimelineRouter::open_store(
         store_dir_a.path(),
@@ -213,13 +244,14 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         .connect_cloud(&base_url)
         .expect("connect Router B to daqcloud");
 
-    // Wait for Instance A to finish uploading and Instance B to receive the partition & 1Hz overview
+    // Wait for Instance A to finish uploading and Instance B to receive the partitions & 1Hz overview
     let sync_deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < sync_deadline {
         router_a.poll_cloud_sync();
         router_b.poll_cloud_sync();
-        if router_b.partitions().len() == 1
+        if router_b.partitions().len() == 2
             && router_b.tile_cache().is_partition_preloaded(&part_id)
+            && router_b.tile_cache().is_partition_preloaded(&part_id_2)
         {
             break;
         }
@@ -237,7 +269,7 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     );
     assert_eq!(
         router_b.timeline().day_bounds_ms(),
-        Some((manifest_a.start_utc_ms, manifest_a.end_utc_ms))
+        Some((manifest_a.start_utc_ms, manifest_2.end_utc_ms))
     );
 
     let part_b = &router_b.partitions()[0];
