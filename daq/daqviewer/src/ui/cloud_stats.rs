@@ -610,21 +610,13 @@ impl CloudStats {
         muted_color: Color32,
         border_color: Color32,
     ) {
-        let avail_w = ui.available_width().max(240.0);
-        let cols = if avail_w >= 860.0 {
-            4
-        } else if avail_w >= 440.0 {
-            2
-        } else {
-            1
-        };
+        let avail_w = (ui.available_width() - 4.0).max(220.0);
         let spacing = 6.0_f32;
-        let card_w = ((avail_w - spacing * ((cols - 1) as f32)) / (cols as f32)).max(140.0);
 
-        egui::Grid::new((&self.title, "kpi_cards_grid"))
-            .spacing([spacing, spacing])
-            .show(ui, |ui| {
-                // Card 1: Response Times (Avg / P90 / P50 / P99 / Max)
+        if avail_w >= 1120.0 {
+            let card_w = ((avail_w - spacing * 3.0) / 4.0).floor().max(180.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
                 self.render_latency_card(
                     ui,
                     card_w,
@@ -633,11 +625,6 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
-                if cols == 1 {
-                    ui.end_row();
-                }
-
-                // Card 2: Cache Usage & Efficiency
                 self.render_cache_card(
                     ui,
                     card_w,
@@ -646,11 +633,6 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
-                if cols <= 2 {
-                    ui.end_row();
-                }
-
-                // Card 3: Process & Total Memory Usage
                 self.render_process_memory_card(
                     ui,
                     card_w,
@@ -661,11 +643,6 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
-                if cols == 1 {
-                    ui.end_row();
-                }
-
-                // Card 4: VPS Host Memory Free / Available & Store Disk
                 self.render_vps_memory_card(
                     ui,
                     card_w,
@@ -674,8 +651,89 @@ impl CloudStats {
                     muted_color,
                     border_color,
                 );
-                ui.end_row();
             });
+        } else if avail_w >= 480.0 {
+            let card_w = ((avail_w - spacing) * 0.5).floor().max(180.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                self.render_latency_card(
+                    ui,
+                    card_w,
+                    &stats.overall_latency,
+                    accent_color,
+                    muted_color,
+                    border_color,
+                );
+                self.render_cache_card(
+                    ui,
+                    card_w,
+                    &stats.cache,
+                    accent_color,
+                    muted_color,
+                    border_color,
+                );
+            });
+            ui.add_space(spacing);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
+                self.render_process_memory_card(
+                    ui,
+                    card_w,
+                    &stats.memory,
+                    &stats.cache,
+                    router,
+                    accent_color,
+                    muted_color,
+                    border_color,
+                );
+                self.render_vps_memory_card(
+                    ui,
+                    card_w,
+                    &stats.memory,
+                    &stats.store,
+                    muted_color,
+                    border_color,
+                );
+            });
+        } else {
+            self.render_latency_card(
+                ui,
+                avail_w,
+                &stats.overall_latency,
+                accent_color,
+                muted_color,
+                border_color,
+            );
+            ui.add_space(spacing);
+            self.render_cache_card(
+                ui,
+                avail_w,
+                &stats.cache,
+                accent_color,
+                muted_color,
+                border_color,
+            );
+            ui.add_space(spacing);
+            self.render_process_memory_card(
+                ui,
+                avail_w,
+                &stats.memory,
+                &stats.cache,
+                router,
+                accent_color,
+                muted_color,
+                border_color,
+            );
+            ui.add_space(spacing);
+            self.render_vps_memory_card(
+                ui,
+                avail_w,
+                &stats.memory,
+                &stats.store,
+                muted_color,
+                border_color,
+            );
+        }
     }
 
     fn render_latency_card(
@@ -688,13 +746,14 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
+            ui.set_min_height(68.0);
+            ui.spacing_mut().item_spacing.y = 3.0;
             ui.label(
                 RichText::new("RESPONSE TIMES (DATA PLANE)")
                     .size(10.0)
                     .strong()
                     .color(muted_color),
             );
-            ui.add_space(2.0);
             let p90_color = if lat.p90_ms < 25.0 {
                 Color32::from_rgb(34, 197, 94)
             } else if lat.p90_ms < 100.0 {
@@ -706,7 +765,7 @@ impl CloudStats {
                 ui.label(
                     RichText::new(format!("Avg {:.2} ms", lat.avg_ms))
                         .monospace()
-                        .size(15.0)
+                        .size(14.0)
                         .strong()
                         .color(accent_color),
                 );
@@ -714,12 +773,11 @@ impl CloudStats {
                 ui.label(
                     RichText::new(format!("P90 {:.2} ms", lat.p90_ms))
                         .monospace()
-                        .size(15.0)
+                        .size(14.0)
                         .strong()
                         .color(p90_color),
                 );
             });
-            ui.add_space(2.0);
             ui.label(
                 RichText::new(format!(
                     "P50: {:.2} ms  ·  P99: {:.2} ms  ·  Max: {:.2} ms",
@@ -750,13 +808,14 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
+            ui.set_min_height(68.0);
+            ui.spacing_mut().item_spacing.y = 3.0;
             ui.label(
                 RichText::new("DAQCLOUD CACHE USAGE")
                     .size(10.0)
                     .strong()
                     .color(muted_color),
             );
-            ui.add_space(2.0);
             let used_pct = if cache.total_max_bytes > 0 {
                 (cache.total_used_bytes as f64 / cache.total_max_bytes as f64 * 100.0)
                     .clamp(0.0, 100.0)
@@ -775,13 +834,13 @@ impl CloudStats {
                         format_bytes(cache.total_max_bytes)
                     ))
                     .monospace()
-                    .size(15.0)
+                    .size(14.0)
                     .strong(),
                 );
                 ui.label(
                     RichText::new(format!("({used_pct:.0}% · Hit {hit_str})"))
                         .monospace()
-                        .size(11.5)
+                        .size(11.0)
                         .color(accent_color),
                 );
             });
@@ -822,13 +881,14 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
+            ui.set_min_height(68.0);
+            ui.spacing_mut().item_spacing.y = 3.0;
             ui.label(
                 RichText::new("TOTAL MEMORY USAGE (PROCESS & CACHE)")
                     .size(10.0)
                     .strong()
                     .color(muted_color),
             );
-            ui.add_space(2.0);
             let rss_str = mem
                 .process_rss_bytes
                 .map_or_else(|| "N/A".to_owned(), format_bytes);
@@ -839,12 +899,12 @@ impl CloudStats {
                 ui.label(
                     RichText::new(format!("RSS {rss_str}"))
                         .monospace()
-                        .size(15.0)
+                        .size(14.0)
                         .strong()
                         .color(Color32::from_rgb(168, 85, 247)),
                 );
                 ui.label(
-                    RichText::new(format!("(VMS {vms_str})"))
+                    RichText::new(format!("(Virtual {vms_str})"))
                         .monospace()
                         .size(11.0)
                         .color(muted_color),
@@ -886,13 +946,14 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
+            ui.set_min_height(68.0);
+            ui.spacing_mut().item_spacing.y = 3.0;
             ui.label(
                 RichText::new("VPS HOST MEMORY FREE & AVAILABLE")
                     .size(10.0)
                     .strong()
                     .color(muted_color),
             );
-            ui.add_space(2.0);
             let avail_bytes = mem.vps_available_bytes.or(mem.vps_free_bytes);
             let avail_str = avail_bytes.map_or_else(|| "N/A".to_owned(), format_bytes);
             let free_str = mem
@@ -920,12 +981,12 @@ impl CloudStats {
                 ui.label(
                     RichText::new(format!("{avail_str} Avail"))
                         .monospace()
-                        .size(15.0)
+                        .size(14.0)
                         .strong()
                         .color(free_color),
                 );
                 ui.label(
-                    RichText::new(format!("({free_str} Free / {total_str})"))
+                    RichText::new(format!("({free_str} Free / {total_str} Total)"))
                         .monospace()
                         .size(10.5)
                         .color(muted_color),
@@ -967,13 +1028,15 @@ impl CloudStats {
         muted_color: Color32,
         border_color: Color32,
     ) {
-        let avail_w = ui.available_width().max(240.0);
+        let avail_w = (ui.available_width() - 4.0).max(220.0);
+        let spacing = 6.0_f32;
         let side_by_side = avail_w >= 640.0;
-        let chart_h = 165.0_f32;
+        let chart_h = 175.0_f32;
 
         if side_by_side {
-            let col_w = ((avail_w - 8.0) * 0.5).max(200.0);
-            ui.horizontal(|ui| {
+            let col_w = ((avail_w - spacing) * 0.5).floor().max(200.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = spacing;
                 self.render_latency_chart(
                     ui,
                     col_w,
@@ -1003,6 +1066,7 @@ impl CloudStats {
                 muted_color,
                 border_color,
             );
+            ui.add_space(spacing);
             self.render_memory_history_chart(
                 ui,
                 avail_w,
@@ -1027,18 +1091,33 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
-            ui.horizontal(|ui| {
+            let inner_w = ui.available_width().max(80.0);
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new("RECENT REQUEST LATENCY (MS)")
                         .size(10.0)
                         .strong()
                         .color(muted_color),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.colored_label(Color32::from_rgb(245, 158, 11), "■ P90");
-                    ui.colored_label(accent_color, "■ Avg");
-                    ui.colored_label(Color32::from_rgb(34, 197, 94), "• Cache Hit");
-                });
+                ui.add_space(6.0);
+                ui.colored_label(
+                    Color32::from_rgb(34, 197, 94),
+                    RichText::new("• Hit").size(10.0),
+                );
+                ui.colored_label(
+                    Color32::from_rgb(245, 158, 11),
+                    RichText::new("• Miss/Decode").size(10.0),
+                );
+                ui.colored_label(
+                    accent_color,
+                    RichText::new(format!("— Avg ({:.1}ms)", stats.overall_latency.avg_ms))
+                        .size(10.0),
+                );
+                ui.colored_label(
+                    Color32::from_rgb(245, 158, 11),
+                    RichText::new(format!("-- P90 ({:.1}ms)", stats.overall_latency.p90_ms))
+                        .size(10.0),
+                );
             });
 
             let samples = &stats.recent_latency_samples;
@@ -1062,14 +1141,25 @@ impl CloudStats {
 
             let avg_ms = stats.overall_latency.avg_ms;
             let p90_ms = stats.overall_latency.p90_ms;
+            let max_sample_ms = samples
+                .iter()
+                .map(|s| s.elapsed_ms)
+                .fold(0.0_f64, f64::max)
+                .max(p90_ms)
+                .max(avg_ms)
+                .max(1.0);
 
             egui_plot::Plot::new((&self.title, "recent_latency_plot"))
-                .width((width - 14.0).max(80.0))
-                .height((height - 26.0).max(80.0))
+                .width(inner_w)
+                .height((height - 28.0).max(80.0))
                 .allow_drag(false)
                 .allow_zoom(false)
                 .allow_scroll(false)
                 .allow_boxed_zoom(false)
+                .include_x(0.0)
+                .include_x((samples.len().max(5)) as f64)
+                .include_y(0.0)
+                .include_y(max_sample_ms * 1.1)
                 .x_axis_label("Recent Requests")
                 .y_axis_label("ms")
                 .show(ui, |plot| {
@@ -1124,17 +1214,24 @@ impl CloudStats {
         border_color: Color32,
     ) {
         card_frame(ui, width, border_color, |ui| {
-            ui.horizontal(|ui| {
+            let inner_w = ui.available_width().max(80.0);
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new("MEMORY & CACHE HISTORY (MIB)")
                         .size(10.0)
                         .strong()
                         .color(muted_color),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.colored_label(Color32::from_rgb(168, 85, 247), "■ Process RSS");
-                    ui.colored_label(accent_color, "■ Cache Used");
-                });
+                ui.add_space(6.0);
+                ui.colored_label(
+                    Color32::from_rgb(168, 85, 247),
+                    RichText::new("■ Process RSS").size(10.0),
+                );
+                ui.colored_label(accent_color, RichText::new("■ Cache Used").size(10.0));
+                ui.colored_label(
+                    Color32::from_rgb(245, 158, 11),
+                    RichText::new("-- Cache Budget").size(10.0),
+                );
             });
 
             let mib = 1024.0 * 1024.0;
@@ -1158,30 +1255,55 @@ impl CloudStats {
                 .latest
                 .as_ref()
                 .map_or(0.0, |s| s.cache.total_max_bytes as f64 / mib);
+            let max_y = rss_pts
+                .iter()
+                .chain(cache_pts.iter())
+                .map(|p| p[1])
+                .fold(0.0_f64, f64::max)
+                .max(budget_mib)
+                .max(10.0);
 
             egui_plot::Plot::new((&self.title, "memory_history_plot"))
-                .width((width - 14.0).max(80.0))
-                .height((height - 26.0).max(80.0))
+                .width(inner_w)
+                .height((height - 28.0).max(80.0))
                 .allow_drag(false)
                 .allow_zoom(false)
                 .allow_scroll(false)
                 .allow_boxed_zoom(false)
-                .x_axis_label("Samples")
+                .include_x(0.0)
+                .include_x((snapshot.history.len().max(5)) as f64)
+                .include_y(0.0)
+                .include_y(max_y * 1.15)
+                .x_axis_label("Poll Samples")
                 .y_axis_label("MiB")
                 .show(ui, |plot| {
                     if !rss_pts.is_empty() {
                         plot.line(
-                            egui_plot::Line::new("Process RSS (MiB)", rss_pts)
+                            egui_plot::Line::new("Process RSS (MiB)", rss_pts.clone())
                                 .color(Color32::from_rgb(168, 85, 247))
                                 .width(1.8_f32),
                         );
+                        if rss_pts.len() <= 20 {
+                            plot.points(
+                                egui_plot::Points::new("Process RSS", rss_pts)
+                                    .color(Color32::from_rgb(168, 85, 247))
+                                    .radius(3.0_f32),
+                            );
+                        }
                     }
                     if !cache_pts.is_empty() {
                         plot.line(
-                            egui_plot::Line::new("Cache Used (MiB)", cache_pts)
+                            egui_plot::Line::new("Cache Used (MiB)", cache_pts.clone())
                                 .color(accent_color)
                                 .width(1.8_f32),
                         );
+                        if cache_pts.len() <= 20 {
+                            plot.points(
+                                egui_plot::Points::new("Cache Used", cache_pts)
+                                    .color(accent_color)
+                                    .radius(3.0_f32),
+                            );
+                        }
                     }
                     if budget_mib > 0.0 {
                         plot.hline(
@@ -1203,7 +1325,7 @@ impl CloudStats {
         muted_color: Color32,
         border_color: Color32,
     ) {
-        let avail_w = ui.available_width().max(240.0);
+        let avail_w = (ui.available_width() - 4.0).max(220.0);
         self.render_endpoint_latency_table(
             ui,
             avail_w,
@@ -1404,6 +1526,96 @@ impl CloudStats {
                             ui.label(RichText::new("Local RAM").monospace().size(11.0));
                             ui.end_row();
                         });
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    let m = &stats.memory;
+                    let st = &stats.store;
+                    let rss = m
+                        .process_rss_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let vms = m
+                        .process_virtual_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let vps_tot = m
+                        .vps_total_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let vps_avail = m
+                        .vps_available_bytes
+                        .or(m.vps_free_bytes)
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let vps_free = m
+                        .vps_free_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let vps_buf = m
+                        .vps_buffers_cached_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let swap_free = m
+                        .vps_swap_free_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+                    let swap_tot = m
+                        .vps_swap_total_bytes
+                        .map_or_else(|| "N/A".to_owned(), format_bytes);
+
+                    egui::Grid::new((&self.title, "vps_system_store_grid"))
+                        .striped(true)
+                        .spacing([18.0, 4.0])
+                        .show(ui, |ui| {
+                            for h in [
+                                "System & Store Resource",
+                                "Primary Metric",
+                                "Secondary / Capacity",
+                                "Details",
+                            ] {
+                                ui.label(RichText::new(h).size(10.5).strong().color(muted_color));
+                            }
+                            ui.end_row();
+
+                            for (name, primary, secondary, details) in [
+                                (
+                                    "daqcloud Process Memory",
+                                    format!("RSS: {rss}"),
+                                    format!("Virtual: {vms}"),
+                                    format!(
+                                        "Cache: {} / {}",
+                                        format_bytes(stats.cache.total_used_bytes),
+                                        format_bytes(stats.cache.total_max_bytes)
+                                    ),
+                                ),
+                                (
+                                    "VPS Host Physical Memory",
+                                    format!("Available: {vps_avail}"),
+                                    format!("Free: {vps_free} / Total: {vps_tot}"),
+                                    format!("Buffers + Cached: {vps_buf}"),
+                                ),
+                                (
+                                    "VPS Host Swap Memory",
+                                    format!("Swap Free: {swap_free}"),
+                                    format!("Swap Total: {swap_tot}"),
+                                    format!("Active WS Clients: {}", stats.active_ws_clients),
+                                ),
+                                (
+                                    "daqcloud Store Inventory",
+                                    format!("Disk: {}", format_bytes(st.store_disk_bytes)),
+                                    format!(
+                                        "{} Partitions across {} Track Days",
+                                        st.partitions, st.track_days
+                                    ),
+                                    format!(
+                                        "{} Annotations  ·  {} Derived Signals",
+                                        st.annotations, st.derived_signals
+                                    ),
+                                ),
+                            ] {
+                                ui.label(RichText::new(name).size(11.0));
+                                ui.label(RichText::new(primary).monospace().size(11.0).strong());
+                                ui.label(RichText::new(secondary).monospace().size(11.0));
+                                ui.label(RichText::new(details).monospace().size(11.0));
+                                ui.end_row();
+                            }
+                        });
                 });
         });
     }
@@ -1454,19 +1666,30 @@ fn card_frame(
     width: f32,
     border_color: Color32,
     add_contents: impl FnOnce(&mut egui::Ui),
-) {
+) -> egui::Rect {
     let theme = ui::theme::get_theme(ui.ctx());
-    egui::Frame::NONE
-        .fill(theme.panel_color())
-        .stroke(Stroke::new(1.0_f32, border_color))
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::symmetric(8, 6))
-        .show(ui, |ui| {
-            let inner_w = (width - 18.0).max(80.0);
-            ui.set_width(inner_w);
-            ui.set_max_width(inner_w);
-            add_contents(ui);
-        });
+    let inner_w = (width - 18.0).max(80.0);
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            ui.set_width(width);
+            ui.set_max_width(width);
+            egui::Frame::NONE
+                .fill(theme.panel_color())
+                .stroke(Stroke::new(1.0_f32, border_color))
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.set_width(inner_w);
+                    ui.set_max_width(inner_w);
+                    add_contents(ui);
+                })
+                .response
+                .rect
+        },
+    )
+    .inner
 }
 
 fn draw_split_usage_bar(
@@ -1691,10 +1914,16 @@ mod tests {
             )),
             ..Default::default()
         };
+        let mut recorded_max_right = 0.0_f32;
+        let mut panel_right = 0.0_f32;
+        let mut kpi_height = 0.0_f32;
+        let mut chart_height = 0.0_f32;
         let _ = ctx.run(raw, |ctx| {
             state.update_frame(&mut platform, ctx);
             egui::CentralPanel::default().show(ctx, |ui| {
+                panel_right = ui.max_rect().right();
                 let widget = CloudStats::new(1);
+                let top_y = ui.cursor().top();
                 widget.show_kpi_cards_row(
                     ui,
                     &sample_stats,
@@ -1703,6 +1932,8 @@ mod tests {
                     Color32::GRAY,
                     Color32::DARK_GRAY,
                 );
+                kpi_height = ui.cursor().top() - top_y;
+                let chart_top_y = ui.cursor().top();
                 widget.show_charts_row(
                     ui,
                     &sample_stats,
@@ -1711,6 +1942,7 @@ mod tests {
                     Color32::GRAY,
                     Color32::DARK_GRAY,
                 );
+                chart_height = ui.cursor().top() - chart_top_y;
                 widget.show_tables_row(
                     ui,
                     &sample_stats,
@@ -1719,7 +1951,20 @@ mod tests {
                     Color32::GRAY,
                     Color32::DARK_GRAY,
                 );
+                recorded_max_right = ui.min_rect().right();
             });
         });
+        assert!(
+            recorded_max_right <= panel_right + 1.0,
+            "CloudStats content overflowed right edge of panel: content_right={recorded_max_right}, panel_right={panel_right}"
+        );
+        assert!(
+            kpi_height >= 130.0,
+            "Expected 2x2 KPI cards grid height >= 130px when sidebar is open, got {kpi_height}"
+        );
+        assert!(
+            (160.0..=230.0).contains(&chart_height),
+            "Expected side-by-side chart row height in 160..=230px, got {chart_height}"
+        );
     }
 }

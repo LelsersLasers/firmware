@@ -146,7 +146,7 @@ struct CloudMetrics {
     sha256_hits: AtomicU64,
     sha256_misses: AtomicU64,
     latency: Mutex<LatencyTracker>,
-    cached_store_disk_bytes: Mutex<Option<(Instant, u64)>>,
+    cached_store_stats: Mutex<Option<(Instant, CloudStoreStats)>>,
 }
 
 impl Default for CloudMetrics {
@@ -164,7 +164,7 @@ impl Default for CloudMetrics {
             sha256_hits: AtomicU64::new(0),
             sha256_misses: AtomicU64::new(0),
             latency: Mutex::new(LatencyTracker::default()),
-            cached_store_disk_bytes: Mutex::new(None),
+            cached_store_stats: Mutex::new(None),
         }
     }
 }
@@ -477,7 +477,7 @@ impl AppState {
     }
 
     pub fn invalidate_store_disk_cache(&self) {
-        if let Ok(mut guard) = self.metrics.cached_store_disk_bytes.lock() {
+        if let Ok(mut guard) = self.metrics.cached_store_stats.lock() {
             *guard = None;
         }
     }
@@ -599,6 +599,7 @@ impl AppState {
         if let Ok(mut g) = self.catalog_cache.lock() {
             *g = None;
         }
+        self.invalidate_store_disk_cache();
     }
 
     pub fn enforce_memory_budget(&self) {
@@ -689,20 +690,16 @@ impl AppState {
     }
 
     pub fn store_disk_bytes(&self) -> u64 {
-        if let Ok(guard) = self.metrics.cached_store_disk_bytes.lock()
-            && let Some((ts, bytes)) = *guard
-            && ts.elapsed() < STORE_DISK_CACHE_TTL
-        {
-            return bytes;
-        }
-        let bytes = compute_dir_size_bytes(&self.store_dir);
-        if let Ok(mut guard) = self.metrics.cached_store_disk_bytes.lock() {
-            *guard = Some((Instant::now(), bytes));
-        }
-        bytes
+        self.collect_store_stats().store_disk_bytes
     }
 
     pub fn collect_store_stats(&self) -> CloudStoreStats {
+        if let Ok(guard) = self.metrics.cached_store_stats.lock()
+            && let Some((ts, ref stats)) = *guard
+            && ts.elapsed() < STORE_DISK_CACHE_TTL
+        {
+            return stats.clone();
+        }
         let track_days = self
             .registry
             .list_track_days()
@@ -723,13 +720,17 @@ impl AppState {
             .list_derived_signals(false)
             .map(|v| v.len())
             .unwrap_or(0);
-        CloudStoreStats {
+        let stats = CloudStoreStats {
             track_days,
             partitions,
             annotations,
             derived_signals,
-            store_disk_bytes: self.store_disk_bytes(),
+            store_disk_bytes: compute_dir_size_bytes(&self.store_dir),
+        };
+        if let Ok(mut guard) = self.metrics.cached_store_stats.lock() {
+            *guard = Some((Instant::now(), stats.clone()));
         }
+        stats
     }
 
     pub fn collect_stats_response(&self) -> CloudStatsResponse {
