@@ -1026,6 +1026,28 @@ impl Registry {
         Ok(rows.into_iter().map(DerivedSignalDef::from).collect())
     }
 
+    /// Return `(track_days, partitions, active_annotations, active_derived_signals)` counts via
+    /// lightweight SQL `COUNT(*)` queries without deserializing `manifest_json` or 5,700+ rows.
+    pub fn count_store_entities(&self) -> Result<(usize, usize, usize, usize), RegistryError> {
+        let mut conn = self.pool.get()?;
+        let td_count: i64 = track_days::table.count().get_result(&mut conn)?;
+        let part_count: i64 = partitions::table.count().get_result(&mut conn)?;
+        let ann_count: i64 = annotations::table
+            .filter(annotations::deleted.eq(false))
+            .count()
+            .get_result(&mut conn)?;
+        let sig_count: i64 = derived_signals::table
+            .filter(derived_signals::deleted.eq(false))
+            .count()
+            .get_result(&mut conn)?;
+        Ok((
+            td_count.max(0) as usize,
+            part_count.max(0) as usize,
+            ann_count.max(0) as usize,
+            sig_count.max(0) as usize,
+        ))
+    }
+
     pub fn list_derived_signals_updated_since(
         &self,
         since_utc_ms: i64,

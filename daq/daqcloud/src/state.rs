@@ -25,7 +25,7 @@ const DEFAULT_MAX_CONCURRENT_DECODES: usize = 2;
 const OVERALL_LATENCY_WINDOW: usize = 1024;
 const ENDPOINT_LATENCY_WINDOW: usize = 256;
 const RECENT_LATENCY_SAMPLES_CAP: usize = 120;
-const STORE_DISK_CACHE_TTL: Duration = Duration::from_secs(5);
+const STORE_DISK_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug)]
 pub struct CacheHitMarker(pub bool);
@@ -700,26 +700,10 @@ impl AppState {
         {
             return stats.clone();
         }
-        let track_days = self
+        let (track_days, partitions, annotations, derived_signals) = self
             .registry
-            .list_track_days()
-            .map(|v| v.len())
-            .unwrap_or(0);
-        let partitions = self
-            .registry
-            .list_all_partitions()
-            .map(|v| v.len())
-            .unwrap_or(0);
-        let annotations = self
-            .registry
-            .list_annotations_updated_since(0)
-            .map(|v| v.into_iter().filter(|a| !a.deleted).count())
-            .unwrap_or(0);
-        let derived_signals = self
-            .registry
-            .list_derived_signals(false)
-            .map(|v| v.len())
-            .unwrap_or(0);
+            .count_store_entities()
+            .unwrap_or((0, 0, 0, 0));
         let stats = CloudStoreStats {
             track_days,
             partitions,
