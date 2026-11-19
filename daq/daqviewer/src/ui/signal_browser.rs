@@ -391,12 +391,16 @@ fn show_clean_channel_row(
                 )
             });
             let active_day = router.timeline().active_track_day_id().map(str::to_owned);
-            let mut fault_occs: Vec<daqcore::storage::Annotation> = router
-                .query_annotations_in_range(day_min..=day_max)
-                .unwrap_or_default()
-                .into_iter()
+            let all_anns = router.all_annotations_cached().unwrap_or_default();
+            let mut fault_occs: Vec<&daqcore::storage::Annotation> = all_anns
+                .iter()
                 .filter(|a| {
-                    a.category == "fault"
+                    let in_range = match a.end_utc_ms {
+                        None => a.start_utc_ms >= day_min && a.start_utc_ms <= day_max,
+                        Some(end_ms) => a.start_utc_ms <= day_max && end_ms >= day_min,
+                    };
+                    in_range
+                        && a.category == "fault"
                         && active_day.as_deref().is_none_or(|d| a.track_day_id == d)
                         && a.fault_signal_id() == Some(sig_id.as_str())
                 })

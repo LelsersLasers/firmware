@@ -11,7 +11,9 @@ const MAX_CONTIGUOUS_GAP_MS: i64 = 2_500;
 const MAX_CONTIGUOUS_STEP_METERS: f64 = 50.0;
 const GPS_FULL_RES_THRESHOLD_MS: i64 = 5 * 60 * 1_000;
 const GPS_OVERVIEW_10HZ_THRESHOLD_MS: i64 = 30 * 60 * 1_000;
-const MAX_TRAIL_POINTS: usize = 16_384;
+const MAX_TRAIL_POINTS: usize = 2_048;
+const TRAIL_COLOR_BINS: usize = 16;
+const TRAIL_AGE_BINS: usize = 8;
 
 const QUICK_COLOR_CHANNELS: &[(&str, &str, &str)] = &[
     ("Speed", "gps_speed_heading.gps_speed", "m/s"),
@@ -45,6 +47,33 @@ impl walkers::sources::TileSource for EsriWorldImagery {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GpsCacheKey {
+    start_ms: i64,
+    end_ms: i64,
+    resolution: daqcore::router::Resolution,
+    staleness_ms: i64,
+    max_distance_meters_bits: u64,
+    overlay_signal: Option<String>,
+    data_revision: u64,
+}
+
+#[derive(Clone, Copy)]
+struct BaseTrailPoint {
+    utc_ms: i64,
+    position: walkers::Position,
+    norm_val: Option<f32>,
+    gap_before: bool,
+}
+
+struct CachedGpsData {
+    key: GpsCacheKey,
+    gps_points: Vec<(i64, f64, f64)>,
+    overlay_samples: Vec<(i64, f64)>,
+    overlay_min_max: Option<(f64, f64)>,
+    base_trail: Rc<[BaseTrailPoint]>,
+}
+
 pub struct GpsPlot {
     pub title: String,
     instance_num: usize,
@@ -54,6 +83,7 @@ pub struct GpsPlot {
     max_distance_meters: f64,
     show_picker: bool,
     search_query: String,
+    cached_data: Option<CachedGpsData>,
 }
 
 impl GpsPlot {
@@ -67,6 +97,7 @@ impl GpsPlot {
             max_distance_meters: DEFAULT_MAX_DISTANCE_METERS,
             show_picker: false,
             search_query: String::new(),
+            cached_data: None,
         }
     }
 
@@ -182,53 +213,123 @@ impl GpsPlot {
             return egui_tiles::UiResponse::None;
         }
 
-        let window_ms = view
-            .timeline
-            .end_utc_ms()
-            .saturating_sub(view.timeline.start_utc_ms());
+        let start_ms = view.timeline.start_utc_ms();
+        let end_ms = view.timeline.end_utc_ms();
+        let window_ms = end_ms.saturating_sub(start_ms);
         let res = gps_resolution_for_span(window_ms);
         let staleness_ms = view.router.formula_engine().max_staleness_ms().max(1_000);
 
-        let lat_series = view.query_signal("gps_coordinates.latitude", res);
-        let lon_series = view.query_signal("gps_coordinates.longitude", res);
-        let gps_points = filter_and_align_gps_points(
-            &lat_series,
-            &lon_series,
+        let cache_key = GpsCacheKey {
+            start_ms,
+            end_ms,
+            resolution: res,
             staleness_ms,
-            Some(self.max_distance_meters),
-        );
-
-        let overlay_samples: Vec<(i64, f64)> = if let Some((sig_id, _)) = &self.overlay_signal {
-            match view.query_signal(sig_id, res) {
-                daqcore::router::SignalSeries::Exact {
-                    timestamps_ms,
-                    values,
-                } => timestamps_ms
-                    .into_iter()
-                    .zip(values)
-                    .filter(|(_, v)| v.is_finite())
-                    .collect(),
-                daqcore::router::SignalSeries::Envelope(buckets) => buckets
-                    .into_iter()
-                    .filter(|b| b.mean.is_finite())
-                    .map(|b| (b.utc_ms, b.mean))
-                    .collect(),
-            }
-        } else {
-            Vec::new()
+            max_distance_meters_bits: self.max_distance_meters.to_bits(),
+            overlay_signal: self.overlay_signal.as_ref().map(|(id, _)| id.clone()),
+            data_revision: view.data_revision(),
         };
 
-        let overlay_min_max = if overlay_samples.is_empty() {
-            None
-        } else {
-            let mut min_v = f64::INFINITY;
-            let mut max_v = f64::NEG_INFINITY;
-            for &(_, v) in &overlay_samples {
-                min_v = min_v.min(v);
-                max_v = max_v.max(v);
+        if self.cached_data.as_ref().is_none_or(|c| c.key != cache_key) {
+            let lat_series = view.query_signal("gps_coordinates.latitude", res);
+            let lon_series = view.query_signal("gps_coordinates.longitude", res);
+            let gps_points = filter_and_align_gps_points(
+                &lat_series,
+                &lon_series,
+                staleness_ms,
+                Some(self.max_distance_meters),
+            );
+
+            let overlay_samples: Vec<(i64, f64)> = if let Some((sig_id, _)) = &self.overlay_signal {
+                match view.query_signal(sig_id, res) {
+                    daqcore::router::SignalSeries::Exact {
+                        timestamps_ms,
+                        values,
+                    } => timestamps_ms
+                        .into_iter()
+                        .zip(values)
+                        .filter(|(_, v)| v.is_finite())
+                        .collect(),
+                    daqcore::router::SignalSeries::Envelope(buckets) => buckets
+                        .into_iter()
+                        .filter(|b| b.mean.is_finite())
+                        .map(|b| (b.utc_ms, b.mean))
+                        .collect(),
+                }
+            } else {
+                Vec::new()
+            };
+
+            let overlay_min_max = if overlay_samples.is_empty() {
+                None
+            } else {
+                let mut min_v = f64::INFINITY;
+                let mut max_v = f64::NEG_INFINITY;
+                for &(_, v) in &overlay_samples {
+                    min_v = min_v.min(v);
+                    max_v = max_v.max(v);
+                }
+                (min_v.is_finite() && max_v.is_finite()).then_some((min_v, max_v))
+            };
+
+            let stride = gps_points.len().div_ceil(MAX_TRAIL_POINTS).max(1);
+            let mut base_trail: Vec<BaseTrailPoint> =
+                Vec::with_capacity(gps_points.len() / stride + 2);
+            let mut prev_trail_fix: Option<(i64, f64, f64)> = None;
+            for &(t_ms, lat, lon) in gps_points.iter().step_by(stride) {
+                let norm_val = overlay_min_max.and_then(|(min_v, max_v)| {
+                    let idx = overlay_samples
+                        .partition_point(|(ts, _)| *ts <= t_ms)
+                        .saturating_sub(1);
+                    let (_, val) = *overlay_samples.get(idx)?;
+                    let denom = (max_v - min_v).abs().max(1e-6);
+                    Some(((val - min_v) / denom).clamp(0.0, 1.0) as f32)
+                });
+                let gap_before = prev_trail_fix.is_some_and(|(pt, plat, plon)| {
+                    let dt_ms = t_ms.saturating_sub(pt);
+                    let step_m = equirectangular_distance_m(plat, plon, lat, lon);
+                    dt_ms > MAX_CONTIGUOUS_GAP_MS * (stride as i64)
+                        || step_m > MAX_CONTIGUOUS_STEP_METERS * (stride as f64)
+                });
+                prev_trail_fix = Some((t_ms, lat, lon));
+                base_trail.push(BaseTrailPoint {
+                    utc_ms: t_ms,
+                    position: walkers::lon_lat(lon, lat),
+                    norm_val,
+                    gap_before,
+                });
             }
-            (min_v.is_finite() && max_v.is_finite()).then_some((min_v, max_v))
-        };
+
+            if let Some(&(last_t, last_lat, last_lon)) = gps_points.last()
+                && base_trail.last().is_none_or(|tp| tp.utc_ms != last_t)
+            {
+                let norm_val = base_trail.last().and_then(|tp| tp.norm_val);
+                let gap_before = prev_trail_fix.is_some_and(|(pt, plat, plon)| {
+                    let dt_ms = last_t.saturating_sub(pt);
+                    let step_m = equirectangular_distance_m(plat, plon, last_lat, last_lon);
+                    dt_ms > MAX_CONTIGUOUS_GAP_MS || step_m > MAX_CONTIGUOUS_STEP_METERS
+                });
+                base_trail.push(BaseTrailPoint {
+                    utc_ms: last_t,
+                    position: walkers::lon_lat(last_lon, last_lat),
+                    norm_val,
+                    gap_before,
+                });
+            }
+
+            self.cached_data = Some(CachedGpsData {
+                key: cache_key,
+                gps_points,
+                overlay_samples,
+                overlay_min_max,
+                base_trail: Rc::from(base_trail),
+            });
+        }
+
+        let cached = self.cached_data.as_ref().expect("gps cache initialized");
+        let gps_points = &cached.gps_points;
+        let overlay_samples = &cached.overlay_samples;
+        let overlay_min_max = cached.overlay_min_max;
+        let base_trail = Rc::clone(&cached.base_trail);
 
         let setpoint_ms = view.timeline.setpoint_utc_ms();
         let hover_ms = view.hover_utc_ms();
@@ -387,63 +488,6 @@ impl GpsPlot {
             self.map_memory.center_at(center_pos);
         }
 
-        let start_ms = view.timeline.start_utc_ms();
-        let span_ms = (setpoint_ms - start_ms).max(1) as f64;
-        let stride = gps_points.len().div_ceil(MAX_TRAIL_POINTS).max(1);
-
-        let mut trail: Vec<TrailPoint> = Vec::with_capacity(gps_points.len() / stride + 2);
-        let mut prev_trail_fix: Option<(i64, f64, f64)> = None;
-        for &(t_ms, lat, lon) in gps_points.iter().step_by(stride) {
-            let before_setpoint = t_ms <= setpoint_ms;
-            let age_fraction = if before_setpoint {
-                ((t_ms - start_ms) as f64 / span_ms).clamp(0.0, 1.0) as f32
-            } else {
-                0.22
-            };
-            let norm_val = overlay_min_max.and_then(|(min_v, max_v)| {
-                let idx = overlay_samples
-                    .partition_point(|(ts, _)| *ts <= t_ms)
-                    .saturating_sub(1);
-                let (_, val) = *overlay_samples.get(idx)?;
-                let denom = (max_v - min_v).abs().max(1e-6);
-                Some(((val - min_v) / denom).clamp(0.0, 1.0) as f32)
-            });
-            let gap_before = prev_trail_fix.is_some_and(|(pt, plat, plon)| {
-                let dt_ms = t_ms.saturating_sub(pt);
-                let step_m = equirectangular_distance_m(plat, plon, lat, lon);
-                dt_ms > MAX_CONTIGUOUS_GAP_MS * (stride as i64)
-                    || step_m > MAX_CONTIGUOUS_STEP_METERS * (stride as f64)
-            });
-            prev_trail_fix = Some((t_ms, lat, lon));
-            trail.push(TrailPoint {
-                utc_ms: t_ms,
-                position: walkers::lon_lat(lon, lat),
-                age_fraction,
-                before_setpoint,
-                norm_val,
-                gap_before,
-            });
-        }
-
-        if let Some(&(last_t, last_lat, last_lon)) = gps_points.last()
-            && trail.last().is_none_or(|tp| tp.utc_ms != last_t)
-        {
-            let norm_val = trail.last().and_then(|tp| tp.norm_val);
-            let gap_before = prev_trail_fix.is_some_and(|(pt, plat, plon)| {
-                let dt_ms = last_t.saturating_sub(pt);
-                let step_m = equirectangular_distance_m(plat, plon, last_lat, last_lon);
-                dt_ms > MAX_CONTIGUOUS_GAP_MS || step_m > MAX_CONTIGUOUS_STEP_METERS
-            });
-            trail.push(TrailPoint {
-                utc_ms: last_t,
-                position: walkers::lon_lat(last_lon, last_lat),
-                age_fraction: 1.0,
-                before_setpoint: last_t <= setpoint_ms,
-                norm_val,
-                gap_before,
-            });
-        }
-
         let hovered_out = Rc::new(Cell::new(None));
         let clicked_out = Rc::new(Cell::new(None));
 
@@ -454,7 +498,9 @@ impl GpsPlot {
         ui.add(
             walkers::Map::new(Some(tiles), &mut self.map_memory, center_pos).with_plugin(
                 CarTrajectoryPlugin {
-                    trail,
+                    trail: base_trail,
+                    start_ms,
+                    setpoint_ms,
                     playhead_pos: playhead_fix.map(|(_, lat, lon)| walkers::lon_lat(lon, lat)),
                     hover_pos: hover_fix.map(|(_, lat, lon)| walkers::lon_lat(lon, lat)),
                     hovered_utc_ms: Rc::clone(&hovered_out),
@@ -648,22 +694,65 @@ fn find_gps_at_or_before(points: &[(i64, f64, f64)], target_ms: i64) -> Option<(
     Some(points[idx])
 }
 
-#[derive(Clone, Copy)]
-struct TrailPoint {
-    utc_ms: i64,
-    position: walkers::Position,
-    age_fraction: f32,
-    before_setpoint: bool,
-    norm_val: Option<f32>,
-    gap_before: bool,
-}
-
 struct CarTrajectoryPlugin {
-    trail: Vec<TrailPoint>,
+    trail: Rc<[BaseTrailPoint]>,
+    start_ms: i64,
+    setpoint_ms: i64,
     playhead_pos: Option<walkers::Position>,
     hover_pos: Option<walkers::Position>,
     hovered_utc_ms: Rc<Cell<Option<i64>>>,
     clicked_utc_ms: Rc<Cell<Option<i64>>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TrailStyleKey {
+    color_bin: u8,
+    age_bin: u8,
+    before_setpoint: bool,
+}
+
+fn trail_style_for(tp: BaseTrailPoint, start_ms: i64, setpoint_ms: i64, span_ms: f64) -> (TrailStyleKey, eframe::egui::Stroke) {
+    let before_setpoint = tp.utc_ms <= setpoint_ms;
+    let age_bin = if before_setpoint {
+        let age_fraction = ((tp.utc_ms - start_ms) as f64 / span_ms).clamp(0.0, 1.0) as f32;
+        ((age_fraction * (TRAIL_AGE_BINS - 1) as f32).round() as usize).min(TRAIL_AGE_BINS - 1) as u8
+    } else {
+        0
+    };
+    let color_bin = match tp.norm_val {
+        Some(v) => ((v.clamp(0.0, 1.0) * (TRAIL_COLOR_BINS - 1) as f32).round() as usize)
+            .min(TRAIL_COLOR_BINS - 1) as u8,
+        None => u8::MAX,
+    };
+
+    let q_age = if before_setpoint {
+        f32::from(age_bin) / (TRAIL_AGE_BINS - 1) as f32
+    } else {
+        0.22
+    };
+    let alpha = if before_setpoint {
+        0.35 + 0.65 * q_age
+    } else {
+        0.28
+    };
+    let width = if before_setpoint {
+        1.6 + 2.0 * q_age
+    } else {
+        1.3
+    };
+    let base_color = if color_bin == u8::MAX {
+        eframe::egui::Color32::from_rgb(80, 190, 255)
+    } else {
+        ui::xy_scatter::scalar_to_color(f32::from(color_bin) / (TRAIL_COLOR_BINS - 1) as f32)
+    };
+    (
+        TrailStyleKey {
+            color_bin,
+            age_bin,
+            before_setpoint,
+        },
+        eframe::egui::Stroke::new(width, base_color.gamma_multiply(alpha)),
+    )
 }
 
 impl walkers::Plugin for CarTrajectoryPlugin {
@@ -685,31 +774,47 @@ impl walkers::Plugin for CarTrajectoryPlugin {
             .map(|tp| projector.project(tp.position).to_pos2())
             .collect();
 
+        let span_ms = (self.setpoint_ms - self.start_ms).max(1) as f64;
+        let mut batch: Vec<eframe::egui::Pos2> = Vec::with_capacity(64);
+        let mut active_style: Option<(TrailStyleKey, eframe::egui::Stroke)> = None;
+
+        let flush_batch = |batch: &mut Vec<eframe::egui::Pos2>,
+                           style: &mut Option<(TrailStyleKey, eframe::egui::Stroke)>| {
+            if batch.len() >= 2
+                && let Some((_, stroke)) = *style
+            {
+                painter.add(eframe::egui::Shape::line(std::mem::take(batch), stroke));
+            } else {
+                batch.clear();
+            }
+            *style = None;
+        };
+
         for i in 1..screen_points.len() {
             let tp = self.trail[i];
             if tp.gap_before {
+                flush_batch(&mut batch, &mut active_style);
                 continue;
             }
-            let alpha = if tp.before_setpoint {
-                0.35 + 0.65 * tp.age_fraction
-            } else {
-                0.28
-            };
-            let width = if tp.before_setpoint {
-                1.6 + 2.0 * tp.age_fraction
-            } else {
-                1.3
-            };
-            let base_color = tp
-                .norm_val
-                .map(ui::xy_scatter::scalar_to_color)
-                .unwrap_or(eframe::egui::Color32::from_rgb(80, 190, 255));
-
-            painter.line_segment(
-                [screen_points[i - 1], screen_points[i]],
-                eframe::egui::Stroke::new(width, base_color.gamma_multiply(alpha)),
-            );
+            let p0 = screen_points[i - 1];
+            let p1 = screen_points[i];
+            if p0.distance_sq(p1) < 1.0 {
+                continue;
+            }
+            let (style_key, stroke) = trail_style_for(tp, self.start_ms, self.setpoint_ms, span_ms);
+            match active_style {
+                Some((cur_key, _)) if cur_key == style_key && batch.last() == Some(&p0) => {
+                    batch.push(p1);
+                }
+                _ => {
+                    flush_batch(&mut batch, &mut active_style);
+                    batch.push(p0);
+                    batch.push(p1);
+                    active_style = Some((style_key, stroke));
+                }
+            }
         }
+        flush_batch(&mut batch, &mut active_style);
 
         let theme = ui::theme::get_theme(ui.ctx());
 
