@@ -257,13 +257,15 @@ impl GapFoldedProjection {
         if utc_ms >= self.day_end_ms {
             return 1.0;
         }
-        for seg in &self.segments {
-            if utc_ms >= seg.start_utc_ms && utc_ms <= seg.end_utc_ms {
-                let dur = (seg.end_utc_ms - seg.start_utc_ms).max(1) as f64;
-                let t = (utc_ms - seg.start_utc_ms) as f64 / dur;
-                let frac = f64::from(seg.frac_start) + t * f64::from(seg.frac_end - seg.frac_start);
-                return (frac as f32).clamp(0.0, 1.0);
-            }
+        let idx = self.segments.partition_point(|seg| seg.end_utc_ms < utc_ms);
+        if let Some(seg) = self.segments.get(idx)
+            && utc_ms >= seg.start_utc_ms
+            && utc_ms <= seg.end_utc_ms
+        {
+            let dur = (seg.end_utc_ms - seg.start_utc_ms).max(1) as f64;
+            let t = (utc_ms - seg.start_utc_ms) as f64 / dur;
+            let frac = f64::from(seg.frac_start) + t * f64::from(seg.frac_end - seg.frac_start);
+            return (frac as f32).clamp(0.0, 1.0);
         }
         1.0
     }
@@ -277,13 +279,15 @@ impl GapFoldedProjection {
         if f >= 1.0 {
             return self.day_end_ms;
         }
-        for seg in &self.segments {
-            if f >= seg.frac_start && f <= seg.frac_end {
-                let w = f64::from((seg.frac_end - seg.frac_start).max(1e-6));
-                let local = f64::from(f - seg.frac_start) / w;
-                let dur = (seg.end_utc_ms - seg.start_utc_ms) as f64;
-                return seg.start_utc_ms + (local * dur).round() as i64;
-            }
+        let idx = self.segments.partition_point(|seg| seg.frac_end < f);
+        if let Some(seg) = self.segments.get(idx)
+            && f >= seg.frac_start
+            && f <= seg.frac_end
+        {
+            let w = f64::from((seg.frac_end - seg.frac_start).max(1e-6));
+            let local = f64::from(f - seg.frac_start) / w;
+            let dur = (seg.end_utc_ms - seg.start_utc_ms) as f64;
+            return seg.start_utc_ms + (local * dur).round() as i64;
         }
         self.day_end_ms
     }
