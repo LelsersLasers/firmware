@@ -179,6 +179,7 @@ pub struct WebCloudRouterBackend {
     repaint_cb: Option<RepaintCallback>,
     ev_tx: mpsc::Sender<WebCloudEvent>,
     ev_rx: mpsc::Receiver<WebCloudEvent>,
+    active_track_day_id: Option<String>,
     in_flight_preloads: HashSet<String>,
     preloaded_partitions: HashSet<String>,
     last_catalog_poll: Option<web_time::Instant>,
@@ -202,6 +203,7 @@ impl WebCloudRouterBackend {
             repaint_cb: None,
             ev_tx,
             ev_rx,
+            active_track_day_id: None,
             in_flight_preloads: HashSet::new(),
             preloaded_partitions: HashSet::new(),
             last_catalog_poll: None,
@@ -380,6 +382,30 @@ impl WebCloudRouterBackend {
         });
     }
 
+    fn enqueue_preloads_for_active_day(&mut self) {
+        let target_day = self
+            .active_track_day_id
+            .clone()
+            .or_else(|| self.catalog.list_track_days().last().map(|d| d.id.clone()));
+        let part_ids: Vec<String> = self
+            .catalog
+            .list_partitions()
+            .into_iter()
+            .filter(|p| {
+                target_day
+                    .as_deref()
+                    .is_none_or(|day_id| p.track_day_id == day_id)
+            })
+            .map(|p| p.partition_id)
+            .collect();
+        for part_id in part_ids {
+            self.spawn_preload_fetch(part_id);
+        }
+        if !self.in_flight_preloads.is_empty() {
+            self.update_connected_status();
+        }
+    }
+
     fn update_connected_status(&mut self) {
         if let Some(url) = &self.base_url {
             self.status = CloudSyncStatus::Connected {
@@ -548,11 +574,14 @@ impl RouterBackend for WebCloudRouterBackend {
     fn connect_cloud(
         &mut self,
         base_url: String,
-        _active_track_day_id: Option<String>,
+        active_track_day_id: Option<String>,
     ) -> Result<(), RouterError> {
         let normalized = base_url.trim().trim_end_matches('/').to_owned();
         self.loader.set_base_url(Some(normalized.clone()));
         self.base_url = Some(normalized.clone());
+        if active_track_day_id.is_some() {
+            self.active_track_day_id = active_track_day_id;
+        }
         self.status = CloudSyncStatus::Connecting { url: normalized };
         self.catalog_in_flight = false;
         self.annotations_in_flight = false;
@@ -562,6 +591,24 @@ impl RouterBackend for WebCloudRouterBackend {
         self.last_derived_sync_ms = 0;
         self.spawn_catalog_fetch();
         Ok(())
+    }
+
+    fn set_active_track_day(&mut self, track_day_id: Option<String>) {
+        self.active_track_day_id = track_day_id;
+        if self.initial_catalog_loaded {
+            self.enqueue_preloads_for_active_day();
+        }
+    }
+
+    fn request_partition_download(&mut self, partition_id: &str) -> bool {
+        if self.preloaded_partitions.contains(partition_id)
+            || self.in_flight_preloads.contains(partition_id)
+        {
+            return false;
+        }
+        self.spawn_preload_fetch(partition_id.to_owned());
+        self.update_connected_status();
+        true
     }
 
     fn disconnect_cloud(&mut self) {
@@ -609,7 +656,7 @@ impl RouterBackend for WebCloudRouterBackend {
         }
 
         let mut outcome = CloudPollOutcome::default();
-        let mut pending_preloads = Vec::new();
+        let mut catalog_updated = false;
 
         while let Ok(ev) = self.ev_rx.try_recv() {
             outcome.events_processed += 1;
@@ -617,6 +664,7 @@ impl RouterBackend for WebCloudRouterBackend {
                 WebCloudEvent::CatalogLoaded { catalog } => {
                     self.catalog_in_flight = false;
                     self.initial_catalog_loaded = true;
+                    catalog_updated = true;
                     let prev_part_count = self.catalog.list_partitions().len();
                     for td in &catalog.track_days {
                         self.catalog.upsert_track_day(td);
@@ -624,9 +672,7 @@ impl RouterBackend for WebCloudRouterBackend {
                     for manifest in &catalog.partitions {
                         let is_ready = tile_cache.is_partition_preloaded(&manifest.partition_id);
                         self.catalog.register_manifest(manifest, is_ready);
-                        if !is_ready {
-                            pending_preloads.push(manifest.partition_id.clone());
-                        } else {
+                        if is_ready {
                             self.preloaded_partitions
                                 .insert(manifest.partition_id.clone());
                         }
@@ -713,11 +759,8 @@ impl RouterBackend for WebCloudRouterBackend {
             }
         }
 
-        for part_id in pending_preloads {
-            self.spawn_preload_fetch(part_id);
-        }
-        if !self.in_flight_preloads.is_empty() {
-            self.update_connected_status();
+        if catalog_updated {
+            self.enqueue_preloads_for_active_day();
         }
 
         outcome

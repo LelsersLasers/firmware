@@ -636,6 +636,21 @@ impl VirtualTimelineRouter {
                 }
             }
         }
+        if self.timeline.is_comparison_mode()
+            && let Ok(anns) = self.query_annotations_in_range(i64::MIN..=i64::MAX)
+        {
+            for selected_id in self.timeline.selected_annotation_ids() {
+                if let Some(ann) = anns.iter().find(|a| &a.id == selected_id) {
+                    let lo = ann.start_utc_ms;
+                    let hi = ann.end_utc_ms.unwrap_or(lo).max(lo);
+                    for part in &self.partitions {
+                        if !part.is_local && part.start_utc_ms <= hi && part.end_utc_ms >= lo {
+                            self.backend.request_partition_download(&part.partition_id);
+                        }
+                    }
+                }
+            }
+        }
 
         outcome.events_processed
     }
