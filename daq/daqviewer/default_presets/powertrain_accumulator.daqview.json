@@ -36,11 +36,54 @@
                 "widget": "scope",
                 "title": "Requested and Actual Torque",
                 "x_mode": "utc_time",
+                "plot": {
+                  "stacked": false,
+                  "lanes": 2,
+                  "channels": {
+                    "INVA_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVB_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVC_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVD_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    }
+                  },
+                  "axes": {}
+                },
                 "channels": [
-                  { "signal_id": "vcu_torque_request.front_left" },
-                  { "signal_id": "vcu_torque_request.front_right" },
-                  { "signal_id": "vcu_torque_request.rear_left" },
-                  { "signal_id": "vcu_torque_request.rear_right" },
+                  { "signal_id": "INVA_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVB_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVC_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVD_SET.AMK_TorqueSetpoint" },
                   { "signal_id": "INVA_CRIT.AMK_ActualTorque" },
                   { "signal_id": "INVB_CRIT.AMK_ActualTorque" },
                   { "signal_id": "INVC_CRIT.AMK_ActualTorque" },
@@ -52,6 +95,22 @@
                 "widget": "scope",
                 "title": "Throttle and AMK Actual Torque vs Time",
                 "x_mode": "utc_time",
+                "plot": {
+                  "stacked": false,
+                  "lanes": 2,
+                  "channels": {
+                    "pedals.throttle": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    }
+                  },
+                  "axes": {}
+                },
                 "channels": [
                   { "signal_id": "pedals.throttle" },
                   { "signal_id": "INVA_CRIT.AMK_ActualTorque" },
