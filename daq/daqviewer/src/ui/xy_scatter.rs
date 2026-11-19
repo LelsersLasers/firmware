@@ -645,7 +645,7 @@ impl XYScatter {
         let has_z = z_vals.is_some() && z_range.is_some();
         let radius = if has_z { 2.4_f32 } else { 2.3_f32 };
 
-        plot.show(ui, |plot_ui| {
+        let plot_resp = plot.show(ui, |plot_ui| {
             plot_ui.set_plot_bounds_x(active_x_min..=active_x_max);
             plot_ui.set_plot_bounds_y(active_y_min..=active_y_max);
 
@@ -657,75 +657,6 @@ impl XYScatter {
                             egui_plot::PlotPoints::from(ring.clone()),
                         )
                         .color(text_color.linear_multiply(0.18))
-                        .allow_hover(false),
-                    );
-                }
-            }
-
-            for (color, pts) in &cached.color_bins {
-                plot_ui.points(
-                    egui_plot::Points::new("", pts.clone())
-                        .radius(radius)
-                        .color(*color)
-                        .allow_hover(false),
-                );
-            }
-
-            let theme = ui::theme::get_theme(plot_ui.ctx());
-            let playhead_col = theme.playhead_color();
-            let hover_col = theme.hover_cursor_color();
-
-            // Recent comet trail leading up to playhead (`setpoint_ms`)
-            if !timestamps_ms.is_empty() {
-                let trail_start = setpoint_ms.saturating_sub(COMET_TRAIL_MS);
-                let lo = timestamps_ms.partition_point(|&t| t < trail_start);
-                let hi = timestamps_ms.partition_point(|&t| t <= setpoint_ms);
-                if lo < hi {
-                    let comet_pts: Vec<[f64; 2]> =
-                        (lo..hi).map(|i| [x_vals[i], y_vals[i]]).collect();
-                    plot_ui.line(
-                        egui_plot::Line::new("", comet_pts.clone())
-                            .color(playhead_col.gamma_multiply(0.72))
-                            .width(1.8_f32)
-                            .allow_hover(false),
-                    );
-                    plot_ui.points(
-                        egui_plot::Points::new("", comet_pts)
-                            .radius(3.4_f32)
-                            .color(playhead_col.gamma_multiply(0.9))
-                            .allow_hover(false),
-                    );
-                }
-
-                // Playhead marker
-                if hi > 0 {
-                    let play_idx = (hi - 1).min(timestamps_ms.len() - 1);
-                    plot_ui.points(
-                        egui_plot::Points::new(
-                            "Playhead",
-                            vec![[x_vals[play_idx], y_vals[play_idx]]],
-                        )
-                        .radius(5.8_f32)
-                        .color(playhead_col)
-                        .allow_hover(false),
-                    );
-                }
-            }
-
-            // Synchronized Hover Crosshair marker
-            if let Some(h_ms) = hover_ms
-                && !timestamps_ms.is_empty()
-            {
-                let h_pos = timestamps_ms.partition_point(|&t| t <= h_ms);
-                if h_pos > 0 {
-                    let h_idx = (h_pos - 1).min(timestamps_ms.len() - 1);
-                    plot_ui.points(
-                        egui_plot::Points::new(
-                            "Linked Cursor",
-                            vec![[x_vals[h_idx], y_vals[h_idx]]],
-                        )
-                        .radius(6.2_f32)
-                        .color(hover_col)
                         .allow_hover(false),
                     );
                 }
@@ -807,6 +738,118 @@ impl XYScatter {
                 }
             }
         });
+
+        // Paint scatter points as a single direct egui::Mesh of instanced screen-space quads
+        // (2 triangles/point, zero CPU circle tessellation), followed by comet & cursor overlays.
+        {
+            let transform = &plot_resp.transform;
+            let frame = *transform.frame();
+            let expanded_frame = frame.expand(radius + 1.0);
+            let painter = ui.painter_at(frame);
+
+            let total_pts: usize = cached.color_bins.iter().map(|(_, pts)| pts.len()).sum();
+            let mut mesh = eframe::egui::Mesh::default();
+            mesh.vertices.reserve(total_pts * 4);
+            mesh.indices.reserve(total_pts * 6);
+            let r = radius;
+            for (color, pts) in &cached.color_bins {
+                let col = *color;
+                for pt in pts {
+                    let center =
+                        transform.position_from_point(&egui_plot::PlotPoint::new(pt[0], pt[1]));
+                    if !expanded_frame.contains(center) {
+                        continue;
+                    }
+                    let base = mesh.vertices.len() as u32;
+                    mesh.vertices.push(eframe::egui::epaint::Vertex {
+                        pos: eframe::egui::pos2(center.x - r, center.y - r),
+                        uv: eframe::egui::epaint::WHITE_UV,
+                        color: col,
+                    });
+                    mesh.vertices.push(eframe::egui::epaint::Vertex {
+                        pos: eframe::egui::pos2(center.x + r, center.y - r),
+                        uv: eframe::egui::epaint::WHITE_UV,
+                        color: col,
+                    });
+                    mesh.vertices.push(eframe::egui::epaint::Vertex {
+                        pos: eframe::egui::pos2(center.x + r, center.y + r),
+                        uv: eframe::egui::epaint::WHITE_UV,
+                        color: col,
+                    });
+                    mesh.vertices.push(eframe::egui::epaint::Vertex {
+                        pos: eframe::egui::pos2(center.x - r, center.y + r),
+                        uv: eframe::egui::epaint::WHITE_UV,
+                        color: col,
+                    });
+                    mesh.indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
+                }
+            }
+            if !mesh.is_empty() {
+                painter.add(eframe::egui::Shape::mesh(mesh));
+            }
+
+            let theme = ui::theme::get_theme(ui.ctx());
+            let playhead_col = theme.playhead_color();
+            let hover_col = theme.hover_cursor_color();
+
+            // Recent comet trail leading up to playhead (`setpoint_ms`)
+            if !timestamps_ms.is_empty() {
+                let trail_start = setpoint_ms.saturating_sub(COMET_TRAIL_MS);
+                let lo = timestamps_ms.partition_point(|&t| t < trail_start);
+                let hi = timestamps_ms.partition_point(|&t| t <= setpoint_ms);
+                if lo < hi {
+                    let comet_screen: Vec<eframe::egui::Pos2> = (lo..hi)
+                        .map(|i| {
+                            transform.position_from_point(&egui_plot::PlotPoint::new(
+                                x_vals[i], y_vals[i],
+                            ))
+                        })
+                        .collect();
+                    if comet_screen.len() >= 2 {
+                        painter.add(eframe::egui::Shape::line(
+                            comet_screen.clone(),
+                            eframe::egui::Stroke::new(1.8_f32, playhead_col.gamma_multiply(0.72)),
+                        ));
+                    }
+                    let comet_dot_col = playhead_col.gamma_multiply(0.9);
+                    for pos in comet_screen {
+                        painter.circle_filled(pos, 3.4_f32, comet_dot_col);
+                    }
+                }
+
+                // Playhead marker
+                if hi > 0 {
+                    let play_idx = (hi - 1).min(timestamps_ms.len() - 1);
+                    let pos = transform.position_from_point(&egui_plot::PlotPoint::new(
+                        x_vals[play_idx],
+                        y_vals[play_idx],
+                    ));
+                    painter.circle_filled(pos, 5.8_f32, playhead_col);
+                }
+            }
+
+            // Synchronized Hover Crosshair marker
+            if let Some(h_ms) = hover_ms
+                && !timestamps_ms.is_empty()
+            {
+                let h_pos = timestamps_ms.partition_point(|&t| t <= h_ms);
+                if h_pos > 0 {
+                    let h_idx = (h_pos - 1).min(timestamps_ms.len() - 1);
+                    let pos = transform.position_from_point(&egui_plot::PlotPoint::new(
+                        x_vals[h_idx],
+                        y_vals[h_idx],
+                    ));
+                    painter.circle_filled(pos, 6.2_f32, hover_col);
+                }
+            }
+        }
         self.bounds_override = next_bounds_override;
 
         egui_tiles::UiResponse::None
