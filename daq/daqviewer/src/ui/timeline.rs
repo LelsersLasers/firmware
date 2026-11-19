@@ -436,6 +436,43 @@ fn format_span_ms(span_ms: i64) -> String {
     }
 }
 
+fn format_window_label(window_ms: i64) -> String {
+    let ms = window_ms.max(0);
+    let secs = ms as f64 / 1_000.0;
+    for &(preset_secs, label) in &daqcore::timeline::WINDOW_DURATION_PRESETS {
+        if (secs - preset_secs).abs() < 0.05 {
+            return label.to_owned();
+        }
+    }
+    if ms < 1_000 {
+        format!("{ms}ms")
+    } else if ms < 60_000 {
+        if ms % 1_000 == 0 {
+            format!("{}s", ms / 1_000)
+        } else {
+            format!("{secs:.1}s")
+        }
+    } else if ms < 3_600_000 {
+        let total_secs = (ms + 500) / 1_000;
+        let mins = total_secs / 60;
+        let rem_secs = total_secs % 60;
+        if rem_secs == 0 {
+            format!("{mins}min")
+        } else {
+            format!("{mins}m{rem_secs}s")
+        }
+    } else {
+        let total_mins = (ms + 30_000) / 60_000;
+        let hours = total_mins / 60;
+        let rem_mins = total_mins % 60;
+        if rem_mins == 0 {
+            format!("{hours}h")
+        } else {
+            format!("{hours}h{rem_mins}m")
+        }
+    }
+}
+
 fn format_utc_date(utc_ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(utc_ms)
         .map(|dt| dt.format("%Y-%m-%d").to_string())
@@ -826,16 +863,18 @@ fn show_transport_bar(
     let left_end_x = row_ui.cursor().left().max(row_rect.left());
 
     // -------------------------------------------------------------------------
-    // 2. Center: Centered Play / Time Control Deck (`[⏮] [‹] [▶/⏸] [›] [⏭] [1x] [●]`)
+    // 2. Center: Centered Play / Time Control Deck (`[⏮] [‹] [▶/⏸] [›] [⏭] [1x] [●] [30s]`)
     // -------------------------------------------------------------------------
     let has_stints = !stint_annotations.is_empty();
     let show_speed = row_rect.width() >= 460.0;
+    let show_window_dropdown = row_rect.width() >= 520.0;
     let estimated_deck_width = 18.0
         + 24.0
         + 18.0
         + 22.0
         + if has_stints { 48.0 } else { 0.0 }
         + if show_speed { 50.0 } else { 0.0 }
+        + if show_window_dropdown { 66.0 } else { 0.0 }
         + 16.0;
     let ideal_deck_left = row_rect.center().x - estimated_deck_width * 0.5;
     let deck_left = ideal_deck_left.max(left_end_x + 6.0).min(row_rect.right());
@@ -980,6 +1019,38 @@ fn show_transport_bar(
         }
     }
 
+    if show_window_dropdown {
+        let current_window_ms = router.timeline().window_ms();
+        let current_window_secs = current_window_ms as f64 / 1_000.0;
+        let window_label = format_window_label(current_window_ms);
+        let combo_resp = eframe::egui::ComboBox::from_id_salt("timeline_window_size")
+            .width(60.0)
+            .selected_text(window_label)
+            .show_ui(&mut row_ui, |ui| {
+                for &(preset_secs, label) in &daqcore::timeline::WINDOW_DURATION_PRESETS {
+                    if ui
+                        .selectable_label(
+                            (current_window_secs - preset_secs).abs() < 0.05,
+                            label,
+                        )
+                        .clicked()
+                    {
+                        if let Err(err) = router
+                            .timeline_mut()
+                            .apply_window_duration_secs(preset_secs)
+                        {
+                            *diagnostic = Some(err);
+                        } else {
+                            timeline_ui.reset_ruler();
+                        }
+                    }
+                }
+            });
+        combo_resp
+            .response
+            .on_hover_text("Viewport window duration (click to choose preset)");
+    }
+
     // -------------------------------------------------------------------------
     // 3. Right: Explicit Mark Timestamp & Mark Interval Buttons + Quick Actions
     // -------------------------------------------------------------------------
@@ -1029,17 +1100,7 @@ fn show_transport_bar(
                             )
                             .changed()
                         {
-                            if !tl.is_live() {
-                                let center_ms = tl.setpoint_utc_ms();
-                                let half_ms = ((span * 500.0).round() as i64).max(50);
-                                tl.set_start(daqcore::time::Time::from_unix_millis(
-                                    center_ms - half_ms,
-                                ));
-                                tl.set_end(daqcore::time::Time::from_unix_millis(
-                                    center_ms + half_ms,
-                                ));
-                            }
-                            if let Err(err) = tl.set_window_secs(span) {
+                            if let Err(err) = tl.apply_window_duration_secs(span) {
                                 *diagnostic = Some(err);
                             }
                         }
@@ -3905,5 +3966,21 @@ mod tests {
             .expect("stint_1 still exists");
         assert_eq!(refreshed_stint.name, "Autocross Run 1 (Dry)");
         assert_eq!(refreshed_stint.source, "manual");
+    }
+
+    #[test]
+    fn format_window_label_formats_presets_and_custom_spans() {
+        assert_eq!(format_window_label(30_000), "30s");
+        assert_eq!(format_window_label(60_000), "1min");
+        assert_eq!(format_window_label(300_000), "5min");
+        assert_eq!(format_window_label(600_000), "10min");
+
+        assert_eq!(format_window_label(500), "500ms");
+        assert_eq!(format_window_label(15_000), "15s");
+        assert_eq!(format_window_label(12_500), "12.5s");
+        assert_eq!(format_window_label(120_000), "2min");
+        assert_eq!(format_window_label(150_000), "2m30s");
+        assert_eq!(format_window_label(3_600_000), "1h");
+        assert_eq!(format_window_label(4_500_000), "1h15m");
     }
 }

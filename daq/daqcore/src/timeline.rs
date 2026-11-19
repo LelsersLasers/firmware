@@ -16,6 +16,14 @@ pub const MIN_FOLDABLE_GAP_MS: i64 = 60_000;
 /// Standard playback speed multipliers exposed in the Master Timeline transport bar.
 pub const PLAYBACK_SPEED_PRESETS: [f64; 4] = [0.1, 0.5, 1.0, 2.0];
 
+/// Standard viewport window duration presets `(seconds, label)` exposed in the Master Timeline transport bar.
+pub const WINDOW_DURATION_PRESETS: [(f64, &str); 4] = [
+    (30.0, "30s"),
+    (60.0, "1min"),
+    (300.0, "5min"),
+    (600.0, "10min"),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Track {
     Marching,
@@ -906,6 +914,48 @@ impl MasterTimeline {
 
         Ok(())
     }
+
+    /// Resize the viewport window to `seconds` (clamped to at least [`MIN_WINDOW_MS`]).
+    ///
+    /// - In live mode, keeps live marching active and updates the rolling window width.
+    /// - In paused / historical mode, preserves the playhead's relative position (`anchor_ratio`)
+    ///   inside `[start, end]` (so `setpoint` at `start` keeps `start` fixed and moves `end`,
+    ///   `setpoint` at `end` keeps `end` fixed and moves `start`, and interior positions stay
+    ///   proportionally anchored). When `day_bounds_ms` is wider than the requested span, the new
+    ///   window is clamped within `[day_min, day_max]`.
+    pub fn apply_window_duration_secs(&mut self, seconds: f64) -> Result<(), String> {
+        let new_span = millis(seconds)?.max(MIN_WINDOW_MS);
+        if self.is_live() {
+            self.window_ms = new_span;
+            self.recompute();
+            return Ok(());
+        }
+
+        let cur_start = self.start.unix_millis();
+        let cur_end = self.end.unix_millis();
+        let cur_span = cur_end.saturating_sub(cur_start).max(MIN_WINDOW_MS);
+        let clamped_sp = self.setpoint.unix_millis().clamp(cur_start, cur_end);
+        let anchor_ratio = (clamped_sp - cur_start) as f64 / (cur_span as f64);
+
+        let mut new_start =
+            clamped_sp.saturating_sub((anchor_ratio * (new_span as f64)).round() as i64);
+        if let Some((day_min, day_max)) = self.day_bounds_ms
+            && day_max.saturating_sub(day_min) >= new_span
+        {
+            let max_start = day_max.saturating_sub(new_span).max(day_min);
+            new_start = new_start.clamp(day_min, max_start);
+        }
+        let new_end = new_start.saturating_add(new_span);
+
+        self.start = time::Time::from_unix_millis(new_start);
+        self.end = time::Time::from_unix_millis(new_end);
+        self.setpoint = time::Time::from_unix_millis(clamped_sp.clamp(new_start, new_end));
+        self.start_track = Track::Frozen;
+        self.end_track = Track::Frozen;
+        self.setpoint_track = Track::Frozen;
+        self.window_ms = new_span;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1012,5 +1062,63 @@ mod tests {
 
         tl.toggle_comparison_annotation("stint_2".to_owned(), 1_040_000, Some(1_055_000));
         assert!(!tl.is_comparison_mode());
+    }
+
+    #[test]
+    fn apply_window_duration_secs_handles_live_and_anchored_historical_modes() {
+        // 1. Live mode: stays live and shifts start to end - new_span.
+        let t0 = time::Time::from_unix_millis(2_000_000);
+        let mut tl = MasterTimeline::live(t0, 30.0).expect("valid live timeline");
+        assert!(tl.is_live());
+        tl.apply_window_duration_secs(300.0).expect("5min preset");
+        assert!(tl.is_live());
+        assert_eq!(tl.window_ms(), 300_000);
+        assert_eq!(tl.end_utc_ms(), 2_000_000);
+        assert_eq!(tl.start_utc_ms(), 1_700_000);
+        assert_eq!(tl.setpoint_utc_ms(), 2_000_000);
+
+        // 2. Historical mode with setpoint at start: keeps start fixed and moves end only.
+        tl.set_day_bounds_ms(Some((1_000_000, 2_000_000)));
+        tl.snap_to_range_ms(1_100_000, 1_400_000); // 5min window, setpoint == start
+        assert!(!tl.is_live());
+        assert_eq!(tl.setpoint_utc_ms(), 1_100_000);
+        tl.apply_window_duration_secs(30.0).expect("30s preset");
+        assert!(!tl.is_live());
+        assert_eq!(tl.start_utc_ms(), 1_100_000);
+        assert_eq!(tl.end_utc_ms(), 1_130_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_100_000);
+        assert_eq!(tl.window_ms(), 30_000);
+
+        // 3. Historical mode with setpoint at end: keeps end fixed and moves start only.
+        tl.set_setpoint(time::Time::from_unix_millis(1_130_000));
+        tl.apply_window_duration_secs(60.0).expect("1min preset");
+        assert_eq!(tl.end_utc_ms(), 1_130_000);
+        assert_eq!(tl.start_utc_ms(), 1_070_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_130_000);
+        assert_eq!(tl.window_ms(), 60_000);
+
+        // 4. Historical mode with setpoint in the middle: stays centered.
+        tl.set_setpoint(time::Time::from_unix_millis(1_100_000)); // ratio = 0.5
+        tl.apply_window_duration_secs(30.0).expect("30s preset");
+        assert_eq!(tl.start_utc_ms(), 1_085_000);
+        assert_eq!(tl.end_utc_ms(), 1_115_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_100_000);
+
+        // 5. Historical mode near day end: clamps inside day_bounds_ms when day >= span.
+        tl.snap_to_range_ms(1_970_000, 2_000_000);
+        tl.set_setpoint(time::Time::from_unix_millis(1_985_000)); // ratio = 0.5
+        tl.apply_window_duration_secs(300.0).expect("5min preset");
+        assert_eq!(tl.end_utc_ms(), 2_000_000);
+        assert_eq!(tl.start_utc_ms(), 1_700_000);
+        assert_eq!(tl.setpoint_utc_ms(), 1_985_000);
+        assert_eq!(tl.window_ms(), 300_000);
+
+        // 6. Requested preset wider than day_bounds_ms: preserves full requested duration.
+        tl.set_day_bounds_ms(Some((1_000_000, 1_120_000))); // 2min day
+        tl.snap_to_range_ms(1_000_000, 1_030_000); // setpoint at start
+        tl.apply_window_duration_secs(600.0).expect("10min preset");
+        assert_eq!(tl.start_utc_ms(), 1_000_000);
+        assert_eq!(tl.end_utc_ms(), 1_600_000);
+        assert_eq!(tl.window_ms(), 600_000);
     }
 }
