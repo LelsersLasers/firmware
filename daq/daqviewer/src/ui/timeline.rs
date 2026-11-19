@@ -1029,10 +1029,7 @@ fn show_transport_bar(
             .show_ui(&mut row_ui, |ui| {
                 for &(preset_secs, label) in &daqcore::timeline::WINDOW_DURATION_PRESETS {
                     if ui
-                        .selectable_label(
-                            (current_window_secs - preset_secs).abs() < 0.05,
-                            label,
-                        )
+                        .selectable_label((current_window_secs - preset_secs).abs() < 0.05, label)
                         .clicked()
                     {
                         if let Err(err) = router
@@ -1099,10 +1096,9 @@ fn show_transport_bar(
                                     .suffix(" s"),
                             )
                             .changed()
+                            && let Err(err) = tl.apply_window_duration_secs(span)
                         {
-                            if let Err(err) = tl.apply_window_duration_secs(span) {
-                                *diagnostic = Some(err);
-                            }
+                            *diagnostic = Some(err);
                         }
                         if ui.small_button("−").on_hover_text("Zoom out (J)").clicked() {
                             let sp_ms = router.timeline().setpoint_utc_ms();
