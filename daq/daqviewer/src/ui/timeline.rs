@@ -1623,25 +1623,53 @@ fn show_day_overview_lane(
         }
     }
 
-    // 4. Render 1Hz Activity Envelope along the bottom half of the Timeline lane
+    // 4. Render 1Hz Activity Envelope along the bottom half of the Timeline lane as a single Mesh
     if !lane_cache.activity_col_peaks.is_empty() {
         let env_bottom = rect.bottom() - 1.5;
         let env_max_h = 12.0;
         let col_count = lane_cache.activity_col_peaks.len();
         let bar_color = eframe::egui::Color32::from_rgba_unmultiplied(56, 189, 248, 95);
+        let half_w = ((rect.width() / col_count as f32) * 0.5).max(0.75);
+        let mut mesh = eframe::egui::Mesh::default();
         for (col, &peak) in lane_cache.activity_col_peaks.iter().enumerate() {
             if peak <= 0.0 {
                 continue;
             }
             let x = rect.left() + (col as f32 + 0.5) / (col_count as f32) * rect.width();
             let h = (peak * env_max_h).max(1.5);
-            painter.line_segment(
-                [
-                    eframe::egui::pos2(x, env_bottom),
-                    eframe::egui::pos2(x, env_bottom - h),
-                ],
-                eframe::egui::Stroke::new(1.5_f32, bar_color),
-            );
+            let y_top = env_bottom - h;
+            let base = mesh.vertices.len() as u32;
+            mesh.vertices.push(eframe::egui::epaint::Vertex {
+                pos: eframe::egui::pos2(x - half_w, y_top),
+                uv: eframe::egui::epaint::WHITE_UV,
+                color: bar_color,
+            });
+            mesh.vertices.push(eframe::egui::epaint::Vertex {
+                pos: eframe::egui::pos2(x + half_w, y_top),
+                uv: eframe::egui::epaint::WHITE_UV,
+                color: bar_color,
+            });
+            mesh.vertices.push(eframe::egui::epaint::Vertex {
+                pos: eframe::egui::pos2(x + half_w, env_bottom),
+                uv: eframe::egui::epaint::WHITE_UV,
+                color: bar_color,
+            });
+            mesh.vertices.push(eframe::egui::epaint::Vertex {
+                pos: eframe::egui::pos2(x - half_w, env_bottom),
+                uv: eframe::egui::epaint::WHITE_UV,
+                color: bar_color,
+            });
+            mesh.indices.extend_from_slice(&[
+                base,
+                base + 1,
+                base + 2,
+                base,
+                base + 2,
+                base + 3,
+            ]);
+        }
+        if !mesh.is_empty() {
+            painter.add(eframe::egui::Shape::mesh(mesh));
         }
     }
 
@@ -1710,14 +1738,16 @@ fn show_day_overview_lane(
                 );
             }
 
-            ui.interact(
-                gap_rect,
-                ui.id().with(("folded_idle_gap", seg_idx)),
-                eframe::egui::Sense::hover(),
-            )
-            .on_hover_text(format!(
-                "Folded idle gap: {full_dur}\nPress G or click 'Fold Gaps' to expand"
-            ));
+            if ui.rect_contains_pointer(gap_rect) {
+                ui.interact(
+                    gap_rect,
+                    ui.id().with(("folded_idle_gap", seg_idx)),
+                    eframe::egui::Sense::hover(),
+                )
+                .on_hover_text(format!(
+                    "Folded idle gap: {full_dur}\nPress G or click 'Fold Gaps' to expand"
+                ));
+            }
         }
     }
 
@@ -1746,6 +1776,12 @@ fn show_day_overview_lane(
     let r_right = rect.right().max(r_left);
 
     if timeline_ui.show_stints {
+        let pointer_pos = ui.input(|i| i.pointer.hover_pos().or_else(|| i.pointer.interact_pos()));
+        let active_ctx_stint_id = ui.id().with("day_stint_ctx_idx");
+        let saved_ctx_idx: Option<usize> = ui.data(|d| d.get_temp(active_ctx_stint_id));
+        let mut hit_pill: Option<(usize, eframe::egui::Rect)> = None;
+        let mut saved_ctx_rect: Option<eframe::egui::Rect> = None;
+
         for (stint_idx, ann) in ann_cache.stints.iter().enumerate() {
             let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
             let x0 = time_to_x(ann.start_utc_ms).clamp(r_left, r_right);
@@ -1788,6 +1824,29 @@ fn show_day_overview_lane(
                 }
             }
 
+            if pointer_pos.is_some_and(|p| pill_rect.contains(p)) {
+                hit_pill = Some((stint_idx, pill_rect));
+            }
+            if saved_ctx_idx == Some(stint_idx) {
+                saved_ctx_rect = Some(pill_rect);
+            }
+        }
+
+        // Only allocate egui interaction / tooltip / context menu for the single hovered pill
+        // (and any pill with an open context menu) instead of all ~200+ pills every frame.
+        let mut active_indices: [Option<(usize, eframe::egui::Rect)>; 2] = [hit_pill, None];
+        if let (Some(ctx_idx), Some(ctx_rect)) = (saved_ctx_idx, saved_ctx_rect)
+            && hit_pill.is_none_or(|(idx, _)| idx != ctx_idx)
+        {
+            active_indices[1] = Some((ctx_idx, ctx_rect));
+        }
+
+        let mut any_ctx_open = false;
+        for (stint_idx, pill_rect) in active_indices.into_iter().flatten() {
+            let Some(ann) = ann_cache.stints.get(stint_idx) else {
+                continue;
+            };
+            let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
             let dur_s = (ann_end_ms - ann.start_utc_ms).max(0) as f64 / 1000.0;
             let hover_summary = format!(
                 "{} [{}]\n{} .. {} ({dur_s:.1}s)\n{}\nClick: Snap viewport · Shift+Click: Compare · Double-Click / Right-Click: Edit",
@@ -1824,7 +1883,10 @@ fn show_day_overview_lane(
             }
 
             if !right_panning {
-                pill_resp.context_menu(|ui| {
+                if pill_resp.secondary_clicked() {
+                    ui.data_mut(|d| d.insert_temp(active_ctx_stint_id, stint_idx));
+                }
+                let menu_resp = pill_resp.context_menu(|ui| {
                     ui.label(eframe::egui::RichText::new(&ann.name).strong());
                     ui.separator();
                     if ui.button("Snap Viewport to Stint/Event").clicked() {
@@ -1846,7 +1908,14 @@ fn show_day_overview_lane(
                         ui.close();
                     }
                 });
+                if menu_resp.is_some() {
+                    any_ctx_open = true;
+                    ui.data_mut(|d| d.insert_temp(active_ctx_stint_id, stint_idx));
+                }
             }
+        }
+        if !any_ctx_open && saved_ctx_idx.is_some() {
+            ui.data_mut(|d| d.remove::<usize>(active_ctx_stint_id));
         }
     }
 
