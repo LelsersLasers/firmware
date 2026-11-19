@@ -739,19 +739,20 @@ impl XYScatter {
             }
         });
 
-        // Paint scatter points as a single direct egui::Mesh of instanced screen-space quads
-        // (2 triangles/point, zero CPU circle tessellation), followed by comet & cursor overlays.
+        // Paint scatter points as a single direct egui::Mesh of instanced anti-aliased circle
+        // sprites (2 triangles/point, zero CPU circle tessellation), followed by comet & cursor overlays.
         {
             let transform = &plot_resp.transform;
             let frame = *transform.frame();
-            let expanded_frame = frame.expand(radius + 1.0);
+            let circle_tex_id = scatter_circle_texture_id(ui.ctx());
+            let quad_r = radius * (16.0_f32 / 13.5_f32);
+            let expanded_frame = frame.expand(quad_r + 1.0);
             let painter = ui.painter_at(frame);
 
             let total_pts: usize = cached.color_bins.iter().map(|(_, pts)| pts.len()).sum();
-            let mut mesh = eframe::egui::Mesh::default();
+            let mut mesh = eframe::egui::Mesh::with_texture(circle_tex_id);
             mesh.vertices.reserve(total_pts * 4);
             mesh.indices.reserve(total_pts * 6);
-            let r = radius;
             for (color, pts) in &cached.color_bins {
                 let col = *color;
                 for pt in pts {
@@ -762,23 +763,23 @@ impl XYScatter {
                     }
                     let base = mesh.vertices.len() as u32;
                     mesh.vertices.push(eframe::egui::epaint::Vertex {
-                        pos: eframe::egui::pos2(center.x - r, center.y - r),
-                        uv: eframe::egui::epaint::WHITE_UV,
+                        pos: eframe::egui::pos2(center.x - quad_r, center.y - quad_r),
+                        uv: eframe::egui::pos2(0.0, 0.0),
                         color: col,
                     });
                     mesh.vertices.push(eframe::egui::epaint::Vertex {
-                        pos: eframe::egui::pos2(center.x + r, center.y - r),
-                        uv: eframe::egui::epaint::WHITE_UV,
+                        pos: eframe::egui::pos2(center.x + quad_r, center.y - quad_r),
+                        uv: eframe::egui::pos2(1.0, 0.0),
                         color: col,
                     });
                     mesh.vertices.push(eframe::egui::epaint::Vertex {
-                        pos: eframe::egui::pos2(center.x + r, center.y + r),
-                        uv: eframe::egui::epaint::WHITE_UV,
+                        pos: eframe::egui::pos2(center.x + quad_r, center.y + quad_r),
+                        uv: eframe::egui::pos2(1.0, 1.0),
                         color: col,
                     });
                     mesh.vertices.push(eframe::egui::epaint::Vertex {
-                        pos: eframe::egui::pos2(center.x - r, center.y + r),
-                        uv: eframe::egui::epaint::WHITE_UV,
+                        pos: eframe::egui::pos2(center.x - quad_r, center.y + quad_r),
+                        uv: eframe::egui::pos2(0.0, 1.0),
                         color: col,
                     });
                     mesh.indices.extend_from_slice(&[
@@ -908,6 +909,52 @@ fn compute_axis_bounds(vals: &[f64]) -> (f64, f64) {
         span * 0.06
     };
     (lo - pad, hi + pad)
+}
+
+/// Lazily build and cache a tiny 32×32 white anti-aliased circle sprite texture on the `egui::Context`
+/// so all scatter plots can draw smooth circular markers at 2 triangles per point.
+fn scatter_circle_texture_id(ctx: &eframe::egui::Context) -> eframe::egui::TextureId {
+    let cache_id = eframe::egui::Id::new("xy_scatter_circle_sprite_v1");
+    if let Some(handle) = ctx.data(|d| d.get_temp::<eframe::egui::TextureHandle>(cache_id)) {
+        return handle.id();
+    }
+
+    const SIZE: usize = 32;
+    let center = (SIZE as f32 - 1.0) * 0.5;
+    let inner_r = 12.2_f32;
+    let outer_r = 14.8_f32;
+    let mut rgba = vec![0u8; SIZE * SIZE * 4];
+    for y in 0..SIZE {
+        for x in 0..SIZE {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let alpha = if dist <= inner_r {
+                1.0_f32
+            } else if dist >= outer_r {
+                0.0_f32
+            } else {
+                let t = (dist - inner_r) / (outer_r - inner_r);
+                // Smoothstep falloff for crisp anti-aliased disc edges
+                1.0 - t * t * (3.0 - 2.0 * t)
+            };
+            let idx = (y * SIZE + x) * 4;
+            rgba[idx] = 255;
+            rgba[idx + 1] = 255;
+            rgba[idx + 2] = 255;
+            rgba[idx + 3] = (alpha * 255.0).round() as u8;
+        }
+    }
+
+    let image = eframe::egui::ColorImage::from_rgba_unmultiplied([SIZE, SIZE], &rgba);
+    let handle = ctx.load_texture(
+        "xy_scatter_circle_sprite",
+        image,
+        eframe::egui::TextureOptions::LINEAR,
+    );
+    let id = handle.id();
+    ctx.data_mut(|d| d.insert_temp(cache_id, handle));
+    id
 }
 
 fn build_g_rings() -> Vec<(String, Vec<[f64; 2]>)> {
