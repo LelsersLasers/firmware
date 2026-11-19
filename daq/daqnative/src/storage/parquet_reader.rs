@@ -10,7 +10,10 @@ use arrow::{
     array::{Array as _, DictionaryArray, Float64Array, Int64Array, StringArray, UInt32Array},
     datatypes::Int32Type,
 };
-use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
+use parquet::{
+    arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder},
+    file::statistics::Statistics,
+};
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
@@ -45,6 +48,56 @@ fn find_dictionary_key(
         }
     }
     Ok(None)
+}
+
+/// Filter Parquet row groups using column 0 (`signal_id`) min/max statistics so that row groups
+/// whose `[min, max]` string interval cannot contain `target_signal_id` are skipped without I/O.
+fn matching_row_groups_for_signal(
+    builder: &ParquetRecordBatchReaderBuilder<fs::File>,
+    target_signal_id: &str,
+) -> Vec<usize> {
+    let target_bytes = target_signal_id.as_bytes();
+    let rg_meta = builder.metadata().row_groups();
+    let mut matching = Vec::with_capacity(rg_meta.len());
+    for (idx, rg) in rg_meta.iter().enumerate() {
+        if rg.columns().is_empty() {
+            matching.push(idx);
+            continue;
+        }
+        if let Some(Statistics::ByteArray(stats)) = rg.column(0).statistics()
+            && let (Some(min_ba), Some(max_ba)) = (stats.min_opt(), stats.max_opt())
+            && (target_bytes < min_ba.data() || target_bytes > max_ba.data())
+        {
+            continue;
+        }
+        matching.push(idx);
+    }
+    matching
+}
+
+/// Return `true` when the last non-null `signal_id` in `dict_col` is lexicographically strictly
+/// greater than `target_signal_id` (indicating a sorted Parquet file has passed `target_signal_id`).
+fn batch_passed_sorted_signal(
+    dict_col: &DictionaryArray<Int32Type>,
+    target_signal_id: &str,
+) -> bool {
+    let Some(values) = dict_col.values().as_any().downcast_ref::<StringArray>() else {
+        return false;
+    };
+    let keys = dict_col.keys().values();
+    let dict_len = values.len();
+    for row in (0..dict_col.len()).rev() {
+        if dict_col.is_null(row) {
+            continue;
+        }
+        if let Ok(key_idx) = usize::try_from(keys[row])
+            && key_idx < dict_len
+        {
+            return values.value(key_idx) > target_signal_id;
+        }
+        break;
+    }
+    false
 }
 
 pub type OverviewWithActivity = (HashMap<SignalId, Arc<SignalSeries>>, Vec<(i64, u32)>);
@@ -167,10 +220,19 @@ pub fn read_single_signal_overview(
 ) -> Result<SignalSeries, RouterError> {
     let file = fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(parquet_err)?;
+    let row_groups = matching_row_groups_for_signal(&builder, target_signal_id);
+    if row_groups.is_empty() {
+        return Ok(SignalSeries::Envelope(Vec::new()));
+    }
     let mask = ProjectionMask::roots(builder.parquet_schema(), [0, 1, 2, 3, 4]);
-    let reader = builder.with_projection(mask).build().map_err(parquet_err)?;
+    let reader = builder
+        .with_row_groups(row_groups)
+        .with_projection(mask)
+        .build()
+        .map_err(parquet_err)?;
 
     let mut points = Vec::new();
+    let mut found_any = false;
 
     for batch_result in reader {
         let batch = batch_result.map_err(arrow_err)?;
@@ -182,6 +244,9 @@ pub fn read_single_signal_overview(
                 "overview col 0 must be Dictionary<Int32, Utf8>",
             ))?;
         let Some(target_key) = find_dictionary_key(sig_col, target_signal_id)? else {
+            if found_any || batch_passed_sorted_signal(sig_col, target_signal_id) {
+                break;
+            }
             continue;
         };
 
@@ -212,15 +277,28 @@ pub fn read_single_signal_overview(
         let maxs = max_col.values();
         let means = mean_col.values();
 
-        for row in 0..batch.num_rows() {
-            if keys[row] == target_key {
-                points.push(EnvelopePoint {
-                    utc_ms: buckets[row],
-                    min: mins[row],
-                    max: maxs[row],
-                    mean: means[row],
-                });
+        if let Some(first_idx) = keys.iter().position(|&k| k == target_key) {
+            found_any = true;
+            let last_idx = keys
+                .iter()
+                .rposition(|&k| k == target_key)
+                .unwrap_or(first_idx);
+            points.reserve(last_idx - first_idx + 1);
+            for row in first_idx..=last_idx {
+                if keys[row] == target_key {
+                    points.push(EnvelopePoint {
+                        utc_ms: buckets[row],
+                        min: mins[row],
+                        max: maxs[row],
+                        mean: means[row],
+                    });
+                }
             }
+            if last_idx + 1 < batch.num_rows() {
+                break;
+            }
+        } else if found_any || batch_passed_sorted_signal(sig_col, target_signal_id) {
+            break;
         }
     }
 
@@ -316,12 +394,24 @@ pub fn read_single_signal_full_res(
 ) -> Result<SignalSeries, RouterError> {
     let file = fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file).map_err(parquet_err)?;
+    let row_groups = matching_row_groups_for_signal(&builder, target_signal_id);
+    if row_groups.is_empty() {
+        return Ok(SignalSeries::Exact {
+            timestamps_ms: Vec::new(),
+            values: Vec::new(),
+        });
+    }
     // Project only col 0 (signal_id), col 1 (utc_ms), and col 3 (value); skip col 2 (ticks_ms).
     let mask = ProjectionMask::roots(builder.parquet_schema(), [0, 1, 3]);
-    let reader = builder.with_projection(mask).build().map_err(parquet_err)?;
+    let reader = builder
+        .with_row_groups(row_groups)
+        .with_projection(mask)
+        .build()
+        .map_err(parquet_err)?;
 
     let mut timestamps_ms = Vec::new();
     let mut values = Vec::new();
+    let mut found_any = false;
 
     for batch_result in reader {
         let batch = batch_result.map_err(arrow_err)?;
@@ -333,6 +423,9 @@ pub fn read_single_signal_full_res(
                 "full_res col 0 must be Dictionary<Int32, Utf8>",
             ))?;
         let Some(target_key) = find_dictionary_key(sig_col, target_signal_id)? else {
+            if found_any || batch_passed_sorted_signal(sig_col, target_signal_id) {
+                break;
+            }
             continue;
         };
 
@@ -354,6 +447,7 @@ pub fn read_single_signal_full_res(
         // Fast path: because full_res.parquet is written grouped by signal_id, locate the
         // first and last matching row in the batch and verify contiguity for direct slice copy.
         if let Some(first_idx) = keys.iter().position(|&k| k == target_key) {
+            found_any = true;
             let last_idx = keys
                 .iter()
                 .rposition(|&k| k == target_key)
@@ -373,6 +467,11 @@ pub fn read_single_signal_full_res(
                     }
                 }
             }
+            if last_idx + 1 < batch.num_rows() {
+                break;
+            }
+        } else if found_any || batch_passed_sorted_signal(sig_col, target_signal_id) {
+            break;
         }
     }
 
