@@ -863,7 +863,7 @@ fn show_transport_bar(
     let left_end_x = row_ui.cursor().left().max(row_rect.left());
 
     // -------------------------------------------------------------------------
-    // 2. Center: Centered Play / Time Control Deck (`[⏮] [‹] [▶/⏸] [›] [⏭] [1x] [●] [30s]`)
+    // 2. Center: Centered Play / Time Control Deck (`[30s] [⏮] [‹] [▶/⏸] [›] [⏭] [1x] [●]`)
     // -------------------------------------------------------------------------
     let has_stints = !stint_annotations.is_empty();
     let show_speed = row_rect.width() >= 460.0;
@@ -880,6 +880,35 @@ fn show_transport_bar(
     let deck_left = ideal_deck_left.max(left_end_x + 6.0).min(row_rect.right());
     if deck_left > left_end_x {
         row_ui.add_space(deck_left - left_end_x);
+    }
+
+    if show_window_dropdown {
+        let current_window_ms = router.timeline().window_ms();
+        let current_window_secs = current_window_ms as f64 / 1_000.0;
+        let window_label = format_window_label(current_window_ms);
+        let combo_resp = eframe::egui::ComboBox::from_id_salt("timeline_window_size")
+            .width(60.0)
+            .selected_text(window_label)
+            .show_ui(&mut row_ui, |ui| {
+                for &(preset_secs, label) in &daqcore::timeline::WINDOW_DURATION_PRESETS {
+                    if ui
+                        .selectable_label((current_window_secs - preset_secs).abs() < 0.05, label)
+                        .clicked()
+                    {
+                        if let Err(err) = router
+                            .timeline_mut()
+                            .apply_window_duration_secs(preset_secs)
+                        {
+                            *diagnostic = Some(err);
+                        } else {
+                            timeline_ui.reset_ruler();
+                        }
+                    }
+                }
+            });
+        combo_resp
+            .response
+            .on_hover_text("Viewport window duration (click to choose preset)");
     }
 
     let cur_start = router.timeline().start_utc_ms();
@@ -1017,35 +1046,6 @@ fn show_transport_bar(
         } else {
             tl.go_live();
         }
-    }
-
-    if show_window_dropdown {
-        let current_window_ms = router.timeline().window_ms();
-        let current_window_secs = current_window_ms as f64 / 1_000.0;
-        let window_label = format_window_label(current_window_ms);
-        let combo_resp = eframe::egui::ComboBox::from_id_salt("timeline_window_size")
-            .width(60.0)
-            .selected_text(window_label)
-            .show_ui(&mut row_ui, |ui| {
-                for &(preset_secs, label) in &daqcore::timeline::WINDOW_DURATION_PRESETS {
-                    if ui
-                        .selectable_label((current_window_secs - preset_secs).abs() < 0.05, label)
-                        .clicked()
-                    {
-                        if let Err(err) = router
-                            .timeline_mut()
-                            .apply_window_duration_secs(preset_secs)
-                        {
-                            *diagnostic = Some(err);
-                        } else {
-                            timeline_ui.reset_ruler();
-                        }
-                    }
-                }
-            });
-        combo_resp
-            .response
-            .on_hover_text("Viewport window duration (click to choose preset)");
     }
 
     // -------------------------------------------------------------------------
