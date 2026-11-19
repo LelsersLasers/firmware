@@ -310,7 +310,7 @@ pub struct VirtualTimelineRouter {
     router_revision: u64,
     query_cache: Mutex<QuerySignalCache>,
     cached_track_days: Mutex<Option<Vec<TrackDay>>>,
-    cached_annotations: Mutex<Option<Vec<Annotation>>>,
+    cached_annotations: Mutex<Option<Arc<[Annotation]>>>,
     repaint_cb: Mutex<Option<RepaintCallback>>,
 }
 
@@ -645,7 +645,7 @@ impl VirtualTimelineRouter {
             }
         }
         if self.timeline.is_comparison_mode()
-            && let Ok(anns) = self.query_annotations_in_range(i64::MIN..=i64::MAX)
+            && let Ok(anns) = self.all_annotations_cached()
         {
             for selected_id in self.timeline.selected_annotation_ids() {
                 if let Some(ann) = anns.iter().find(|a| &a.id == selected_id) {
@@ -1350,7 +1350,7 @@ impl VirtualTimelineRouter {
         for meta in self.active_signals_in_range(self.timeline.range_ms()) {
             by_id.insert(meta.signal_id.clone(), meta);
         }
-        if let Ok(anns) = self.query_annotations_in_range(i64::MIN..=i64::MAX) {
+        if let Ok(anns) = self.all_annotations_cached() {
             for selected_id in self.timeline.selected_annotation_ids() {
                 if let Some(ann) = anns.iter().find(|a| &a.id == selected_id) {
                     let hi = ann
@@ -1635,6 +1635,22 @@ impl VirtualTimelineRouter {
             .map(|p| ClockProvenance::CanonicalPartition(p.clock_mapping.clone()))
     }
 
+    /// Return a shared, zero-copy cached slice of all non-deleted annotations in the store.
+    ///
+    /// On cache hits this performs only an `Arc::clone` instead of cloning every `Annotation`.
+    pub fn all_annotations_cached(&self) -> Result<Arc<[Annotation]>, RouterError> {
+        if let Ok(guard) = self.cached_annotations.lock()
+            && let Some(anns) = guard.as_ref()
+        {
+            return Ok(Arc::clone(anns));
+        }
+        let all: Arc<[Annotation]> = Arc::from(self.backend.query_all_annotations()?);
+        if let Ok(mut guard) = self.cached_annotations.lock() {
+            *guard = Some(Arc::clone(&all));
+        }
+        Ok(all)
+    }
+
     pub fn query_annotations_in_range(
         &self,
         range: ops::RangeInclusive<i64>,
@@ -1644,31 +1660,15 @@ impl VirtualTimelineRouter {
         }
         let q_start = *range.start();
         let q_end = *range.end();
-        if let Ok(guard) = self.cached_annotations.lock()
-            && let Some(anns) = guard.as_ref()
-        {
-            return Ok(anns
-                .iter()
-                .filter(|a| match a.end_utc_ms {
-                    None => a.start_utc_ms >= q_start && a.start_utc_ms <= q_end,
-                    Some(end_ms) => a.start_utc_ms <= q_end && end_ms >= q_start,
-                })
-                .cloned()
-                .collect());
-        }
-        let all = self.backend.query_all_annotations()?;
-        let filtered = all
+        let all = self.all_annotations_cached()?;
+        Ok(all
             .iter()
             .filter(|a| match a.end_utc_ms {
                 None => a.start_utc_ms >= q_start && a.start_utc_ms <= q_end,
                 Some(end_ms) => a.start_utc_ms <= q_end && end_ms >= q_start,
             })
             .cloned()
-            .collect();
-        if let Ok(mut guard) = self.cached_annotations.lock() {
-            *guard = Some(all);
-        }
-        Ok(filtered)
+            .collect())
     }
 
     /// Insert or update an annotation in the backend and expand day bounds if needed.

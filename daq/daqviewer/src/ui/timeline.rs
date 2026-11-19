@@ -246,20 +246,21 @@ impl TimelineUiState {
             return std::sync::Arc::clone(cached);
         }
 
-        let all_day_annotations: Vec<daqcore::storage::Annotation> = router
-            .query_annotations_in_range(day_min_ms..=day_max_ms)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|a| active_day_id.is_none_or(|day_id| a.track_day_id == day_id))
-            .collect();
-
+        let all_cached = router.all_annotations_cached().unwrap_or_default();
         let mut stints: Vec<daqcore::storage::Annotation> = Vec::new();
         let mut faults: Vec<daqcore::storage::Annotation> = Vec::new();
-        for ann in all_day_annotations {
+        for ann in all_cached.iter() {
+            let in_range = match ann.end_utc_ms {
+                None => ann.start_utc_ms >= day_min_ms && ann.start_utc_ms <= day_max_ms,
+                Some(end_ms) => ann.start_utc_ms <= day_max_ms && end_ms >= day_min_ms,
+            };
+            if !in_range || !active_day_id.is_none_or(|day_id| ann.track_day_id == day_id) {
+                continue;
+            }
             if ann.category == "fault" {
-                faults.push(ann);
+                faults.push(ann.clone());
             } else {
-                stints.push(ann);
+                stints.push(ann.clone());
             }
         }
         stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
@@ -2616,9 +2617,7 @@ pub fn show_chunk_navigator_contents(
             )
         })
         .collect();
-    let all_annotations: Vec<daqcore::storage::Annotation> = router
-        .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
-        .unwrap_or_default();
+    let all_annotations = router.all_annotations_cached().unwrap_or_default();
 
     let mut day_ids_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for td in &track_days {
@@ -2627,7 +2626,7 @@ pub fn show_chunk_navigator_contents(
     for (day_id, _, _, _, _) in &all_partitions {
         day_ids_set.insert(day_id.clone());
     }
-    for ann in &all_annotations {
+    for ann in all_annotations.iter() {
         day_ids_set.insert(ann.track_day_id.clone());
     }
     let day_ids: Vec<String> = day_ids_set.into_iter().collect();

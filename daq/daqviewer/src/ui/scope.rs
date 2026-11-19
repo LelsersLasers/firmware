@@ -639,7 +639,7 @@ impl Scope {
                 let selected_ids = view.timeline.selected_annotation_ids();
                 let all_anns = view
                     .router
-                    .query_annotations_in_range(i64::MIN / 2..=i64::MAX / 2)
+                    .all_annotations_cached()
                     .unwrap_or_default();
                 selected_ids
                     .iter()
