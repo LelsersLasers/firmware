@@ -277,7 +277,7 @@ async fn web_asset_handler(
     (StatusCode::OK, headers, bytes).into_response()
 }
 
-async fn get_catalog_handler(State(state): State<AppState>) -> Response {
+async fn get_catalog_handler(State(state): State<AppState>, req_headers: HeaderMap) -> Response {
     let (payload, is_hit) = if let Some(cached) = state.get_cached_catalog() {
         (cached, true)
     } else {
@@ -308,7 +308,7 @@ async fn get_catalog_handler(State(state): State<AppState>) -> Response {
             derived_signals,
         };
         let bytes = match serde_json::to_vec(&catalog) {
-            Ok(b) => Bytes::from(b),
+            Ok(b) => gzip_compress_bytes(&b),
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -326,7 +326,14 @@ async fn get_catalog_handler(State(state): State<AppState>) -> Response {
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    let mut resp = (StatusCode::OK, headers, payload).into_response();
+    headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+    let body = if client_accepts_gzip(&req_headers) {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        payload
+    } else {
+        gzip_decompress_bytes(&payload)
+    };
+    let mut resp = (StatusCode::OK, headers, body).into_response();
     if is_hit {
         resp.extensions_mut().insert(CacheHitMarker(true));
     }
@@ -426,7 +433,53 @@ fn parse_resolution_param(raw: &str) -> Option<Resolution> {
     }
 }
 
-fn binary_tile_response(bytes: Bytes, cache_hit: bool) -> Response {
+fn client_accepts_gzip(req_headers: &HeaderMap) -> bool {
+    req_headers
+        .get_all(header::ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|s| {
+            s.split(',').any(|part| {
+                let mut tokens = part.trim().split(';');
+                let coding = tokens.next().unwrap_or("").trim();
+                if !coding.eq_ignore_ascii_case("gzip") && !coding.eq_ignore_ascii_case("x-gzip") {
+                    return false;
+                }
+                !tokens.any(|param| {
+                    if let Some((k, v)) = param.trim().split_once('=') {
+                        k.trim().eq_ignore_ascii_case("q")
+                            && v.trim().parse::<f32>().is_ok_and(|q| q <= 0.0)
+                    } else {
+                        false
+                    }
+                })
+            })
+        })
+}
+
+fn gzip_compress_bytes(raw: &[u8]) -> Bytes {
+    let mut encoder = flate2::write::GzEncoder::new(
+        Vec::with_capacity(raw.len() / 2),
+        flate2::Compression::fast(),
+    );
+    if encoder.write_all(raw).is_ok()
+        && let Ok(compressed) = encoder.finish()
+    {
+        return Bytes::from(compressed);
+    }
+    Bytes::copy_from_slice(raw)
+}
+
+fn gzip_decompress_bytes(gz: &[u8]) -> Bytes {
+    let mut decoder = flate2::read::GzDecoder::new(gz);
+    let mut out = Vec::new();
+    if decoder.read_to_end(&mut out).is_ok() {
+        return Bytes::from(out);
+    }
+    Bytes::copy_from_slice(gz)
+}
+
+fn binary_tile_response(gz_bytes: Bytes, req_headers: &HeaderMap, cache_hit: bool) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
@@ -436,20 +489,31 @@ fn binary_tile_response(bytes: Bytes, cache_hit: bool) -> Response {
         header::CACHE_CONTROL,
         HeaderValue::from_static("public, max-age=86400"),
     );
-    let mut resp = (StatusCode::OK, headers, bytes).into_response();
+    headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+    let body = if client_accepts_gzip(req_headers) {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        gz_bytes
+    } else {
+        gzip_decompress_bytes(&gz_bytes)
+    };
+    let mut resp = (StatusCode::OK, headers, body).into_response();
     if cache_hit {
         resp.extensions_mut().insert(CacheHitMarker(true));
     }
     resp
 }
 
-async fn serve_partition_preload(state: AppState, partition_id: String) -> Response {
+async fn serve_partition_preload(
+    state: AppState,
+    partition_id: String,
+    req_headers: HeaderMap,
+) -> Response {
     if let Some(cached) = state.get_cached_preload(&partition_id) {
         log::info!(
-            "Preload {partition_id} [cache hit, {:.1} KiB]",
+            "Preload {partition_id} [cache hit, {:.1} KiB gz]",
             cached.len() as f64 / 1024.0
         );
-        return binary_tile_response(cached, true);
+        return binary_tile_response(cached, &req_headers, true);
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -460,20 +524,24 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
     let _decode_permit = state.decode_semaphore().acquire().await;
     if let Some(cached) = state.get_cached_preload(&partition_id) {
         log::info!(
-            "Preload {partition_id} [cache hit after wait, {:.1} KiB]",
+            "Preload {partition_id} [cache hit after wait, {:.1} KiB gz]",
             cached.len() as f64 / 1024.0
         );
-        return binary_tile_response(cached, true);
+        return binary_tile_response(cached, &req_headers, true);
     }
 
     let part_id_clone = partition_id.clone();
     let encoded_res = tokio::task::spawn_blocking(move || {
-        build_partition_preload_payload(&part_id_clone, &part_dir)
+        build_partition_preload_payload(&part_id_clone, &part_dir).map(|raw| {
+            let raw_len = raw.len();
+            let gz = gzip_compress_bytes(&raw);
+            (raw_len, gz)
+        })
     })
     .await;
 
-    let bytes_vec = match encoded_res {
-        Ok(Ok(bytes)) => bytes,
+    let (raw_len, gz_bytes) = match encoded_res {
+        Ok(Ok(res)) => res,
         Ok(Err(err)) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -490,19 +558,20 @@ async fn serve_partition_preload(state: AppState, partition_id: String) -> Respo
         }
     };
 
-    let bytes = Bytes::from(bytes_vec);
     log::info!(
-        "Preload {partition_id} [decoded from parquet, {:.1} KiB]",
-        bytes.len() as f64 / 1024.0
+        "Preload {partition_id} [decoded from parquet, {:.1} KiB -> {:.1} KiB gz]",
+        raw_len as f64 / 1024.0,
+        gz_bytes.len() as f64 / 1024.0
     );
-    state.insert_cached_preload(partition_id, bytes.clone());
-    binary_tile_response(bytes, false)
+    state.insert_cached_preload(partition_id, gz_bytes.clone());
+    binary_tile_response(gz_bytes, &req_headers, false)
 }
 
 async fn serve_partition_tile(
     state: AppState,
     partition_id: String,
     query: TileQueryParams,
+    req_headers: HeaderMap,
 ) -> Response {
     let Some(signal_id) = query.signal_id.filter(|s| !s.trim().is_empty()) else {
         return (
@@ -525,10 +594,10 @@ async fn serve_partition_tile(
 
     if let Some(encoded) = state.get_cached_tile(&key) {
         log::info!(
-            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB]",
+            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit, {:.1} KiB gz]",
             encoded.len() as f64 / 1024.0
         );
-        return binary_tile_response(encoded, true);
+        return binary_tile_response(encoded, &req_headers, true);
     }
 
     let part_dir = state.store_dir.join("partitions").join(&partition_id);
@@ -545,23 +614,32 @@ async fn serve_partition_tile(
     let _decode_permit = state.decode_semaphore().acquire().await;
     if let Some(encoded) = state.get_cached_tile(&key) {
         log::info!(
-            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit after wait, {:.1} KiB]",
+            "Tile {partition_id} signal={signal_id} res={resolution:?} [cache hit after wait, {:.1} KiB gz]",
             encoded.len() as f64 / 1024.0
         );
-        return binary_tile_response(encoded, true);
+        return binary_tile_response(encoded, &req_headers, true);
     }
 
     let sig_clone = signal_id.clone();
-    let series_res = tokio::task::spawn_blocking(move || match resolution {
-        Resolution::Overview1Hz | Resolution::Overview10Hz => {
-            read_single_signal_overview(&parquet_path, &sig_clone)
-        }
-        Resolution::FullRes => read_single_signal_full_res(&parquet_path, &sig_clone),
+    let series_res = tokio::task::spawn_blocking(move || {
+        let series_res = match resolution {
+            Resolution::Overview1Hz | Resolution::Overview10Hz => {
+                read_single_signal_overview(&parquet_path, &sig_clone)
+            }
+            Resolution::FullRes => read_single_signal_full_res(&parquet_path, &sig_clone),
+        };
+        series_res.map(|series| {
+            let raw = encode_tile_payload(&series);
+            drop(series);
+            let raw_len = raw.len();
+            let gz = gzip_compress_bytes(&raw);
+            (raw_len, gz)
+        })
     })
     .await;
 
-    let series = match series_res {
-        Ok(Ok(s)) => s,
+    let (raw_len, gz_bytes) = match series_res {
+        Ok(Ok(res)) => res,
         Ok(Err(err)) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -578,14 +656,13 @@ async fn serve_partition_tile(
         }
     };
 
-    let encoded = Bytes::from(encode_tile_payload(&series));
-    drop(series);
     log::info!(
-        "Tile {partition_id} signal={signal_id} res={resolution:?} [decoded from parquet, {:.1} KiB]",
-        encoded.len() as f64 / 1024.0
+        "Tile {partition_id} signal={signal_id} res={resolution:?} [decoded from parquet, {:.1} KiB -> {:.1} KiB gz]",
+        raw_len as f64 / 1024.0,
+        gz_bytes.len() as f64 / 1024.0
     );
-    state.insert_cached_tile(key, encoded.clone());
-    binary_tile_response(encoded, false)
+    state.insert_cached_tile(key, gz_bytes.clone());
+    binary_tile_response(gz_bytes, &req_headers, false)
 }
 
 async fn post_export_handler(
@@ -666,10 +743,10 @@ async fn get_partition_file_handler(
     }
 
     if filename == "preload" {
-        return serve_partition_preload(state, partition_id).await;
+        return serve_partition_preload(state, partition_id, req_headers).await;
     }
     if filename == "tile" {
-        return serve_partition_tile(state, partition_id, tile_query).await;
+        return serve_partition_tile(state, partition_id, tile_query, req_headers).await;
     }
 
     let Some(file_path) = resolve_existing_asset_path(&state.store_dir, &partition_id, &filename)

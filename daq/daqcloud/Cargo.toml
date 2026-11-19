@@ -13,6 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 bytes = { workspace = true }
+flate2 = "1.1"
 futures-util = { workspace = true }
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { workspace = true }
