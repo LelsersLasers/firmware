@@ -138,6 +138,52 @@ struct TimelinePanDrag {
     dragging: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TimelineAnnotationCacheKey {
+    active_day_id: Option<String>,
+    day_min_ms: i64,
+    day_max_ms: i64,
+    data_revision: u64,
+}
+
+#[derive(Debug, Clone)]
+struct CachedFaultGroup {
+    signal_id: String,
+    short_name: String,
+    severity: daqcore::storage::FaultSeverity,
+    lcd_message: String,
+    occurrences: Vec<(i64, Option<i64>)>,
+}
+
+#[derive(Debug, Clone)]
+struct TimelineAnnotationCache {
+    key: TimelineAnnotationCacheKey,
+    stints: Vec<daqcore::storage::Annotation>,
+    faults: Vec<daqcore::storage::Annotation>,
+    fault_starts_and_sevs: Vec<(i64, daqcore::storage::FaultSeverity)>,
+    grouped_faults: Vec<CachedFaultGroup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TimelineLaneCacheKey {
+    active_day_id: Option<String>,
+    day_min_ms: i64,
+    day_max_ms: i64,
+    collapse_idle_gaps: bool,
+    live_bounds: Option<(i64, i64)>,
+    data_revision: u64,
+    pixel_cols: usize,
+}
+
+#[derive(Debug, Clone)]
+struct TimelineLaneCache {
+    key: TimelineLaneCacheKey,
+    projection: daqcore::timeline::GapFoldedProjection,
+    activity_col_peaks: Vec<f32>,
+    /// Pre-binned fault onset ticks as `(normalized_x_fraction, max_severity)` per 2px column.
+    fault_ticks: Vec<(f32, daqcore::storage::FaultSeverity)>,
+}
+
 /// Persistent UI state for the Master Timeline Bar, Sessions/Faults Navigator, and Annotation Editor modal.
 #[derive(Debug, Clone)]
 pub struct TimelineUiState {
@@ -154,6 +200,8 @@ pub struct TimelineUiState {
     pub pending_actions: Vec<action::AppAction>,
     span_hint_at: Option<f64>,
     pub(super) requested_sidebar_filter: Option<ChunkFilter>,
+    annotation_cache: Option<std::sync::Arc<TimelineAnnotationCache>>,
+    lane_cache: Option<std::sync::Arc<TimelineLaneCache>>,
 }
 
 impl Default for TimelineUiState {
@@ -172,11 +220,167 @@ impl Default for TimelineUiState {
             pending_actions: Vec::new(),
             span_hint_at: None,
             requested_sidebar_filter: None,
+            annotation_cache: None,
+            lane_cache: None,
         }
     }
 }
 
 impl TimelineUiState {
+    fn get_or_build_annotation_cache(
+        &mut self,
+        router: &daqcore::router::VirtualTimelineRouter,
+        active_day_id: Option<&str>,
+        day_min_ms: i64,
+        day_max_ms: i64,
+    ) -> std::sync::Arc<TimelineAnnotationCache> {
+        let key = TimelineAnnotationCacheKey {
+            active_day_id: active_day_id.map(str::to_owned),
+            day_min_ms,
+            day_max_ms,
+            data_revision: router.data_revision(),
+        };
+        if let Some(cached) = &self.annotation_cache
+            && cached.key == key
+        {
+            return std::sync::Arc::clone(cached);
+        }
+
+        let all_day_annotations: Vec<daqcore::storage::Annotation> = router
+            .query_annotations_in_range(day_min_ms..=day_max_ms)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| active_day_id.is_none_or(|day_id| a.track_day_id == day_id))
+            .collect();
+
+        let mut stints: Vec<daqcore::storage::Annotation> = Vec::new();
+        let mut faults: Vec<daqcore::storage::Annotation> = Vec::new();
+        for ann in all_day_annotations {
+            if ann.category == "fault" {
+                faults.push(ann);
+            } else {
+                stints.push(ann);
+            }
+        }
+        stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
+        faults.sort_by_key(|a| a.start_utc_ms);
+
+        let fault_starts_and_sevs: Vec<(i64, daqcore::storage::FaultSeverity)> = faults
+            .iter()
+            .map(|a| {
+                (
+                    a.start_utc_ms,
+                    a.fault_severity()
+                        .unwrap_or(daqcore::storage::FaultSeverity::Error),
+                )
+            })
+            .collect();
+
+        let grouped_faults: Vec<CachedFaultGroup> = group_fault_annotations(&faults)
+            .into_iter()
+            .map(|g| CachedFaultGroup {
+                signal_id: g.signal_id,
+                short_name: g.short_name,
+                severity: g.severity,
+                lcd_message: g.lcd_message,
+                occurrences: g
+                    .occurrences
+                    .into_iter()
+                    .map(|o| (o.start_utc_ms, o.end_utc_ms))
+                    .collect(),
+            })
+            .collect();
+
+        let built = std::sync::Arc::new(TimelineAnnotationCache {
+            key,
+            stints,
+            faults,
+            fault_starts_and_sevs,
+            grouped_faults,
+        });
+        self.annotation_cache = Some(std::sync::Arc::clone(&built));
+        built
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn get_or_build_lane_cache(
+        &mut self,
+        router: &daqcore::router::VirtualTimelineRouter,
+        active_day_id: Option<&str>,
+        day_min_ms: i64,
+        day_max_ms: i64,
+        collapse_idle_gaps: bool,
+        live_bounds: Option<(i64, i64)>,
+        active_spans_for_folding: &[(i64, i64)],
+        pixel_cols: usize,
+        ann_cache: &TimelineAnnotationCache,
+    ) -> std::sync::Arc<TimelineLaneCache> {
+        let key = TimelineLaneCacheKey {
+            active_day_id: active_day_id.map(str::to_owned),
+            day_min_ms,
+            day_max_ms,
+            collapse_idle_gaps,
+            live_bounds,
+            data_revision: router.data_revision(),
+            pixel_cols,
+        };
+        if let Some(cached) = &self.lane_cache
+            && cached.key == key
+        {
+            return std::sync::Arc::clone(cached);
+        }
+
+        let projection = daqcore::timeline::GapFoldedProjection::new(
+            day_min_ms,
+            day_max_ms,
+            active_spans_for_folding,
+            collapse_idle_gaps,
+        );
+
+        let activity_1hz = router.activity_envelope_1hz(day_min_ms..=day_max_ms);
+        let mut activity_col_peaks = if activity_1hz.is_empty() {
+            Vec::new()
+        } else {
+            vec![0.0f32; pixel_cols]
+        };
+        if !activity_1hz.is_empty() {
+            let max_col = (pixel_cols - 1) as f32;
+            for &(bucket_ms, intensity) in &activity_1hz {
+                let frac = projection.time_to_fraction(bucket_ms);
+                let col = ((frac * max_col).round() as usize).min(pixel_cols - 1);
+                activity_col_peaks[col] = activity_col_peaks[col].max(intensity);
+            }
+        }
+
+        let tick_cols = (pixel_cols / 2).max(1);
+        let mut col_ticks: Vec<Option<(f32, daqcore::storage::FaultSeverity)>> =
+            vec![None; tick_cols];
+        for &(start_utc_ms, sev) in &ann_cache.fault_starts_and_sevs {
+            let frac = projection.time_to_fraction(start_utc_ms).clamp(0.0, 1.0);
+            let idx = ((frac * (tick_cols - 1) as f32).round() as usize).min(tick_cols - 1);
+            match &mut col_ticks[idx] {
+                Some((_, prev_sev)) => {
+                    if sev > *prev_sev {
+                        *prev_sev = sev;
+                    }
+                }
+                None => {
+                    col_ticks[idx] = Some((frac, sev));
+                }
+            }
+        }
+        let fault_ticks: Vec<(f32, daqcore::storage::FaultSeverity)> =
+            col_ticks.into_iter().flatten().collect();
+
+        let built = std::sync::Arc::new(TimelineLaneCache {
+            key,
+            projection,
+            activity_col_peaks,
+            fault_ticks,
+        });
+        self.lane_cache = Some(std::sync::Arc::clone(&built));
+        built
+    }
     pub fn reset_ruler(&mut self) {
         self.span_hint_at = None;
     }
@@ -432,33 +636,36 @@ pub(crate) fn group_fault_annotations(
     faults: &[daqcore::storage::Annotation],
 ) -> Vec<GroupedFault<'_>> {
     let mut groups: Vec<GroupedFault<'_>> = Vec::new();
+    let mut index_by_sig: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for ann in faults {
-        let sig_id = ann
-            .fault_signal_id()
-            .unwrap_or(ann.name.as_str())
-            .to_owned();
-        let short_name = sig_id
-            .split_once('.')
-            .map(|(_, s)| s.to_owned())
-            .unwrap_or_else(|| sig_id.clone());
+        let sig_id_ref = ann.fault_signal_id().unwrap_or(ann.name.as_str());
         let sev = ann
             .fault_severity()
             .unwrap_or(daqcore::storage::FaultSeverity::Error);
-        let lcd = ann.fault_lcd_message().unwrap_or("").to_owned();
-        if let Some(existing) = groups.iter_mut().find(|g| g.signal_id == sig_id) {
+        let lcd = ann.fault_lcd_message().unwrap_or("");
+        if let Some(&idx) = index_by_sig.get(sig_id_ref) {
+            let existing = &mut groups[idx];
             if sev > existing.severity {
                 existing.severity = sev;
             }
             if existing.lcd_message.is_empty() && !lcd.is_empty() {
-                existing.lcd_message = lcd;
+                existing.lcd_message = lcd.to_owned();
             }
             existing.occurrences.push(ann);
         } else {
+            let sig_id = sig_id_ref.to_owned();
+            let short_name = sig_id
+                .split_once('.')
+                .map(|(_, s)| s.to_owned())
+                .unwrap_or_else(|| sig_id.clone());
+            let idx = groups.len();
+            index_by_sig.insert(sig_id.clone(), idx);
             groups.push(GroupedFault {
                 signal_id: sig_id,
                 short_name,
                 severity: sev,
-                lcd_message: lcd,
+                lcd_message: lcd.to_owned(),
                 occurrences: vec![ann],
             });
         }
@@ -504,28 +711,15 @@ fn show_transport_bar(
         .max(router.timeline().end_utc_ms())
         .max(day_min_ms + 1_000);
 
-    let all_day_annotations: Vec<daqcore::storage::Annotation> = router
-        .query_annotations_in_range(day_min_ms..=day_max_ms)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|a| {
-            active_day_id
-                .as_deref()
-                .is_none_or(|day_id| a.track_day_id == day_id)
-        })
-        .collect();
-    let mut stint_annotations: Vec<daqcore::storage::Annotation> = all_day_annotations
-        .iter()
-        .filter(|a| a.category != "fault")
-        .cloned()
-        .collect();
-    stint_annotations.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
-    let fault_annotations: Vec<daqcore::storage::Annotation> = all_day_annotations
-        .iter()
-        .filter(|a| a.category == "fault")
-        .cloned()
-        .collect();
-    let grouped_faults = group_fault_annotations(&fault_annotations);
+    let ann_cache = timeline_ui.get_or_build_annotation_cache(
+        router,
+        active_day_id.as_deref(),
+        day_min_ms,
+        day_max_ms,
+    );
+    let stint_annotations = &ann_cache.stints;
+    let grouped_faults = &ann_cache.grouped_faults;
+    let fault_count = ann_cache.faults.len();
     let highest_fault_sev = grouped_faults.first().map(|g| g.severity);
 
     let setpoint_ms = router.timeline().setpoint_utc_ms();
@@ -1002,7 +1196,7 @@ fn show_transport_bar(
                         ui.menu_button(
                             eframe::egui::RichText::new(format!(
                                 "⚠ Faults ({})",
-                                fault_annotations.len()
+                                fault_count
                             ))
                             .size(10.5)
                             .strong()
@@ -1030,9 +1224,9 @@ fn show_transport_bar(
                                 eframe::egui::ScrollArea::vertical()
                                     .max_height(300.0)
                                     .show(ui, |ui| {
-                                        for group in &grouped_faults {
+                                        for group in grouped_faults {
                                             let g_col = theme.fault_severity_color(group.severity);
-                                            let first_ms = group.occurrences[0].start_utc_ms;
+                                            let first_ms = group.occurrences[0].0;
                                             let first_lbl =
                                                 daqcore::time::Time::from_unix_millis(first_ms)
                                                     .label();
@@ -1089,7 +1283,7 @@ fn show_transport_bar(
                                                             ui.close();
                                                         }
                                                     });
-                                                    for (idx, occ) in group
+                                                    for (idx, &(occ_start_ms, occ_end_ms)) in group
                                                         .occurrences
                                                         .iter()
                                                         .take(50)
@@ -1097,16 +1291,15 @@ fn show_transport_bar(
                                                     {
                                                         let t_lbl =
                                                             daqcore::time::Time::from_unix_millis(
-                                                                occ.start_utc_ms,
+                                                                occ_start_ms,
                                                             )
                                                             .label();
-                                                        let dur_str = occ
-                                                            .end_utc_ms
-                                                            .filter(|&e| e > occ.start_utc_ms)
+                                                        let dur_str = occ_end_ms
+                                                            .filter(|&e| e > occ_start_ms)
                                                             .map(|e| {
                                                                 format!(
                                                                     " ({:.2}s)",
-                                                                    (e - occ.start_utc_ms) as f64
+                                                                    (e - occ_start_ms) as f64
                                                                         / 1000.0
                                                                 )
                                                             })
@@ -1123,8 +1316,7 @@ fn show_transport_bar(
                                                             )
                                                             .clicked()
                                                         {
-                                                            menu_jump_fault_ms =
-                                                                Some(occ.start_utc_ms);
+                                                            menu_jump_fault_ms = Some(occ_start_ms);
                                                             ui.close();
                                                         }
                                                     }
@@ -1270,28 +1462,30 @@ fn show_day_overview_lane(
     // Keep the timeline overview anchored to the full Track Day / Session bounds so stints,
     // bookmarks, and severity-colored fault ticks never vanish when zooming in!
     let collapse_idle_gaps = router.timeline().collapse_idle_gaps() && !router.timeline().is_live();
-    let projection = daqcore::timeline::GapFoldedProjection::new(
-        day_min_ms,
-        day_max_ms,
-        &active_spans_for_folding,
-        collapse_idle_gaps,
-    );
-
-    let activity_1hz = router.activity_envelope_1hz(day_min_ms..=day_max_ms);
-    let annotations: Vec<daqcore::storage::Annotation> = router
-        .query_annotations_in_range(day_min_ms..=day_max_ms)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|a| {
-            active_day_filter
-                .as_deref()
-                .is_none_or(|day_id| a.track_day_id == day_id)
-        })
-        .collect();
-    let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
-
     let lane_height = 28.0;
     let width = ui.available_width().max(16.0);
+    let pixel_cols = (width.ceil() as usize).clamp(1, 2048);
+
+    let ann_cache = timeline_ui.get_or_build_annotation_cache(
+        router,
+        active_day_filter.as_deref(),
+        day_min_ms,
+        day_max_ms,
+    );
+    let lane_cache = timeline_ui.get_or_build_lane_cache(
+        router,
+        active_day_filter.as_deref(),
+        day_min_ms,
+        day_max_ms,
+        collapse_idle_gaps,
+        live_bounds,
+        &active_spans_for_folding,
+        pixel_cols,
+        &ann_cache,
+    );
+    let projection = &lane_cache.projection;
+    let selected_ann_ids: Vec<String> = router.timeline().selected_annotation_ids().to_vec();
+
     // Keep the protruding playhead handle above the lane and the window drag rail below it.
     let (outer_rect, lane_response) = ui.allocate_exact_size(
         eframe::egui::vec2(width, lane_height + 15.0),
@@ -1430,22 +1624,16 @@ fn show_day_overview_lane(
     }
 
     // 4. Render 1Hz Activity Envelope along the bottom half of the Timeline lane
-    if !activity_1hz.is_empty() {
+    if !lane_cache.activity_col_peaks.is_empty() {
         let env_bottom = rect.bottom() - 1.5;
         let env_max_h = 12.0;
-        let pixel_cols = (rect.width().ceil() as usize).clamp(1, 2048);
-        let mut col_peaks = vec![0.0f32; pixel_cols];
-        for &(bucket_ms, intensity) in &activity_1hz {
-            let frac = projection.time_to_fraction(bucket_ms);
-            let col = ((frac * (pixel_cols as f32 - 1.0)).round() as usize).min(pixel_cols - 1);
-            col_peaks[col] = col_peaks[col].max(intensity);
-        }
+        let col_count = lane_cache.activity_col_peaks.len();
         let bar_color = eframe::egui::Color32::from_rgba_unmultiplied(56, 189, 248, 95);
-        for (col, &peak) in col_peaks.iter().enumerate() {
+        for (col, &peak) in lane_cache.activity_col_peaks.iter().enumerate() {
             if peak <= 0.0 {
                 continue;
             }
-            let x = rect.left() + (col as f32 + 0.5) / (pixel_cols as f32) * rect.width();
+            let x = rect.left() + (col as f32 + 0.5) / (col_count as f32) * rect.width();
             let h = (peak * env_max_h).max(1.5);
             painter.line_segment(
                 [
@@ -1558,13 +1746,7 @@ fn show_day_overview_lane(
     let r_right = rect.right().max(r_left);
 
     if timeline_ui.show_stints {
-        let mut stints: Vec<&daqcore::storage::Annotation> = annotations
-            .iter()
-            .filter(|a| a.category != "fault")
-            .collect();
-        stints.sort_by_key(|a| (a.start_utc_ms, a.end_utc_ms.unwrap_or(a.start_utc_ms)));
-
-        for (stint_idx, ann) in stints.into_iter().enumerate() {
+        for (stint_idx, ann) in ann_cache.stints.iter().enumerate() {
             let ann_end_ms = ann.end_utc_ms.unwrap_or(ann.start_utc_ms);
             let x0 = time_to_x(ann.start_utc_ms).clamp(r_left, r_right);
             let x1 = time_to_x(ann_end_ms).clamp(r_left, r_right);
@@ -1675,24 +1857,8 @@ fn show_day_overview_lane(
         let fault_y_bot = rect.bottom() - 2.0;
         let fx_min = (r_left + 1.0).min(r_right);
         let fx_max = (r_right - 1.0).max(fx_min);
-        let mut col_ticks: std::collections::BTreeMap<i32, (f32, daqcore::storage::FaultSeverity)> =
-            std::collections::BTreeMap::new();
-        for ann in annotations.iter().filter(|a| a.category == "fault") {
-            let fx = time_to_x(ann.start_utc_ms).clamp(fx_min, fx_max);
-            let px_col = (fx.round() as i32) / 2;
-            let sev = ann
-                .fault_severity()
-                .unwrap_or(daqcore::storage::FaultSeverity::Error);
-            col_ticks
-                .entry(px_col)
-                .and_modify(|(_, prev_sev)| {
-                    if sev > *prev_sev {
-                        *prev_sev = sev;
-                    }
-                })
-                .or_insert((fx, sev));
-        }
-        for (_, (fx, sev)) in col_ticks {
+        for &(frac, sev) in &lane_cache.fault_ticks {
+            let fx = (rect.left() + frac * rect.width()).clamp(fx_min, fx_max);
             let tick_color = theme.fault_severity_color(sev);
             painter.line_segment(
                 [
@@ -1907,11 +2073,11 @@ fn show_day_overview_lane(
         && timeline_ui.show_faults
         && pos.y >= rect.bottom() - 12.0
     {
-        nearby_faults = annotations
+        nearby_faults = ann_cache
+            .faults
             .iter()
-            .filter(|a| a.category == "fault" && (time_to_x(a.start_utc_ms) - pos.x).abs() <= 5.0)
+            .filter(|a| (time_to_x(a.start_utc_ms) - pos.x).abs() <= 5.0)
             .collect();
-        nearby_faults.sort_by_key(|a| a.start_utc_ms);
     }
 
     if !nearby_faults.is_empty() {
@@ -2049,11 +2215,6 @@ fn show_day_overview_lane(
     }
 
     if !right_panning {
-        let day_fault_anns: Vec<daqcore::storage::Annotation> = annotations
-            .iter()
-            .filter(|a| a.category == "fault")
-            .cloned()
-            .collect();
         let nearby_fault_sigs: Vec<String> = {
             let mut v = Vec::new();
             for f in &nearby_faults {
@@ -2066,9 +2227,12 @@ fn show_day_overview_lane(
         };
         lane_response.context_menu(|ui| {
             if !nearby_fault_sigs.is_empty() {
-                let grouped = group_fault_annotations(&day_fault_anns);
                 for sig_id in &nearby_fault_sigs {
-                    if let Some(group) = grouped.iter().find(|g| &g.signal_id == sig_id) {
+                    if let Some(group) = ann_cache
+                        .grouped_faults
+                        .iter()
+                        .find(|g| &g.signal_id == sig_id)
+                    {
                         let sev_col = theme.fault_severity_color(group.severity);
                         ui.label(
                             eframe::egui::RichText::new(format!(
@@ -2087,7 +2251,7 @@ fn show_day_overview_lane(
                                     .weak(),
                             );
                         }
-                        let first_ms = group.occurrences[0].start_utc_ms;
+                        let first_ms = group.occurrences[0].0;
                         if ui
                             .button(format!(
                                 "Jump to First Occurrence ({})",
@@ -2104,18 +2268,19 @@ fn show_day_overview_lane(
                                 eframe::egui::ScrollArea::vertical().max_height(240.0).show(
                                     ui,
                                     |ui| {
-                                        for (idx, occ) in group.occurrences.iter().enumerate() {
+                                        for (idx, &(occ_start_ms, occ_end_ms)) in
+                                            group.occurrences.iter().enumerate()
+                                        {
                                             let t_lbl = daqcore::time::Time::from_unix_millis(
-                                                occ.start_utc_ms,
+                                                occ_start_ms,
                                             )
                                             .label();
-                                            let dur_str = occ
-                                                .end_utc_ms
-                                                .filter(|&e| e > occ.start_utc_ms)
+                                            let dur_str = occ_end_ms
+                                                .filter(|&e| e > occ_start_ms)
                                                 .map(|e| {
                                                     format!(
                                                         " ({:.2}s)",
-                                                        (e - occ.start_utc_ms) as f64 / 1000.0
+                                                        (e - occ_start_ms) as f64 / 1000.0
                                                     )
                                                 })
                                                 .unwrap_or_default();
@@ -2128,7 +2293,7 @@ fn show_day_overview_lane(
                                                 ))
                                                 .clicked()
                                             {
-                                                pending_jump_fault_ms = Some(occ.start_utc_ms);
+                                                pending_jump_fault_ms = Some(occ_start_ms);
                                                 ui.close();
                                             }
                                         }
