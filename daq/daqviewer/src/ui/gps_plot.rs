@@ -711,11 +711,17 @@ struct TrailStyleKey {
     before_setpoint: bool,
 }
 
-fn trail_style_for(tp: BaseTrailPoint, start_ms: i64, setpoint_ms: i64, span_ms: f64) -> (TrailStyleKey, eframe::egui::Stroke) {
+fn trail_style_for(
+    tp: BaseTrailPoint,
+    start_ms: i64,
+    setpoint_ms: i64,
+    span_ms: f64,
+) -> (TrailStyleKey, eframe::egui::Stroke) {
     let before_setpoint = tp.utc_ms <= setpoint_ms;
     let age_bin = if before_setpoint {
         let age_fraction = ((tp.utc_ms - start_ms) as f64 / span_ms).clamp(0.0, 1.0) as f32;
-        ((age_fraction * (TRAIL_AGE_BINS - 1) as f32).round() as usize).min(TRAIL_AGE_BINS - 1) as u8
+        ((age_fraction * (TRAIL_AGE_BINS - 1) as f32).round() as usize).min(TRAIL_AGE_BINS - 1)
+            as u8
     } else {
         0
     };
@@ -778,17 +784,18 @@ impl walkers::Plugin for CarTrajectoryPlugin {
         let mut batch: Vec<eframe::egui::Pos2> = Vec::with_capacity(64);
         let mut active_style: Option<(TrailStyleKey, eframe::egui::Stroke)> = None;
 
-        let flush_batch = |batch: &mut Vec<eframe::egui::Pos2>,
-                           style: &mut Option<(TrailStyleKey, eframe::egui::Stroke)>| {
-            if batch.len() >= 2
-                && let Some((_, stroke)) = *style
-            {
-                painter.add(eframe::egui::Shape::line(std::mem::take(batch), stroke));
-            } else {
-                batch.clear();
-            }
-            *style = None;
-        };
+        let flush_batch =
+            |batch: &mut Vec<eframe::egui::Pos2>,
+             style: &mut Option<(TrailStyleKey, eframe::egui::Stroke)>| {
+                if batch.len() >= 2
+                    && let Some((_, stroke)) = *style
+                {
+                    painter.add(eframe::egui::Shape::line(std::mem::take(batch), stroke));
+                } else {
+                    batch.clear();
+                }
+                *style = None;
+            };
 
         for i in 1..screen_points.len() {
             let tp = self.trail[i];

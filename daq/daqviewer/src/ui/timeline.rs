@@ -1660,14 +1660,8 @@ fn show_day_overview_lane(
                 uv: eframe::egui::epaint::WHITE_UV,
                 color: bar_color,
             });
-            mesh.indices.extend_from_slice(&[
-                base,
-                base + 1,
-                base + 2,
-                base,
-                base + 2,
-                base + 3,
-            ]);
+            mesh.indices
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
         if !mesh.is_empty() {
             painter.add(eframe::egui::Shape::mesh(mesh));
@@ -2341,10 +2335,9 @@ fn show_day_overview_lane(
                                         for (idx, &(occ_start_ms, occ_end_ms)) in
                                             group.occurrences.iter().enumerate()
                                         {
-                                            let t_lbl = daqcore::time::Time::from_unix_millis(
-                                                occ_start_ms,
-                                            )
-                                            .label();
+                                            let t_lbl =
+                                                daqcore::time::Time::from_unix_millis(occ_start_ms)
+                                                    .label();
                                             let dur_str = occ_end_ms
                                                 .filter(|&e| e > occ_start_ms)
                                                 .map(|e| {
@@ -3517,9 +3510,7 @@ pub fn show_chunk_navigator_contents(
         let is_some_day = day_opt.is_some();
         if let Err(err) = router.select_track_day(day_opt) {
             *diagnostic = Some(format!("Failed to select track day: {err}"));
-        } else if is_some_day
-            && let Some((lo, hi)) = router.timeline().day_bounds_ms()
-        {
+        } else if is_some_day && let Some((lo, hi)) = router.timeline().day_bounds_ms() {
             router.timeline_mut().snap_to_range_ms(lo, hi);
             timeline_ui.reset_ruler();
         }

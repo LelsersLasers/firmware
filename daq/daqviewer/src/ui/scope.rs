@@ -637,10 +637,7 @@ impl Scope {
         let comparison_annotations: Vec<daqcore::storage::Annotation> =
             if view.timeline.is_comparison_mode() {
                 let selected_ids = view.timeline.selected_annotation_ids();
-                let all_anns = view
-                    .router
-                    .all_annotations_cached()
-                    .unwrap_or_default();
+                let all_anns = view.router.all_annotations_cached().unwrap_or_default();
                 selected_ids
                     .iter()
                     .filter_map(|id| all_anns.iter().find(|ann| &ann.id == id).cloned())
