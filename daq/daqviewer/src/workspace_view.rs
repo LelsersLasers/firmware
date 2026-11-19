@@ -59,6 +59,17 @@ impl<'a> WorkspaceDataView<'a> {
         self.view_time
     }
 
+    /// Returns `true` when "All Track Days" (`active_track_day_id == None`) is selected in offline
+    /// archive mode without an active multi-run comparison or live stream. In this state, the
+    /// sidebar acts as a cross-day catalog browser and time-series plots render a clean prompt
+    /// instead of a 365-day calendar axis.
+    pub fn is_all_track_days_unselected(&self) -> bool {
+        self.timeline.active_track_day_id().is_none()
+            && !self.timeline.is_comparison_mode()
+            && !self.timeline.is_live()
+            && !self.router.partitions().is_empty()
+    }
+
     /// Monotonically increasing revision counter from the underlying router and tile cache.
     pub fn data_revision(&self) -> u64 {
         self.router.data_revision()

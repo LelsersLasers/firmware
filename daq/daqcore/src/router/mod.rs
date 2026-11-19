@@ -305,6 +305,7 @@ pub struct VirtualTimelineRouter {
     backend: Box<dyn RouterBackend>,
     partitions: Vec<RegisteredPartition>,
     timeline: MasterTimeline,
+    explicit_all_track_days: bool,
     formula_engine: FormulaEngine,
     router_revision: u64,
     query_cache: Mutex<QuerySignalCache>,
@@ -323,6 +324,7 @@ impl VirtualTimelineRouter {
             backend: Box::new(InMemoryRouterBackend::new()),
             partitions: Vec::new(),
             timeline,
+            explicit_all_track_days: false,
             formula_engine: FormulaEngine::with_builtin_config(),
             router_revision: 1,
             query_cache: Mutex::new(QuerySignalCache::default()),
@@ -346,6 +348,7 @@ impl VirtualTimelineRouter {
             backend,
             partitions: Vec::new(),
             timeline,
+            explicit_all_track_days: false,
             formula_engine: FormulaEngine::with_builtin_config(),
             router_revision: 1,
             query_cache: Mutex::new(QuerySignalCache::default()),
@@ -442,7 +445,11 @@ impl VirtualTimelineRouter {
             .timeline
             .active_track_day_id()
             .is_some_and(|active_id| !days.iter().any(|d| d.id == active_id));
-        if (self.timeline.active_track_day_id().is_none() || active_missing)
+        if active_missing {
+            self.explicit_all_track_days = false;
+        }
+        if !self.explicit_all_track_days
+            && (self.timeline.active_track_day_id().is_none() || active_missing)
             && let Some(last_day) = days.last()
         {
             self.timeline
@@ -466,6 +473,7 @@ impl VirtualTimelineRouter {
             self.timeline.set_day_bounds_ms(Some((lo, hi.max(lo))));
         }
         if (!had_bounds || active_missing)
+            && !self.explicit_all_track_days
             && self.live_buffer.is_empty()
             && let Some((lo, hi)) = self.timeline.day_bounds_ms()
         {
@@ -1469,6 +1477,7 @@ impl VirtualTimelineRouter {
         &mut self,
         track_day_id: Option<String>,
     ) -> Result<Option<(i64, i64)>, RouterError> {
+        self.explicit_all_track_days = track_day_id.is_none();
         self.timeline.set_active_track_day_id(track_day_id.clone());
         self.timeline.clear_selected_annotations();
         self.backend.set_active_track_day(track_day_id.clone());
@@ -1506,7 +1515,9 @@ impl VirtualTimelineRouter {
 
         let bounds = min_ms.zip(max_ms).map(|(lo, hi)| (lo, hi.max(lo)));
         self.timeline.set_day_bounds_ms(bounds);
-        if let Some((lo, hi)) = bounds {
+        if track_day_id.is_some()
+            && let Some((lo, hi)) = bounds
+        {
             self.timeline.snap_to_range_ms(lo, hi);
         }
         Ok(bounds)

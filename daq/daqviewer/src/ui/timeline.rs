@@ -1197,6 +1197,40 @@ fn show_day_overview_lane(
     diagnostic: &mut Option<String>,
     accent_color: eframe::egui::Color32,
 ) {
+    let all_days_unselected = router.timeline().active_track_day_id().is_none()
+        && !router.timeline().is_comparison_mode()
+        && !router.timeline().is_live()
+        && !router.partitions().is_empty();
+    if all_days_unselected {
+        let lane_height = 28.0;
+        let width = ui.available_width().max(16.0);
+        let (outer_rect, _) = ui.allocate_exact_size(
+            eframe::egui::vec2(width, lane_height + 15.0),
+            eframe::egui::Sense::hover(),
+        );
+        let rect = eframe::egui::Rect::from_min_max(
+            outer_rect.left_top() + eframe::egui::vec2(0.0, 8.0),
+            outer_rect.right_bottom() - eframe::egui::vec2(0.0, 7.0),
+        );
+        let theme = ui::theme::get_theme(ui.ctx());
+        let painter = ui.painter_at(rect.intersect(ui.clip_rect()));
+        painter.rect_filled(rect, 3.0, theme.canvas_color());
+        painter.rect_stroke(
+            rect,
+            3.0,
+            eframe::egui::Stroke::new(1.0_f32, theme.border_color()),
+            eframe::egui::StrokeKind::Inside,
+        );
+        painter.text(
+            rect.center(),
+            eframe::egui::Align2::CENTER_CENTER,
+            "All Track Days — Select a Track Day, Run, Fault, or Chunk from the sidebar (or Shift+Click runs to compare)",
+            eframe::egui::FontId::proportional(11.0),
+            theme.muted_text_color(),
+        );
+        return;
+    }
+
     let captured = router.captured_time_span();
     let (day_min_ms, day_max_ms) = router
         .timeline()
@@ -2727,13 +2761,19 @@ pub fn show_chunk_navigator_contents(
                             });
                         let is_selected = selected_ann_ids.contains(&ann.id);
                         let is_active = is_selected
-                            || ((cur_win_start - ann.start_utc_ms).abs() <= 1_000
+                            || (filter_day.is_some()
+                                && (cur_win_start - ann.start_utc_ms).abs() <= 1_000
                                 && (cur_win_end - ann_end).abs() <= 1_000);
                         let bar_color = parse_hex_color(&ann.color, accent_color);
-                        let right_meta = if dur_s > 0.0 {
+                        let time_meta = if dur_s > 0.0 {
                             format!("{start_short} · {dur_s:.0}s")
                         } else {
                             start_short.clone()
+                        };
+                        let right_meta = if filter_day.is_none() && !ann.track_day_id.is_empty() {
+                            format!("{} · {time_meta}", ann.track_day_id)
+                        } else {
+                            time_meta
                         };
 
                         let (row_rect, resp) = ui.allocate_exact_size(
@@ -3144,14 +3184,20 @@ pub fn show_chunk_navigator_contents(
                                             )
                                         })
                                         .unwrap_or_default();
-                                    let is_near_playhead =
-                                        (playhead_ms - occ.start_utc_ms).abs() <= 500;
+                                    let day_prefix = if filter_day.is_none() && !occ.track_day_id.is_empty() {
+                                        format!("{} · ", occ.track_day_id)
+                                    } else {
+                                        String::new()
+                                    };
+                                    let is_near_playhead = filter_day.is_some()
+                                        && (playhead_ms - occ.start_utc_ms).abs() <= 500;
                                     if ui
                                         .selectable_label(
                                             is_near_playhead,
                                             eframe::egui::RichText::new(format!(
-                                                "#{}  {}{}",
+                                                "#{}  {}{}{}",
                                                 idx + 1,
+                                                day_prefix,
                                                 t_lbl,
                                                 dur_str
                                             ))
@@ -3202,9 +3248,14 @@ pub fn show_chunk_navigator_contents(
                             .unwrap_or_else(|| {
                                 daqcore::time::Time::from_unix_millis(*p_end).label()
                             });
-                        let is_active = (cur_win_start - *p_start).abs() <= 1_000
+                        let is_active = filter_day.is_some()
+                            && (cur_win_start - *p_start).abs() <= 1_000
                             && (cur_win_end - *p_end).abs() <= 1_000;
-                        let lbl = format!("{start_lbl}–{end_lbl}  ({dur_s:.0}s · {sig_count} sigs)");
+                        let lbl = if filter_day.is_none() {
+                            format!("{d_id}  {start_lbl}–{end_lbl}  ({dur_s:.0}s · {sig_count} sigs)")
+                        } else {
+                            format!("{start_lbl}–{end_lbl}  ({dur_s:.0}s · {sig_count} sigs)")
+                        };
                         if ui
                             .selectable_label(
                                 is_active,
@@ -3230,9 +3281,12 @@ pub fn show_chunk_navigator_contents(
         *diagnostic = Some(format!("Failed to update track day label: {err}"));
     }
     if let Some(day_opt) = req_select_day {
+        let is_some_day = day_opt.is_some();
         if let Err(err) = router.select_track_day(day_opt) {
             *diagnostic = Some(format!("Failed to select track day: {err}"));
-        } else if let Some((lo, hi)) = router.timeline().day_bounds_ms() {
+        } else if is_some_day
+            && let Some((lo, hi)) = router.timeline().day_bounds_ms()
+        {
             router.timeline_mut().snap_to_range_ms(lo, hi);
             timeline_ui.reset_ruler();
         }

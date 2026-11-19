@@ -108,6 +108,21 @@ impl Widget {
         ui: &mut eframe::egui::Ui,
         context: WidgetContext<'_>,
     ) -> egui_tiles::UiResponse {
+        let is_timeseries_plot = matches!(
+            self,
+            Widget::Scope(_)
+                | Widget::StateLane(_)
+                | Widget::XYScatter(_)
+                | Widget::GpsPlot(_)
+                | Widget::BusLoad(_)
+                | Widget::Jitter(_)
+                | Widget::ViewerTable(_)
+                | Widget::ViewerList(_)
+        );
+        if is_timeseries_plot && context.view.is_all_track_days_unselected() {
+            show_all_track_days_placeholder(ui);
+            return egui_tiles::UiResponse::None;
+        }
         match self {
             Widget::ViewerTable(w) => {
                 w.show(ui, context.action_queue, context.formatter, context.view)
@@ -129,4 +144,30 @@ impl Widget {
             w.reset_database();
         }
     }
+}
+
+fn show_all_track_days_placeholder(ui: &mut eframe::egui::Ui) {
+    let theme = ui::theme::get_theme(ui.ctx());
+    let muted = theme.muted_text_color();
+    let rect = ui.available_rect_before_wrap();
+    ui.allocate_rect(rect, eframe::egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let painter = ui.painter_at(rect);
+    let center = rect.center();
+    painter.text(
+        center - eframe::egui::vec2(0.0, 9.0),
+        eframe::egui::Align2::CENTER_CENTER,
+        "All Track Days Selected",
+        eframe::egui::FontId::proportional(13.0),
+        muted,
+    );
+    painter.text(
+        center + eframe::egui::vec2(0.0, 9.0),
+        eframe::egui::Align2::CENTER_CENTER,
+        "Select a Track Day, Run, Fault, or Chunk from the sidebar (or Shift+Click runs to compare across days)",
+        eframe::egui::FontId::proportional(11.0),
+        muted.gamma_multiply(0.75),
+    );
 }

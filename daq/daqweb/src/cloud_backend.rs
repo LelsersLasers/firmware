@@ -383,19 +383,18 @@ impl WebCloudRouterBackend {
     }
 
     fn enqueue_preloads_for_active_day(&mut self) {
-        let target_day = self
+        let Some(target_day) = self
             .active_track_day_id
             .clone()
-            .or_else(|| self.catalog.list_track_days().last().map(|d| d.id.clone()));
+            .or_else(|| self.catalog.list_track_days().last().map(|d| d.id.clone()))
+        else {
+            return;
+        };
         let part_ids: Vec<String> = self
             .catalog
             .list_partitions()
             .into_iter()
-            .filter(|p| {
-                target_day
-                    .as_deref()
-                    .is_none_or(|day_id| p.track_day_id == day_id)
-            })
+            .filter(|p| p.track_day_id == target_day)
             .map(|p| p.partition_id)
             .collect();
         for part_id in part_ids {
@@ -594,8 +593,8 @@ impl RouterBackend for WebCloudRouterBackend {
     }
 
     fn set_active_track_day(&mut self, track_day_id: Option<String>) {
-        self.active_track_day_id = track_day_id;
-        if self.initial_catalog_loaded {
+        self.active_track_day_id = track_day_id.clone();
+        if self.initial_catalog_loaded && track_day_id.is_some() {
             self.enqueue_preloads_for_active_day();
         }
     }
