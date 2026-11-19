@@ -1408,6 +1408,9 @@ pub fn series_to_points_and_bands(
 
 /// Build convex trapezoid quads `[[t0, min0], [t1, min1], [t1, max1], [t0, max0]]` from
 /// overview `EnvelopePoint` buckets, breaking across unlogged gaps `> max_gap_ms`.
+///
+/// The total quad count is strictly bounded by `target_quads = (pixels / 3).clamp(64, 240)`
+/// even on multi-day / heavily gapped signals so rendering stays O(pixels) rather than O(gaps).
 pub fn build_envelope_quads(
     buckets: &[daqcore::router::EnvelopePoint],
     start_ms: i64,
@@ -1423,9 +1426,11 @@ pub fn build_envelope_quads(
     }
 
     let target_quads = (pixels / 3).clamp(64, 240);
-    let step = buckets.len().div_ceil(target_quads).max(1);
 
-    let mut quads = Vec::with_capacity(target_quads.min(buckets.len().saturating_sub(1)));
+    // Collect contiguous finite runs separated by gaps > max_gap_ms.
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    let mut first_ts = i64::MAX;
+    let mut last_ts = i64::MIN;
     let mut run_start = 0usize;
     while run_start < buckets.len() {
         if !buckets[run_start].min.is_finite() || !buckets[run_start].max.is_finite() {
@@ -1445,44 +1450,121 @@ pub fn build_envelope_quads(
             }
             run_end += 1;
         }
+        first_ts = first_ts.min(buckets[run_start].utc_ms);
+        last_ts = last_ts.max(buckets[run_end - 1].utc_ms);
+        if run_end - run_start >= 2 {
+            runs.push((run_start, run_end));
+        }
+        run_start = run_end;
+    }
 
-        let run = &buckets[run_start..run_end];
-        if run.len() >= 2 {
-            let mut aggregated: Vec<(i64, f64, f64)> =
-                Vec::with_capacity(run.len().div_ceil(step) + 1);
-            for chunk in run.chunks(step) {
-                let mut c_min = f64::INFINITY;
-                let mut c_max = f64::NEG_INFINITY;
-                for b in chunk {
-                    c_min = c_min.min(b.min);
-                    c_max = c_max.max(b.max);
-                }
-                aggregated.push((chunk[0].utc_ms, c_min, c_max));
-            }
-            if let Some(last) = run.last()
-                && aggregated
-                    .last()
-                    .is_none_or(|&(ts, _, _)| ts != last.utc_ms)
-            {
-                aggregated.push((last.utc_ms, last.min, last.max));
-            }
+    if runs.is_empty() || last_ts <= first_ts {
+        return Vec::new();
+    }
 
-            for pair in aggregated.windows(2) {
-                let (ts0, min0, max0) = pair[0];
-                let (ts1, min1, max1) = pair[1];
-                if ts1 <= ts0 {
-                    continue;
+    let span_ms = (last_ts - first_ts).max(1) as f64;
+    let bin_width_ms = (span_ms / target_quads as f64).max(1.0);
+
+    // When there are many fragmented runs (e.g., hundreds of gaps across multi-day spans),
+    // aggregate into uniform screen-column bins so total quads never exceed `target_quads`.
+    if runs.len() > target_quads / 2 {
+        #[derive(Clone, Copy)]
+        struct ColBin {
+            first_ts: i64,
+            last_ts: i64,
+            min: f64,
+            max: f64,
+        }
+        let mut cols: Vec<Option<ColBin>> = vec![None; target_quads];
+        for &(r_start, r_end) in &runs {
+            for b in &buckets[r_start..r_end] {
+                let idx = (((b.utc_ms - first_ts) as f64) / bin_width_ms)
+                    .floor()
+                    .clamp(0.0, (target_quads - 1) as f64) as usize;
+                match &mut cols[idx] {
+                    Some(c) => {
+                        c.first_ts = c.first_ts.min(b.utc_ms);
+                        c.last_ts = c.last_ts.max(b.utc_ms);
+                        c.min = c.min.min(b.min);
+                        c.max = c.max.max(b.max);
+                    }
+                    None => {
+                        cols[idx] = Some(ColBin {
+                            first_ts: b.utc_ms,
+                            last_ts: b.utc_ms,
+                            min: b.min,
+                            max: b.max,
+                        });
+                    }
                 }
-                if (max0 - min0).abs() <= 1e-9 && (max1 - min1).abs() <= 1e-9 {
-                    continue;
-                }
-                let t0 = ((ts0 - start_ms) as f64) / 1000.0;
-                let t1 = ((ts1 - start_ms) as f64) / 1000.0;
-                quads.push([[t0, min0], [t1, min1], [t1, max1], [t0, max0]]);
             }
         }
 
-        run_start = run_end;
+        let bridge_gap_ms = max_gap_ms.max((bin_width_ms * 2.0) as i64);
+        let mut quads = Vec::with_capacity(target_quads);
+        let mut prev_col: Option<ColBin> = None;
+        for col_opt in cols {
+            let Some(col) = col_opt else {
+                prev_col = None;
+                continue;
+            };
+            if let Some(prev) = prev_col
+                && col.first_ts - prev.last_ts <= bridge_gap_ms
+            {
+                let ts0 = prev.last_ts;
+                let ts1 = col.last_ts.max(col.first_ts);
+                if ts1 > ts0
+                    && ((prev.max - prev.min).abs() > 1e-9 || (col.max - col.min).abs() > 1e-9)
+                {
+                    let t0 = ((ts0 - start_ms) as f64) / 1000.0;
+                    let t1 = ((ts1 - start_ms) as f64) / 1000.0;
+                    quads.push([[t0, prev.min], [t1, col.min], [t1, col.max], [t0, prev.max]]);
+                }
+            } else if col.last_ts > col.first_ts && (col.max - col.min).abs() > 1e-9 {
+                let t0 = ((col.first_ts - start_ms) as f64) / 1000.0;
+                let t1 = ((col.last_ts - start_ms) as f64) / 1000.0;
+                quads.push([[t0, col.min], [t1, col.min], [t1, col.max], [t0, col.max]]);
+            }
+            prev_col = Some(col);
+        }
+        return quads;
+    }
+
+    let step = buckets.len().div_ceil(target_quads).max(1);
+    let mut quads = Vec::with_capacity(target_quads.min(buckets.len().saturating_sub(1)));
+    for (r_start, r_end) in runs {
+        let run = &buckets[r_start..r_end];
+        let mut aggregated: Vec<(i64, f64, f64)> = Vec::with_capacity(run.len().div_ceil(step) + 1);
+        for chunk in run.chunks(step) {
+            let mut c_min = f64::INFINITY;
+            let mut c_max = f64::NEG_INFINITY;
+            for b in chunk {
+                c_min = c_min.min(b.min);
+                c_max = c_max.max(b.max);
+            }
+            aggregated.push((chunk[0].utc_ms, c_min, c_max));
+        }
+        if let Some(last) = run.last()
+            && aggregated
+                .last()
+                .is_none_or(|&(ts, _, _)| ts != last.utc_ms)
+        {
+            aggregated.push((last.utc_ms, last.min, last.max));
+        }
+
+        for pair in aggregated.windows(2) {
+            let (ts0, min0, max0) = pair[0];
+            let (ts1, min1, max1) = pair[1];
+            if ts1 <= ts0 {
+                continue;
+            }
+            if (max0 - min0).abs() <= 1e-9 && (max1 - min1).abs() <= 1e-9 {
+                continue;
+            }
+            let t0 = ((ts0 - start_ms) as f64) / 1000.0;
+            let t1 = ((ts1 - start_ms) as f64) / 1000.0;
+            quads.push([[t0, min0], [t1, min1], [t1, max1], [t0, max0]]);
+        }
     }
     quads
 }
@@ -1791,6 +1873,34 @@ mod tests {
         assert_eq!(quads[0][2], [0.1, 15.0]);
         assert_eq!(quads[1][0], [4.0, 8.0]);
         assert_eq!(quads[1][2], [4.1, 13.0]);
+    }
+
+    #[test]
+    fn build_envelope_quads_bounds_count_across_many_gaps() {
+        // Simulate 1,500 short runs separated by 10-second gaps (like multi-day gapped signals).
+        let mut buckets = Vec::with_capacity(3_000);
+        for run in 0..1_500_i64 {
+            let base = run * 10_000;
+            buckets.push(daqcore::router::EnvelopePoint {
+                utc_ms: base,
+                min: 20.0,
+                max: 35.0,
+                mean: 27.5,
+            });
+            buckets.push(daqcore::router::EnvelopePoint {
+                utc_ms: base + 1_000,
+                min: 21.0,
+                max: 36.0,
+                mean: 28.5,
+            });
+        }
+        let quads = build_envelope_quads(&buckets, 0, 3_000, 800);
+        assert!(
+            quads.len() <= 240,
+            "expected quads strictly bounded by target_quads (<= 240), got {}",
+            quads.len()
+        );
+        assert!(!quads.is_empty());
     }
 
     #[test]

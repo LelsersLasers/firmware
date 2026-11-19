@@ -378,16 +378,6 @@ impl Scope {
                     let effective_width =
                         adaptive_trace_width(style.width, plot_width, height, window_s);
                     let color = trace.color.gamma_multiply(style.opacity);
-                    if style.envelope && style.mode != TraceMode::Points {
-                        for quad in &trace.envelope_bands {
-                            plot.polygon(
-                                egui_plot::Polygon::new("", quad.to_vec())
-                                    .fill_color(color.gamma_multiply(0.22))
-                                    .stroke(egui::Stroke::new(0.5_f32, color.gamma_multiply(0.35)))
-                                    .allow_hover(false),
-                            );
-                        }
-                    }
                     if style.mode != TraceMode::Points {
                         let points = if style.mode == TraceMode::Steps {
                             ui::scope_settings::steps(&trace.mean_points)
@@ -574,6 +564,53 @@ impl Scope {
                 );
             });
             self.plot_frames.push(*response.transform.frame());
+            {
+                let mut envelope_mesh = egui::Mesh::default();
+                let transform = &response.transform;
+                for (index, trace) in cached.mapped_traces.iter().enumerate() {
+                    let channel_index = index / traces_per_channel;
+                    let Some(channel) = self.channels.get(channel_index) else {
+                        continue;
+                    };
+                    if self.config.lane(&channel.signal_id) != lane
+                        || self.hidden_channels.contains(&channel.signal_id)
+                    {
+                        continue;
+                    }
+                    let style = self.config.style(&channel.signal_id);
+                    if !style.envelope
+                        || style.mode == TraceMode::Points
+                        || trace.envelope_bands.is_empty()
+                    {
+                        continue;
+                    }
+                    let fill_color = trace.color.gamma_multiply(style.opacity * 0.22);
+                    for quad in &trace.envelope_bands {
+                        let base = envelope_mesh.vertices.len() as u32;
+                        for pt in quad {
+                            let pos = transform
+                                .position_from_point(&egui_plot::PlotPoint::new(pt[0], pt[1]));
+                            envelope_mesh.vertices.push(egui::epaint::Vertex {
+                                pos,
+                                uv: egui::epaint::WHITE_UV,
+                                color: fill_color,
+                            });
+                        }
+                        envelope_mesh.indices.extend_from_slice(&[
+                            base,
+                            base + 1,
+                            base + 2,
+                            base,
+                            base + 2,
+                            base + 3,
+                        ]);
+                    }
+                }
+                if !envelope_mesh.is_empty() {
+                    ui.painter_at(*transform.frame())
+                        .add(egui::Shape::mesh(envelope_mesh));
+                }
+            }
             if let Some((sel_start_ms, sel_end_ms)) = self.measurements.selection
                 && sel_end_ms > sel_start_ms
             {
