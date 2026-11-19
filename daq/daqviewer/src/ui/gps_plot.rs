@@ -336,8 +336,8 @@ impl GpsPlot {
         let cursor_ms = view.active_cursor_utc_ms();
 
         let playhead_fix =
-            find_gps_at_or_before(&gps_points, setpoint_ms).or_else(|| gps_points.last().copied());
-        let hover_fix = hover_ms.and_then(|h_ms| find_gps_at_or_before(&gps_points, h_ms));
+            find_gps_at_or_before(gps_points, setpoint_ms).or_else(|| gps_points.last().copied());
+        let hover_fix = hover_ms.and_then(|h_ms| find_gps_at_or_before(gps_points, h_ms));
         let cursor_overlay_val = (!overlay_samples.is_empty()).then(|| {
             let idx = overlay_samples
                 .partition_point(|(ts, _)| *ts <= cursor_ms)
