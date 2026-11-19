@@ -236,9 +236,23 @@ async fn favicon_handler() -> Response {
     (StatusCode::OK, headers, EMBEDDED_PER_LOGO_PNG).into_response()
 }
 
+fn if_none_match_matches(req_headers: &HeaderMap, etag_quoted: &str) -> bool {
+    req_headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|val| {
+            val.split(',').any(|token| {
+                let t = token.trim();
+                t == "*" || t == etag_quoted || t.strip_prefix("W/") == Some(etag_quoted)
+            })
+        })
+}
+
 async fn web_asset_handler(
     State(state): State<AppState>,
     Path(asset_path): Path<String>,
+    req_headers: HeaderMap,
 ) -> Response {
     let clean_rel = asset_path.trim_start_matches('/');
     if clean_rel.is_empty() || clean_rel.contains("..") || clean_rel.contains('\\') {
@@ -254,9 +268,34 @@ async fn web_asset_handler(
     let Some(file_path) = candidate_dirs.into_iter().find(|p| p.is_file()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    let etag_quoted = state
+        .cached_file_sha256(&file_path)
+        .ok()
+        .map(|(_, sha)| format!("\"{sha}\""));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, no-cache"),
+    );
+    headers.insert(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+    if let Some(ref etag_str) = etag_quoted
+        && let Ok(etag_val) = HeaderValue::from_str(etag_str)
+    {
+        headers.insert(header::ETAG, etag_val);
+        if if_none_match_matches(&req_headers, etag_str) {
+            return (StatusCode::NOT_MODIFIED, headers).into_response();
+        }
+    }
+
     let Ok(bytes) = fs::read(&file_path) else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
+    let is_compressible = clean_rel.ends_with(".wasm")
+        || clean_rel.ends_with(".js")
+        || clean_rel.ends_with(".mjs")
+        || clean_rel.ends_with(".css")
+        || clean_rel.ends_with(".svg")
+        || clean_rel.ends_with(".json");
     let mime = if clean_rel.ends_with(".wasm") {
         "application/wasm"
     } else if clean_rel.ends_with(".js") || clean_rel.ends_with(".mjs") {
@@ -272,8 +311,12 @@ async fn web_asset_handler(
     } else {
         "application/octet-stream"
     };
-    let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime));
+    if is_compressible && client_accepts_gzip(&req_headers) {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        let gz = gzip_compress_bytes(&bytes);
+        return (StatusCode::OK, headers, gz).into_response();
+    }
     (StatusCode::OK, headers, bytes).into_response()
 }
 
