@@ -166,7 +166,7 @@ pub struct SignalBrowserState {
     pub node_filter: Option<String>,
     pub formula_draft: Option<FormulaDraft>,
     pub show_filters: bool,
-    pub tree_mode: bool,
+    pub flat_mode: bool,
     pub hover_utc_ms: Option<i64>,
 }
 
@@ -546,15 +546,15 @@ pub fn show_signal_browser(
                     }
                     if ui
                         .selectable_label(
-                            state.tree_mode,
-                            if state.tree_mode { "Tree" } else { "Flat" },
+                            !state.flat_mode,
+                            if state.flat_mode { "Flat" } else { "Tree" },
                         )
                         .on_hover_text(
                             "Toggle between Flat channel list (Nominal style) and Message Tree",
                         )
                         .clicked()
                     {
-                        state.tree_mode = !state.tree_mode;
+                        state.flat_mode = !state.flat_mode;
                     }
                 },
             );
@@ -771,7 +771,7 @@ pub fn show_signal_browser(
             .hover_utc_ms
             .unwrap_or_else(|| router.timeline().setpoint_utc_ms());
 
-        if !state.tree_mode {
+        if state.flat_mode {
             // -----------------------------------------------------------------
             // Clean Nominal-style Flat Channel List
             // -----------------------------------------------------------------
@@ -1211,7 +1211,7 @@ mod tests {
             crate::ui::theme::ThemeSelection::default().get_colors(),
         );
         for tree_mode in [false, true] {
-            state.tree_mode = tree_mode;
+            state.flat_mode = !tree_mode;
             let raw_input = eframe::egui::RawInput {
                 screen_rect: Some(eframe::egui::Rect::from_min_size(
                     eframe::egui::Pos2::ZERO,
@@ -1677,7 +1677,7 @@ mod tests {
             )),
             ..Default::default()
         };
-        let _ = ctx.run(raw_input, |ctx| {
+        let output = ctx.run(raw_input, |ctx| {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 show_signal_browser(ui, &mut browser, &mut router, &mut actions, &mut diag);
                 let view = crate::workspace_view::WorkspaceDataView::new(&router);
@@ -1686,6 +1686,15 @@ mod tests {
                 let _ = jitter.show(ui, &view);
             });
         });
+
+        assert!(output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            eframe::egui::Shape::Text(text) if text.galley.text() == "msg_alpha (1)"
+        )));
+        assert!(!output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            eframe::egui::Shape::Text(text) if text.galley.text() == "sig_a"
+        )));
 
         // 2. Viewport on Partition B ([20_000..=23_000]): only msg_beta.sig_b is active
         router.timeline_mut().snap_to_range_ms(20_000, 23_000);
