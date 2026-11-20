@@ -983,14 +983,14 @@ fn same_unit_quantities_have_distinct_axes_and_can_move_as_a_group() {
     }
     let output = h.output.as_ref().unwrap();
     for unit in ["%", "rpm"] {
-        let prefix = format!("{unit}\n");
+        let suffix = format!("\n{unit}");
         assert!(
             output.shapes.iter().any(|shape| {
                 matches!(&shape.shape, egui::Shape::Text(text) if text.angle == 0.0
                     && text.galley.rows.len() == 2
-                    && text.galley.text().strip_prefix(&prefix).is_some_and(|value| value.parse::<f64>().is_ok()))
+                    && text.galley.text().strip_suffix(&suffix).is_some_and(|value| value.parse::<f64>().is_ok()))
             }),
-            "Missing a unit above the tick value for {unit}"
+            "Missing a unit below the tick value for {unit}"
         );
     }
     assert!(!output.shapes.iter().any(|shape| {

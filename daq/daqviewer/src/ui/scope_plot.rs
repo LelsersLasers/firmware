@@ -140,7 +140,7 @@ fn hints(
                     if unit.is_empty() {
                         number
                     } else {
-                        format!("{unit}\n{number}")
+                        format!("{number}\n{unit}")
                     }
                 })
             } else {
