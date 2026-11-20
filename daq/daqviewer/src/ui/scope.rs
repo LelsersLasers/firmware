@@ -982,11 +982,16 @@ impl Scope {
             }
         }
 
-        // Each plot uses its header legend or the optional floating overlay.
-        let entries = self.build_legend_entries(view, &comparison_annotations, &channel_stats);
+        // Each plot uses its inline toolbar legend or the optional floating overlay.
+        let entries = self.enrich_legend_entries(self.build_legend_entries(
+            view,
+            &comparison_annotations,
+            &channel_stats,
+        ));
         let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
+        let mut toolbar_legend_action = None;
 
         eframe::egui::Frame::group(ui.style())
             .inner_margin(eframe::egui::Margin::symmetric(4, 3))
@@ -1134,6 +1139,16 @@ impl Scope {
                             ui.close();
                         }
                     });
+                    if !self.show_legend
+                        && let Some(action) = ui::scope_legend::show_toolbar_strip(
+                            ui,
+                            self.instance_num,
+                            &entries,
+                            self.show_inline_stats,
+                        )
+                    {
+                        toolbar_legend_action = Some(action);
+                    }
                 });
             });
 
@@ -1158,6 +1173,9 @@ impl Scope {
         }
 
         let response = self.render_plots(ui, view, &comparison_annotations, &entries);
+        if let Some(action) = toolbar_legend_action {
+            self.apply_legend_action(action);
+        }
         self.show_channel_selector(ui.ctx(), view);
         response
     }

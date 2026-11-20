@@ -308,6 +308,37 @@ impl Scope {
         }
     }
 
+    pub(super) fn enrich_legend_entries(
+        &self,
+        entries: Vec<ui::scope_legend::Entry>,
+    ) -> Vec<ui::scope_legend::Entry> {
+        let Some(cached) = self.cached_data.as_ref() else {
+            return entries;
+        };
+        let axis_views = axes(cached, &self.config, &self.channels);
+        entries
+            .into_iter()
+            .map(|mut entry| {
+                if let Some(channel) = self.channels.get(entry.channel_index) {
+                    let key = self.config.axis_key(channel);
+                    if let Some(axis) = axis_views
+                        .iter()
+                        .find(|axis| cached.unit_groups[axis.index] == key)
+                    {
+                        entry.destination = Some(if axis.right {
+                            Destination::Right
+                        } else {
+                            Destination::Left
+                        });
+                        entry.axis_label = axis.label.clone();
+                        entry.axis_color = axis.color;
+                    }
+                }
+                entry
+            })
+            .collect()
+    }
+
     pub(super) fn render_plots(
         &mut self,
         ui: &mut egui::Ui,
@@ -359,46 +390,13 @@ impl Scope {
             axis_views.iter().filter(|axis| axis.right).count(),
         );
         let slots = if slots == (0, 0) { (1, 0) } else { slots };
-        let height = (ui.available_height() - 29.0).max(160.0);
+        let height = ui.available_height().max(160.0);
         let mut actions = Vec::new();
         let mut move_signal = None;
         let mut external_signal = None;
         let mut scope_signal = None;
         self.plot_frames.clear();
-        let legend_entries: Vec<_> = entries
-            .iter()
-            .cloned()
-            .map(|mut entry| {
-                let channel = &self.channels[entry.channel_index];
-                let key = self.config.axis_key(channel);
-                if let Some(axis) = axis_views
-                    .iter()
-                    .find(|axis| cached.unit_groups[axis.index] == key)
-                {
-                    entry.destination = Some(if axis.right {
-                        Destination::Right
-                    } else {
-                        Destination::Left
-                    });
-                    entry.axis_label = axis.label.clone();
-                    entry.axis_color = axis.color;
-                }
-                entry
-            })
-            .collect();
         let legend_instance = self.instance_num;
-        if !self.show_legend {
-            ui.horizontal(|ui| {
-                if let Some(action) = ui::scope_legend::show_toolbar_strip(
-                    ui,
-                    legend_instance,
-                    &legend_entries,
-                    self.show_inline_stats,
-                ) {
-                    actions.push(action);
-                }
-            });
-        }
         let focused = ui::scope_legend::hovered_channel(ui.ctx(), legend_instance);
         let plot_id = (
             "scope_plot_v3",
@@ -541,24 +539,19 @@ impl Scope {
             }
             let frame = *plot.transform().frame();
             let legend_interaction = self.show_legend
-                && ui::scope_legend::bounds(
-                    plot.ctx(),
-                    frame,
-                    &legend_entries,
-                    self.show_inline_stats,
-                )
-                .is_some_and(|rect| {
-                    plot.ctx().input(|input| {
-                        input
-                            .pointer
-                            .hover_pos()
-                            .is_some_and(|pos| rect.contains(pos))
-                            || input
+                && ui::scope_legend::bounds(plot.ctx(), frame, entries, self.show_inline_stats)
+                    .is_some_and(|rect| {
+                        plot.ctx().input(|input| {
+                            input
                                 .pointer
-                                .press_origin()
+                                .hover_pos()
                                 .is_some_and(|pos| rect.contains(pos))
-                    })
-                });
+                                || input
+                                    .pointer
+                                    .press_origin()
+                                    .is_some_and(|pos| rect.contains(pos))
+                        })
+                    });
             let scrolling = plot
                 .ctx()
                 .input(|input| input.smooth_scroll_delta != egui::Vec2::ZERO);
@@ -777,16 +770,11 @@ impl Scope {
             && let Some(rect) = ui::scope_legend::bounds(
                 ui.ctx(),
                 *response.transform.frame(),
-                &legend_entries,
+                entries,
                 self.show_inline_stats,
             )
-            && let Some(action) = ui::scope_legend::show(
-                ui,
-                rect,
-                legend_instance,
-                &legend_entries,
-                self.show_inline_stats,
-            )
+            && let Some(action) =
+                ui::scope_legend::show(ui, rect, legend_instance, entries, self.show_inline_stats)
         {
             actions.push(action);
         }
