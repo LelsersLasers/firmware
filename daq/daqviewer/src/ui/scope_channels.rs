@@ -25,27 +25,20 @@ pub(super) fn state_strips(
         .iter()
         .filter(|ch| config.lane(&ch.signal_id) == lane && config.style(&ch.signal_id).discrete)
         .collect();
-    for channel in selected
-        .iter()
-        .map(|ch| Some(*ch))
-        .chain(selected.is_empty().then_some(None))
-    {
+    if selected.is_empty() {
+        return egui::Rect::from_min_max(
+            egui::pos2(frame.left(), frame.bottom()),
+            egui::pos2(frame.right(), frame.bottom()),
+        );
+    }
+    for channel in selected {
         let (allocated, response) = ui
             .push_id(
-                (
-                    "discrete",
-                    scope_instance,
-                    lane,
-                    channel.map(|ch| &ch.signal_id),
-                ),
+                ("discrete", scope_instance, lane, &channel.signal_id),
                 |ui| {
                     ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), 34.0),
-                        if channel.is_some() {
-                            egui::Sense::click_and_drag()
-                        } else {
-                            egui::Sense::hover()
-                        },
+                        egui::Sense::click_and_drag(),
                     )
                 },
             )
@@ -55,7 +48,6 @@ pub(super) fn state_strips(
             egui::pos2(frame.right(), allocated.bottom()),
         );
         bounds = bounds.union(row);
-        let Some(channel) = channel else { continue };
         response.dnd_set_drag_payload(ui::scope_legend::SignalDrag::new(
             scope_instance,
             channel,

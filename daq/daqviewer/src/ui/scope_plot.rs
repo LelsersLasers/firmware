@@ -415,7 +415,7 @@ impl Scope {
             .filter(|ch| self.config.style(&ch.signal_id).discrete)
             .count();
         let plot_width = ui.available_width().max(1.0);
-        let plot_height = (height - discrete_count.max(1) as f32 * 36.0).max(100.0);
+        let plot_height = (height - discrete_count as f32 * 36.0).max(100.0);
         let plot = egui_plot::Plot::new(plot_id)
             .custom_y_axes(hints(cached, &axis_views, slots))
             .width(plot_width)
