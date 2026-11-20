@@ -1,5 +1,5 @@
 use clap::Parser as _;
-use daqcloud::{AppState, build_router, consts, db};
+use daqcloud::{AppState, build_router, consts, db, state::RateLimitConfig};
 use std::{env, net::SocketAddr, path::PathBuf};
 
 /// PER DAQ schema-agnostic central partition, raw log, SuperDBC, and annotation archive server.
@@ -24,6 +24,12 @@ struct Cli {
     /// Automatically allow write requests originating from Tailscale IPs (100.64.0.0/10, fd7a:115c:a1e0::/48)
     #[arg(long)]
     trust_tailscale: Option<bool>,
+    /// Per-IP egress bandwidth cap in MiB/min for public clients (default 150, 0 to disable)
+    #[arg(long)]
+    rate_limit_mb_per_min: Option<u64>,
+    /// Per-IP request rate cap in requests/min for public clients (default 600, 0 to disable)
+    #[arg(long)]
+    rate_limit_reqs_per_min: Option<u32>,
 }
 
 #[tokio::main(worker_threads = 2)]
@@ -105,24 +111,43 @@ async fn main() -> Result<(), db::Error> {
         })
         .unwrap_or(true);
 
+    let mut rate_limit_config = RateLimitConfig::default();
+    if let Some(mb) = cli.rate_limit_mb_per_min.or_else(|| {
+        env::var("DAQCLOUD_RATE_LIMIT_MB_PER_MIN")
+            .ok()
+            .and_then(|s| s.parse().ok())
+    }) {
+        rate_limit_config.max_egress_bytes_per_min = mb.saturating_mul(1024 * 1024);
+    }
+    if let Some(reqs) = cli.rate_limit_reqs_per_min.or_else(|| {
+        env::var("DAQCLOUD_RATE_LIMIT_REQS_PER_MIN")
+            .ok()
+            .and_then(|s| s.parse().ok())
+    }) {
+        rate_limit_config.max_requests_per_min = reqs;
+    }
+
     let state = AppState::open_with_cache_budget(
         &db_path,
         &store_dir,
         max_cache_mb.saturating_mul(1024 * 1024),
     )?
-    .with_write_auth(write_token, trust_tailscale);
+    .with_write_auth(write_token, trust_tailscale)
+    .with_rate_limit_config(rate_limit_config);
     let write_protected = state.write_token().is_some();
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     log::info!(
-        "daqcloud listening on http://{} (db: {}, store: {}, max_cache: {} MiB, write_auth: {}, trust_tailscale: {})",
+        "daqcloud listening on http://{} (db: {}, store: {}, max_cache: {} MiB, write_auth: {}, trust_tailscale: {}, rate_limit: {} MiB/min & {} req/min)",
         listener.local_addr()?,
         db_path.display(),
         store_dir.display(),
         max_cache_mb,
         if write_protected { "enabled" } else { "open" },
-        trust_tailscale
+        trust_tailscale,
+        rate_limit_config.max_egress_bytes_per_min / (1024 * 1024),
+        rate_limit_config.max_requests_per_min
     );
 
     axum::serve(

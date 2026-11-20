@@ -393,6 +393,118 @@ pub fn is_tailscale_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
+const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+const RATE_LIMIT_IDLE_EVICT: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Copy, Debug)]
+pub struct RateLimitConfig {
+    /// Maximum egress response bytes per public IP per 60-second window (0 = unlimited).
+    pub max_egress_bytes_per_min: u64,
+    /// Maximum total HTTP requests per public IP per 60-second window (0 = unlimited).
+    pub max_requests_per_min: u32,
+    /// Maximum heavy export / raw-file download requests per public IP per 60-second window (0 = unlimited).
+    pub max_heavy_requests_per_min: u32,
+    /// Exempt loopback (`127.0.0.0/8`, `::1`) addresses from rate limiting.
+    pub exempt_loopback: bool,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_egress_bytes_per_min: 150 * 1024 * 1024, // 150 MiB/min
+            max_requests_per_min: 600,
+            max_heavy_requests_per_min: 15,
+            exempt_loopback: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RateLimitRejection {
+    RequestsPerMinuteExceeded,
+    HeavyDownloadsPerMinuteExceeded,
+    EgressBandwidthExceeded,
+}
+
+struct IpQuotaBucket {
+    window_started: Instant,
+    last_seen: Instant,
+    requests: u32,
+    heavy_requests: u32,
+    egress_bytes: u64,
+}
+
+#[derive(Default)]
+struct IpRateLimiter {
+    buckets: HashMap<std::net::IpAddr, IpQuotaBucket>,
+}
+
+impl IpRateLimiter {
+    fn check_and_increment(
+        &mut self,
+        ip: std::net::IpAddr,
+        is_heavy: bool,
+        cfg: &RateLimitConfig,
+    ) -> Result<(), RateLimitRejection> {
+        let canonical = ip.to_canonical();
+        let now = Instant::now();
+        if self.buckets.len() > 256 {
+            self.buckets
+                .retain(|_, b| now.duration_since(b.last_seen) < RATE_LIMIT_IDLE_EVICT);
+        }
+        let bucket = self.buckets.entry(canonical).or_insert(IpQuotaBucket {
+            window_started: now,
+            last_seen: now,
+            requests: 0,
+            heavy_requests: 0,
+            egress_bytes: 0,
+        });
+        if now.duration_since(bucket.window_started) >= RATE_LIMIT_WINDOW {
+            bucket.window_started = now;
+            bucket.requests = 0;
+            bucket.heavy_requests = 0;
+            bucket.egress_bytes = 0;
+        }
+        bucket.last_seen = now;
+        if cfg.max_egress_bytes_per_min > 0 && bucket.egress_bytes >= cfg.max_egress_bytes_per_min {
+            return Err(RateLimitRejection::EgressBandwidthExceeded);
+        }
+        if cfg.max_requests_per_min > 0 && bucket.requests >= cfg.max_requests_per_min {
+            return Err(RateLimitRejection::RequestsPerMinuteExceeded);
+        }
+        if is_heavy
+            && cfg.max_heavy_requests_per_min > 0
+            && bucket.heavy_requests >= cfg.max_heavy_requests_per_min
+        {
+            return Err(RateLimitRejection::HeavyDownloadsPerMinuteExceeded);
+        }
+        bucket.requests = bucket.requests.saturating_add(1);
+        if is_heavy {
+            bucket.heavy_requests = bucket.heavy_requests.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn record_egress(&mut self, ip: std::net::IpAddr, bytes: u64) {
+        if bytes == 0 {
+            return;
+        }
+        let canonical = ip.to_canonical();
+        let now = Instant::now();
+        if let Some(bucket) = self.buckets.get_mut(&canonical) {
+            if now.duration_since(bucket.window_started) >= RATE_LIMIT_WINDOW {
+                bucket.window_started = now;
+                bucket.requests = 0;
+                bucket.heavy_requests = 0;
+                bucket.egress_bytes = bytes;
+            } else {
+                bucket.egress_bytes = bucket.egress_bytes.saturating_add(bytes);
+            }
+            bucket.last_seen = now;
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Registry,
@@ -402,6 +514,8 @@ pub struct AppState {
     max_cache_bytes: usize,
     write_token: Option<Arc<String>>,
     trust_tailscale: bool,
+    rate_limit_config: RateLimitConfig,
+    ip_rate_limiter: Arc<Mutex<IpRateLimiter>>,
     sha256_cache: Arc<Mutex<HashMap<Sha256CacheKey, String>>>,
     tile_cache: Arc<Mutex<EncodedTileLruCache>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
@@ -437,6 +551,8 @@ impl AppState {
             max_cache_bytes,
             write_token: None,
             trust_tailscale: true,
+            rate_limit_config: RateLimitConfig::default(),
+            ip_rate_limiter: Arc::new(Mutex::new(IpRateLimiter::default())),
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
             tile_cache: Arc::new(Mutex::new(EncodedTileLruCache::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
@@ -457,6 +573,49 @@ impl AppState {
             .filter(|t| !t.is_empty())
             .map(Arc::new);
         self.trust_tailscale = trust_tailscale;
+    }
+
+    pub fn with_rate_limit_config(mut self, config: RateLimitConfig) -> Self {
+        self.rate_limit_config = config;
+        self
+    }
+
+    pub fn rate_limit_config(&self) -> RateLimitConfig {
+        self.rate_limit_config
+    }
+
+    pub fn is_ip_rate_limit_exempt(&self, ip: std::net::IpAddr) -> bool {
+        let canonical = ip.to_canonical();
+        if self.rate_limit_config.exempt_loopback && canonical.is_loopback() {
+            return true;
+        }
+        if self.trust_tailscale && is_tailscale_ip(canonical) {
+            return true;
+        }
+        false
+    }
+
+    pub fn check_ip_rate_limit(
+        &self,
+        ip: std::net::IpAddr,
+        is_heavy: bool,
+    ) -> Result<(), RateLimitRejection> {
+        if self.is_ip_rate_limit_exempt(ip) {
+            return Ok(());
+        }
+        if let Ok(mut guard) = self.ip_rate_limiter.lock() {
+            guard.check_and_increment(ip, is_heavy, &self.rate_limit_config)?;
+        }
+        Ok(())
+    }
+
+    pub fn record_ip_egress_bytes(&self, ip: std::net::IpAddr, bytes: u64) {
+        if bytes == 0 || self.is_ip_rate_limit_exempt(ip) {
+            return;
+        }
+        if let Ok(mut guard) = self.ip_rate_limiter.lock() {
+            guard.record_egress(ip, bytes);
+        }
     }
 
     pub fn write_token(&self) -> Option<&str> {

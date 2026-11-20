@@ -1,7 +1,7 @@
-use crate::state::{AppState, CacheHitMarker, is_tailscale_ip};
+use crate::state::{AppState, CacheHitMarker, RateLimitRejection, is_tailscale_ip};
 use axum::{
     Json, Router,
-    body::Bytes,
+    body::{Bytes, HttpBody as _},
     extract::{
         ConnectInfo, DefaultBodyLimit, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -223,6 +223,36 @@ pub fn is_write_authorized(
     has_valid_write_credentials(state, headers)
 }
 
+pub fn is_heavy_download_request(method: &axum::http::Method, path: &str) -> bool {
+    if *method == axum::http::Method::POST && path == "/api/v1/export" {
+        return true;
+    }
+    if *method == axum::http::Method::GET
+        && let Some(rest) = path.strip_prefix("/api/v1/partitions/")
+        && let Some((_part_id, filename)) = rest.split_once('/')
+    {
+        return !matches!(filename, "preload" | "tile" | "manifest.json");
+    }
+    false
+}
+
+fn rate_limit_exceeded_response(rejection: RateLimitRejection) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("30"));
+    let msg = match rejection {
+        RateLimitRejection::EgressBandwidthExceeded => {
+            "Too Many Requests: per-IP egress bandwidth limit exceeded, retry after 30s\n"
+        }
+        RateLimitRejection::HeavyDownloadsPerMinuteExceeded => {
+            "Too Many Requests: per-IP bulk export/download rate limit exceeded, retry after 30s\n"
+        }
+        RateLimitRejection::RequestsPerMinuteExceeded => {
+            "Too Many Requests: per-IP request rate limit exceeded, retry after 30s\n"
+        }
+    };
+    (StatusCode::TOO_MANY_REQUESTS, headers, msg).into_response()
+}
+
 async fn log_request_middleware(
     State(state): State<AppState>,
     req: axum::extract::Request,
@@ -234,6 +264,8 @@ async fn log_request_middleware(
         .extensions()
         .get::<ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip());
+    let has_token = state.write_token().is_some() && has_valid_write_credentials(&state, req.headers());
+    let is_heavy = is_heavy_download_request(&method, uri.path());
     let (category, include_in_overall) = classify_endpoint(&method, uri.path());
     let start = std::time::Instant::now();
     let resp = if is_write_request(&method, uri.path())
@@ -250,9 +282,19 @@ async fn log_request_middleware(
             "Unauthorized: write password/token or Tailscale connection required\n",
         )
             .into_response()
+    } else if !has_token
+        && let Some(ip) = peer_ip
+        && let Err(rejection) = state.check_ip_rate_limit(ip, is_heavy)
+    {
+        rate_limit_exceeded_response(rejection)
     } else {
         let _in_flight = state.track_http_in_flight();
-        next.run(req).await
+        let response = next.run(req).await;
+        if !has_token && let Some(ip) = peer_ip {
+            let egress_bytes = response.body().size_hint().lower();
+            state.record_ip_egress_bytes(ip, egress_bytes);
+        }
+        response
     };
     let status = resp.status();
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -2475,6 +2517,114 @@ mod tests {
             &empty_headers,
             Some(ts_ip)
         ));
+
+        server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_per_ip_rate_and_egress_bandwidth_limiting() {
+        use crate::state::RateLimitConfig;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("rate_limit_registry.sqlite");
+        let store_dir = tmp.path().join("store");
+
+        // 1. Unit tests on heavy download classification and IP rate limiter state machine
+        assert!(is_heavy_download_request(
+            &axum::http::Method::POST,
+            "/api/v1/export"
+        ));
+        assert!(is_heavy_download_request(
+            &axum::http::Method::GET,
+            "/api/v1/partitions/epoch_123/full_res.parquet"
+        ));
+        assert!(!is_heavy_download_request(
+            &axum::http::Method::GET,
+            "/api/v1/partitions/epoch_123/preload"
+        ));
+        assert!(!is_heavy_download_request(
+            &axum::http::Method::GET,
+            "/api/v1/partitions/epoch_123/tile"
+        ));
+        assert!(!is_heavy_download_request(
+            &axum::http::Method::GET,
+            "/api/v1/partitions/epoch_123/manifest.json"
+        ));
+
+        let state = AppState::open(&db_path, &store_dir)
+            .unwrap()
+            .with_write_auth(Some("per-team-token".to_owned()), true)
+            .with_rate_limit_config(RateLimitConfig {
+                max_egress_bytes_per_min: 100, // 100 bytes cap for test
+                max_requests_per_min: 3,
+                max_heavy_requests_per_min: 1,
+                exempt_loopback: false, // test over 127.0.0.1 HTTP listener
+            });
+
+        // Tailscale IP is always exempt when trust_tailscale is true
+        let ts_ip: std::net::IpAddr = "100.77.1.2".parse().unwrap();
+        for _ in 0..10 {
+            assert_eq!(state.check_ip_rate_limit(ts_ip, true), Ok(()));
+        }
+
+        // Public IP hits heavy download limit after 1 heavy request
+        let pub_heavy_ip: std::net::IpAddr = "198.51.100.10".parse().unwrap();
+        assert_eq!(state.check_ip_rate_limit(pub_heavy_ip, true), Ok(()));
+        assert_eq!(
+            state.check_ip_rate_limit(pub_heavy_ip, true),
+            Err(RateLimitRejection::HeavyDownloadsPerMinuteExceeded)
+        );
+        // Non-heavy request still allowed until max_requests_per_min (3) is reached
+        assert_eq!(state.check_ip_rate_limit(pub_heavy_ip, false), Ok(()));
+        assert_eq!(state.check_ip_rate_limit(pub_heavy_ip, false), Ok(()));
+        assert_eq!(
+            state.check_ip_rate_limit(pub_heavy_ip, false),
+            Err(RateLimitRejection::RequestsPerMinuteExceeded)
+        );
+
+        // 2. End-to-end HTTP test of egress bandwidth limiting and write-token exemption
+        let app = build_router(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{addr}");
+        let server_handle = tokio::spawn(async move {
+            let _ = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await;
+        });
+
+        let client = reqwest::Client::new();
+
+        // First GET / (index.html is >100 bytes) succeeds and records >100 egress bytes for 127.0.0.1
+        let r1 = client.get(format!("{base_url}/")).send().await.unwrap();
+        assert_eq!(r1.status(), StatusCode::OK);
+        let body1 = r1.bytes().await.unwrap();
+        assert!(body1.len() > 100);
+
+        // Next unauthenticated request from 127.0.0.1 is immediately rejected with 429 Too Many Requests
+        let r2 = client
+            .get(format!("{base_url}/api/v1/catalog"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r2.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            r2.headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("30")
+        );
+
+        // Request carrying the valid write token is exempt from rate limiting
+        let r3 = client
+            .get(format!("{base_url}/api/v1/catalog"))
+            .header(header::AUTHORIZATION, "Bearer per-team-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r3.status(), StatusCode::OK);
 
         server_handle.abort();
     }
