@@ -47,7 +47,7 @@ pub fn show_signal_picker(
         ui.add(
             eframe::egui::TextEdit::singleline(search_query)
                 .desired_width(ui.available_width().max(60.0))
-                .hint_text("Search msg.signal or formula…"),
+                .hint_text("Search"),
         );
     });
     if cancelled {
@@ -146,9 +146,9 @@ pub fn show_signal_picker(
         .show(ui, |ui| {
             if candidates.is_empty() {
                 let msg = if active_signals.is_empty() {
-                    "No signals have samples in the active timeline range."
+                    "No signals"
                 } else {
-                    "No matching signals found in the active timeline range."
+                    "No matches"
                 };
                 ui.label(eframe::egui::RichText::new(msg).italics().weak());
                 return;

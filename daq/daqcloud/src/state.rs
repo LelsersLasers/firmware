@@ -700,10 +700,8 @@ impl AppState {
         {
             return stats.clone();
         }
-        let (track_days, partitions, annotations, derived_signals) = self
-            .registry
-            .count_store_entities()
-            .unwrap_or((0, 0, 0, 0));
+        let (track_days, partitions, annotations, derived_signals) =
+            self.registry.count_store_entities().unwrap_or((0, 0, 0, 0));
         let stats = CloudStoreStats {
             track_days,
             partitions,

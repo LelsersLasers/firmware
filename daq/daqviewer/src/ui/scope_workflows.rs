@@ -560,3 +560,103 @@ fn legend_appearance_axis_menus_and_lane_drag_work() {
         "Removing RPM must not recolor Throttle"
     );
 }
+
+#[test]
+fn confirmed_plot_deletion_requires_two_clicks_and_cancels_on_escape() {
+    let mut h = Harness::new(true);
+    let delete = h.find("×");
+    let button = h
+        .output
+        .as_ref()
+        .unwrap()
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.rect.contains(delete) && (rect.rect.width() - 23.0).abs() <= 0.1 =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })
+        .expect("Close button outline");
+    assert!((button.left() - h.scope.plot_frames[0].left()).abs() <= 1.0);
+    let title = h.find("Plot 1");
+    assert!(title.x > delete.x);
+    h.frame(vec![Event::PointerMoved(delete)]);
+    assert!(h.output.as_ref().unwrap().shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Text(text)
+            if text.galley.text() == "×" && text.galley.job.sections[0].format.color == egui::Color32::from_rgb(235, 75, 75))
+    }));
+    h.click(delete);
+    assert_eq!(h.scope.config.lanes, 2);
+    let id = egui::Id::new(("scope_delete_confirmation", h.scope.instance_num));
+    assert_eq!(h.ctx.data_mut(|data| data.get_temp::<usize>(id)), Some(0));
+    h.frame(vec![Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    }]);
+    assert_eq!(h.ctx.data_mut(|data| data.get_temp::<usize>(id)), None);
+    h.click(delete);
+    h.click(h.point(0, 0.5));
+    assert_eq!(h.ctx.data_mut(|data| data.get_temp::<usize>(id)), None);
+    assert_eq!(h.scope.config.lanes, 2);
+    h.click(delete);
+    h.click(delete);
+    assert_eq!(h.scope.config.lanes, 1);
+    assert_eq!(h.ctx.data_mut(|data| data.get_temp::<usize>(id)), None);
+}
+
+#[test]
+fn deleting_plot_removes_channels_and_renumbers_axes() {
+    let mut h = Harness::new(true);
+    let remaining: Vec<_> = h
+        .scope
+        .channels
+        .iter()
+        .filter(|channel| h.scope.config.lane(&channel.signal_id) == 1)
+        .map(|channel| channel.signal_id.clone())
+        .collect();
+    assert!(!remaining.is_empty());
+    h.scope
+        .config
+        .axes
+        .entry("1|rpm".to_owned())
+        .or_default()
+        .range = Some([0.0, 4000.0]);
+    h.scope.delete_plot(0);
+    assert_eq!(h.scope.config.lanes, 1);
+    assert!(!h.scope.config.stacked);
+    assert_eq!(h.scope.channels.len(), remaining.len());
+    for signal in remaining {
+        assert!(
+            h.scope
+                .channels
+                .iter()
+                .any(|channel| channel.signal_id == signal)
+        );
+        assert_eq!(h.scope.config.lane(&signal), 0);
+    }
+    assert_eq!(h.scope.config.axes["0|rpm"].range, Some([0.0, 4000.0]));
+    h.frame(vec![]);
+    h.scope.delete_plot(0);
+    assert!(h.scope.channels.is_empty());
+    assert!(h.scope.picker_target.is_none());
+    h.frame(vec![]);
+}
+
+#[test]
+fn stacks_beyond_eight_keep_plots_readable() {
+    let mut h = Harness::new(true);
+    h.scope.config.lanes = 12;
+    for _ in 0..3 {
+        h.frame(vec![]);
+    }
+    assert_eq!(h.scope.plot_frames.len(), 12);
+    for frame in &h.scope.plot_frames {
+        assert!(frame.height() >= 100.0);
+    }
+}

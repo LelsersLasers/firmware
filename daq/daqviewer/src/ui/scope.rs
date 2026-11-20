@@ -310,7 +310,7 @@ impl Scope {
             instance_num,
             custom_title: false,
             channels: Vec::new(),
-            picker_target: Some(ScopePickerTarget::AddChannel),
+            picker_target: None,
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
@@ -507,10 +507,62 @@ impl Scope {
             self.config.channels.remove(&removed.signal_id);
             if self.channels.is_empty() {
                 self.custom_title = false;
-                self.picker_target = Some(ScopePickerTarget::AddChannel);
+                self.picker_target = None;
             }
             self.refresh_title();
         }
+    }
+
+    pub(super) fn delete_plot(&mut self, lane: usize) {
+        let count = if self.config.stacked {
+            self.config.lanes
+        } else {
+            1
+        };
+        if lane >= count {
+            return;
+        }
+        for index in (0..self.channels.len()).rev() {
+            if self.config.lane(&self.channels[index].signal_id) == lane {
+                self.remove_channel(index);
+            }
+        }
+        for style in self.config.channels.values_mut() {
+            if style.lane > lane {
+                style.lane -= 1;
+            }
+        }
+        self.config.axes = std::mem::take(&mut self.config.axes)
+            .into_iter()
+            .filter_map(|(key, axis)| {
+                let (prefix, name) = key.split_once('|')?;
+                let old_lane: usize = prefix.parse().ok()?;
+                if old_lane == lane {
+                    None
+                } else {
+                    let new_lane = if old_lane > lane {
+                        old_lane - 1
+                    } else {
+                        old_lane
+                    };
+                    Some((format!("{new_lane}|{name}"), axis))
+                }
+            })
+            .collect();
+        self.config.lanes = count.saturating_sub(1).max(1);
+        self.config.stacked = self.config.lanes > 1;
+        self.config.sanitize();
+        self.lane_y_overrides.clear();
+        self.y_bounds_override = None;
+        self.gesture = None;
+        self.inspector = None;
+        self.picker_target = None;
+        self.config.plot_names = std::mem::take(&mut self.config.plot_names)
+            .into_iter()
+            .filter(|(index, _)| *index != lane)
+            .map(|(index, name)| (if index > lane { index - 1 } else { index }, name))
+            .collect();
+        self.cached_data = None;
     }
 
     fn refresh_title(&mut self) {
@@ -620,8 +672,7 @@ impl Scope {
             }
         }
 
-        if self.channels.is_empty() || self.picker_target.is_some() {
-            let target = self.picker_target.unwrap_or(ScopePickerTarget::AddChannel);
+        if let Some(target) = self.picker_target {
             self.show_picker(ui, target, view);
             return egui_tiles::UiResponse::None;
         }
@@ -1041,179 +1092,204 @@ impl Scope {
         let mut export_csv = false;
         let mut toolbar_action: Option<ui::scope_legend::Action> = None;
 
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-            if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
-                self.show_legend = !self.show_legend;
-            }
-            if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
-                self.config.toggle_stack(&self.channels);
-                self.cached_data = None;
-                self.lane_y_overrides.clear();
-                return;
-            }
-            if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
-                self.measurements.enabled = !self.measurements.enabled;
-                self.gesture = None;
-            }
-            if ui.small_button("+").on_hover_text("Add signal").clicked() {
-                open_picker = Some(ScopePickerTarget::AddChannel);
-            }
-            if is_comparison {
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "Comparing ({})",
-                        comparison_annotations.len()
-                    ))
-                    .small(),
-                );
-            }
-            if self.x_axis_mode != ScopeXAxisMode::UtcTime
-                && ui
-                    .small_button(self.x_axis_mode.label())
-                    .on_hover_text("Use time axis")
-                    .clicked()
-            {
-                self.x_axis_mode = ScopeXAxisMode::UtcTime;
-            }
-
-            eframe::egui::containers::menu::MenuButton::new("…")
-                .config(
-                    eframe::egui::containers::menu::MenuConfig::new()
-                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
-                )
-                .ui(ui, |ui| {
-                    ui.set_min_width(195.0);
-                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                    ui.horizontal(|ui| {
-                        let resp = ui.add(
-                            eframe::egui::TextEdit::singleline(&mut self.title)
-                                .desired_width(140.0)
-                                .hint_text("Tab title…"),
+        eframe::egui::Frame::group(ui.style())
+            .inner_margin(eframe::egui::Margin::symmetric(4, 3))
+            .corner_radius(5.0)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+                    if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
+                        self.show_legend = !self.show_legend;
+                    }
+                    if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
+                        self.config.toggle_stack(&self.channels);
+                        self.cached_data = None;
+                        self.lane_y_overrides.clear();
+                        return;
+                    }
+                    if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
+                        self.measurements.enabled = !self.measurements.enabled;
+                        self.gesture = None;
+                    }
+                    if ui
+                        .add(ui::scope_icons::toolbar_button("ƒ"))
+                        .on_hover_text("Add signal")
+                        .clicked()
+                    {
+                        open_picker = Some(ScopePickerTarget::AddChannel);
+                    }
+                    if ui
+                        .add(ui::scope_icons::toolbar_button("+"))
+                        .on_hover_text("Add plot")
+                        .clicked()
+                    {
+                        self.config.lanes = if self.config.stacked {
+                            self.config.lanes.saturating_add(1)
+                        } else {
+                            2
+                        };
+                        self.config.stacked = true;
+                        self.cached_data = None;
+                    }
+                    if is_comparison {
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "Comparing ({})",
+                                comparison_annotations.len()
+                            ))
+                            .small(),
                         );
-                        if resp.changed() {
-                            self.custom_title = !self.title.trim().is_empty();
-                        }
-                        if resp.lost_focus() {
-                            if self.title.trim().is_empty() {
+                    }
+                    if self.x_axis_mode != ScopeXAxisMode::UtcTime
+                        && ui
+                            .add(ui::scope_icons::toolbar_button(self.x_axis_mode.label()))
+                            .on_hover_text("Use time axis")
+                            .clicked()
+                    {
+                        self.x_axis_mode = ScopeXAxisMode::UtcTime;
+                    }
+
+                    eframe::egui::containers::menu::MenuButton::from_button(
+                        ui::scope_icons::toolbar_button("…"),
+                    )
+                    .config(
+                        eframe::egui::containers::menu::MenuConfig::new()
+                            .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                    )
+                    .ui(ui, |ui| {
+                        ui.set_min_width(195.0);
+                        ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                        ui.horizontal(|ui| {
+                            let resp = ui.add(
+                                eframe::egui::TextEdit::singleline(&mut self.title)
+                                    .desired_width(140.0)
+                                    .hint_text("Tab title…"),
+                            );
+                            if resp.changed() {
+                                self.custom_title = !self.title.trim().is_empty();
+                            }
+                            if resp.lost_focus() {
+                                if self.title.trim().is_empty() {
+                                    self.custom_title = false;
+                                    self.refresh_title();
+                                }
+                                if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                    ui.close();
+                                }
+                            }
+                            if self.custom_title
+                                && ui
+                                    .small_button("Auto")
+                                    .on_hover_text("Reset to automatic channel title")
+                                    .clicked()
+                            {
                                 self.custom_title = false;
                                 self.refresh_title();
                             }
-                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                        });
+                        ui.separator();
+                        ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
+                        for mode in [
+                            ScopeXAxisMode::UtcTime,
+                            ScopeXAxisMode::ElapsedTime,
+                            ScopeXAxisMode::TrackDistance,
+                        ] {
+                            if ui
+                                .selectable_label(self.x_axis_mode == mode, mode.label())
+                                .clicked()
+                            {
+                                self.x_axis_mode = mode;
+                                if mode == ScopeXAxisMode::TrackDistance
+                                    && self.speed_signal_id.is_empty()
+                                {
+                                    self.speed_signal_id = view.resolve_default_speed_signal();
+                                }
                                 ui.close();
                             }
                         }
-                        if self.custom_title
+                        if self.x_axis_mode == ScopeXAxisMode::TrackDistance
                             && ui
-                                .small_button("Auto")
-                                .on_hover_text("Reset to automatic channel title")
+                                .button(format!("Speed Signal: {}…", self.speed_signal_id))
+                                .on_hover_text(&self.speed_signal_id)
                                 .clicked()
                         {
-                            self.custom_title = false;
-                            self.refresh_title();
-                        }
-                    });
-                    ui.separator();
-                    ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
-                    for mode in [
-                        ScopeXAxisMode::UtcTime,
-                        ScopeXAxisMode::ElapsedTime,
-                        ScopeXAxisMode::TrackDistance,
-                    ] {
-                        if ui
-                            .selectable_label(self.x_axis_mode == mode, mode.label())
-                            .clicked()
-                        {
-                            self.x_axis_mode = mode;
-                            if mode == ScopeXAxisMode::TrackDistance
-                                && self.speed_signal_id.is_empty()
-                            {
-                                self.speed_signal_id = view.resolve_default_speed_signal();
-                            }
+                            open_picker = Some(ScopePickerTarget::SpeedSignal);
                             ui.close();
                         }
-                    }
-                    if self.x_axis_mode == ScopeXAxisMode::TrackDistance
-                        && ui
-                            .button(format!("Speed Signal: {}…", self.speed_signal_id))
-                            .on_hover_text(&self.speed_signal_id)
-                            .clicked()
-                    {
-                        open_picker = Some(ScopePickerTarget::SpeedSignal);
-                        ui.close();
-                    }
-                    ui.separator();
-                    ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
-                    ui.menu_button("Plots", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Count");
-                            if ui
-                                .add(
-                                    eframe::egui::DragValue::new(&mut self.config.lanes)
-                                        .range(1..=8),
-                                )
-                                .changed()
-                            {
-                                self.config.stacked = self.config.lanes > 1;
-                                self.config.sanitize();
+                        ui.separator();
+                        ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
+                        ui.menu_button("Plots", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Count");
+                                if ui
+                                    .add(
+                                        eframe::egui::DragValue::new(&mut self.config.lanes)
+                                            .range(1..=usize::MAX),
+                                    )
+                                    .changed()
+                                {
+                                    self.config.stacked = self.config.lanes > 1;
+                                    self.config.sanitize();
+                                    self.cached_data = None;
+                                }
+                            });
+                            if ui.button("Split signals").clicked() {
+                                self.config.stacked = true;
+                                for (index, channel) in self.channels.iter().enumerate() {
+                                    self.config
+                                        .channels
+                                        .entry(channel.signal_id.clone())
+                                        .or_default()
+                                        .lane = index % self.config.lanes;
+                                }
                                 self.cached_data = None;
-                            }
-                        });
-                        if ui.button("Split signals").clicked() {
-                            self.config.stacked = true;
-                            for (index, channel) in self.channels.iter().enumerate() {
-                                self.config
-                                    .channels
-                                    .entry(channel.signal_id.clone())
-                                    .or_default()
-                                    .lane = index % self.config.lanes;
-                            }
-                            self.cached_data = None;
-                            ui.close();
-                        }
-                        if ui.button("Combine signals").clicked() {
-                            self.config.stacked = false;
-                            self.cached_data = None;
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Cursors", |ui| {
-                        for (slot, label) in [(0, "Set A"), (1, "Set B")] {
-                            if ui.button(label).clicked() {
-                                self.measurements.enabled = true;
-                                self.measurements.next = slot;
                                 ui.close();
                             }
+                            if ui.button("Combine signals").clicked() {
+                                self.config.stacked = false;
+                                self.cached_data = None;
+                                ui.close();
+                            }
+                        });
+                        ui.menu_button("Cursors", |ui| {
+                            for (slot, label) in [(0, "Set A"), (1, "Set B")] {
+                                if ui.button(label).clicked() {
+                                    self.measurements.enabled = true;
+                                    self.measurements.next = slot;
+                                    ui.close();
+                                }
+                            }
+                            if ui.button("Clear cursors").clicked() {
+                                self.measurements.pins = [None, None];
+                                ui.close();
+                            }
+                        });
+                        if self.y_bounds_override.is_some()
+                            && ui.button("Reset Y-Axis Zoom").clicked()
+                        {
+                            self.y_bounds_override = None;
+                            ui.close();
                         }
-                        if ui.button("Clear cursors").clicked() {
-                            self.measurements.pins = [None, None];
+                        if ui.button("Export CSV…").clicked() {
+                            export_csv = true;
+                            ui.close();
+                        }
+                        if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
+                            clear_all = true;
                             ui.close();
                         }
                     });
-                    if self.y_bounds_override.is_some() && ui.button("Reset Y-Axis Zoom").clicked()
-                    {
-                        self.y_bounds_override = None;
-                        ui.close();
-                    }
-                    if ui.button("Export CSV…").clicked() {
-                        export_csv = true;
-                        ui.close();
-                    }
-                    if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
-                        clear_all = true;
-                        ui.close();
+
+                    if !self.show_legend {
+                        toolbar_action = ui::scope_legend::show_toolbar_strip(
+                            ui,
+                            self.instance_num,
+                            &entries,
+                            self.show_inline_stats,
+                        );
                     }
                 });
-
-            if !self.show_legend {
-                toolbar_action = ui::scope_legend::show_toolbar_strip(
-                    ui,
-                    self.instance_num,
-                    &entries,
-                    self.show_inline_stats,
-                );
-            }
-        });
+            });
 
         if let Some(action) = toolbar_action {
             self.apply_legend_action(action);
@@ -1235,7 +1311,7 @@ impl Scope {
             self.cached_data = None;
             self.custom_title = false;
             self.refresh_title();
-            self.picker_target = Some(ScopePickerTarget::AddChannel);
+            self.picker_target = None;
             return egui_tiles::UiResponse::None;
         }
 
@@ -1735,7 +1811,8 @@ mod tests {
                 egui::Shape::Rect(rect)
                     if rect.rect.width() >= 140.0
                         && rect.rect.width() <= 300.0
-                        && rect.rect.height() <= 150.0 =>
+                        && rect.rect.height() <= 150.0
+                        && rect.rect.contains(entry) =>
                 {
                     Some(rect.rect)
                 }
