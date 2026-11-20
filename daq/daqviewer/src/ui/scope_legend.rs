@@ -18,7 +18,6 @@ pub(super) struct Entry {
     pub destination: Option<ui::scope_settings::Destination>,
     pub axis_label: String,
     pub axis_color: Option<Color32>,
-    pub can_move_axis: bool,
     pub measurements: Option<(f64, f64)>,
     pub drag: Option<SignalDrag>,
 }
@@ -53,7 +52,6 @@ pub(super) enum Action {
     Remove(usize),
     Toggle(usize),
     Solo(usize),
-    MoveAxis(usize),
     Inspect(usize, ui::scope_settings::InspectorTab),
 }
 
@@ -786,10 +784,6 @@ fn show_channel_details_popup(
                     format!("{} · {}", destination.label(), entry.axis_label),
                 );
             }
-            if entry.can_move_axis && ui.button("Move axis to linked plot").clicked() {
-                *action = Some(Action::MoveAxis(entry.channel_index));
-                ui.close();
-            }
             if let Some(stats) = entry.stats {
                 egui::Grid::new(("legend_statistics", instance, index)).show(ui, |ui| {
                     for (label, value) in
@@ -911,7 +905,6 @@ mod tests {
                 destination: None,
                 axis_label: String::new(),
                 axis_color: None,
-                can_move_axis: false,
                 measurements: None,
                 drag: None,
             })

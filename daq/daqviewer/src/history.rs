@@ -22,7 +22,6 @@ fn builtin_formula_engine() -> &'static FormulaEngine {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeUndoExtras {
     pub hidden_channels: BTreeSet<String>,
-    pub lane_y_overrides: BTreeMap<usize, [f64; 2]>,
     pub show_inline_stats: bool,
 }
 
@@ -77,11 +76,7 @@ fn quantize_share(share: f32) -> f32 {
 
 fn normalize_layout_floats(node: &mut workspace_io::WorkspaceLayoutNode) {
     match node {
-        workspace_io::WorkspaceLayoutNode::Pane { spec } => {
-            if let workspace_io::PaneSpec::Scope { plot, .. } = spec {
-                plot.plot_names.retain(|_, name| !name.is_empty());
-            }
-        }
+        workspace_io::WorkspaceLayoutNode::Pane { .. } => {}
         workspace_io::WorkspaceLayoutNode::Linear {
             children, shares, ..
         } => {
@@ -112,14 +107,8 @@ fn collect_scope_extras(
     match tile {
         egui_tiles::Tile::Pane(widgets::Widget::Scope(scope)) => {
             let hidden_channels = scope.hidden_channels().iter().cloned().collect();
-            let lane_y_overrides = scope
-                .lane_y_overrides()
-                .iter()
-                .map(|(&lane, &(lo, hi))| (lane, [lo, hi]))
-                .collect();
             out.push(ScopeUndoExtras {
                 hidden_channels,
-                lane_y_overrides,
                 show_inline_stats: scope.show_inline_stats,
             });
         }
@@ -154,12 +143,6 @@ fn apply_scope_extras(
             if let Some(extra) = extras.next() {
                 let hidden: HashSet<String> = extra.hidden_channels.iter().cloned().collect();
                 scope.set_hidden_channels(hidden);
-                let overrides: BTreeMap<usize, (f64, f64)> = extra
-                    .lane_y_overrides
-                    .iter()
-                    .map(|(&lane, &[lo, hi])| (lane, (lo, hi)))
-                    .collect();
-                scope.set_lane_y_overrides(overrides);
                 scope.show_inline_stats = extra.show_inline_stats;
             }
             None
@@ -584,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn undo_and_redo_restore_scope_channels_styles_axes_lanes_and_plot_names() {
+    fn undo_and_redo_restore_scope_channels_styles_axes_and_extras() {
         let (mut state, mut platform, ctx) = test_state();
         state.add_widget_to_tree(widgets::Widget::Scope(Box::new(Scope::new_multi(
             1,
@@ -604,13 +587,9 @@ mod tests {
         ))));
         state.reset_undo_history();
 
-        // Mutate Scope styles, lanes, plot names, discrete flag, hidden channels, and lane Y override
+        // Mutate Scope styles, discrete flag, hidden channels, and inline stats
         {
             let scope = first_scope_mut(&mut state);
-            scope.config.stacked = true;
-            scope.config.lanes = 2;
-            scope.config.plot_names.insert(0, "Velocity".to_owned());
-            scope.config.plot_names.insert(1, "Motor".to_owned());
             scope.config.channels.insert(
                 "gps_speed_heading.gps_speed".to_owned(),
                 SignalStyle {
@@ -623,7 +602,7 @@ mod tests {
                 },
             );
             let ch_rpm = scope.channels()[1].clone();
-            scope.config.assign(&ch_rpm, 1, Destination::Discrete);
+            scope.config.assign(&ch_rpm, 0, Destination::Discrete);
             scope.config.axes.insert(
                 "0|m/s".to_owned(),
                 AxisConfig {
@@ -634,24 +613,19 @@ mod tests {
                 },
             );
             scope.set_hidden_channels(["gps_speed_heading.gps_speed".to_owned()].into());
-            scope.set_lane_y_overrides([(0, (-5.0, 50.0))].into());
             scope.show_inline_stats = true;
         }
         run_frame(&mut state, &mut platform, &ctx, 1.0, vec![]);
         assert!(state.history.can_undo());
 
-        // Undo restores initial unstacked Scope without custom styles/overrides
+        // Undo restores initial Scope without custom styles/extras
         state.action_queue.push(AppAction::Undo);
         run_frame(&mut state, &mut platform, &ctx, 2.0, vec![]);
         {
             let scope = first_scope(&state);
-            assert!(!scope.config.stacked);
-            assert!(
-                scope.config.plot_names.values().all(String::is_empty),
-                "Custom plot names should be cleared after Undo"
-            );
+            assert!(scope.config.channels.is_empty());
+            assert!(scope.config.axes.is_empty());
             assert!(scope.hidden_channels().is_empty());
-            assert!(scope.lane_y_overrides().is_empty());
             assert!(!scope.show_inline_stats);
         }
 
@@ -660,12 +634,6 @@ mod tests {
         run_frame(&mut state, &mut platform, &ctx, 3.0, vec![]);
         {
             let scope = first_scope(&state);
-            assert!(scope.config.stacked);
-            assert_eq!(scope.config.lanes, 2);
-            assert_eq!(
-                scope.config.plot_names.get(&0).map(String::as_str),
-                Some("Velocity")
-            );
             assert_eq!(
                 scope.config.style("gps_speed_heading.gps_speed").mode,
                 TraceMode::Steps
@@ -677,7 +645,6 @@ mod tests {
                     .hidden_channels()
                     .contains("gps_speed_heading.gps_speed")
             );
-            assert_eq!(scope.lane_y_overrides().get(&0), Some(&(-5.0, 50.0)));
             assert!(scope.show_inline_stats);
         }
     }
@@ -840,10 +807,7 @@ mod tests {
 
         // Push MAX_HISTORY_LEN + 15 distinct edits
         for i in 0..(MAX_HISTORY_LEN + 15) {
-            first_scope_mut(&mut state)
-                .config
-                .plot_names
-                .insert(0, format!("Plot Name {i}"));
+            first_scope_mut(&mut state).set_title(format!("Plot Name {i}"));
             run_frame(&mut state, &mut platform, &ctx, 1.0 + i as f64, vec![]);
         }
         assert_eq!(state.history.len(), MAX_HISTORY_LEN);
@@ -856,10 +820,7 @@ mod tests {
         run_frame(&mut state, &mut platform, &ctx, 501.0, vec![]);
         assert!(state.history.can_redo());
 
-        first_scope_mut(&mut state)
-            .config
-            .plot_names
-            .insert(0, "Branched Edit".to_owned());
+        first_scope_mut(&mut state).set_title("Branched Edit".to_owned());
         run_frame(&mut state, &mut platform, &ctx, 502.0, vec![]);
         assert!(!state.history.can_redo());
     }
@@ -1020,10 +981,7 @@ mod tests {
         state.reset_undo_history();
 
         // Make an unrelated edit on the Scope
-        first_scope_mut(&mut state)
-            .config
-            .plot_names
-            .insert(0, "Edited".to_owned());
+        first_scope_mut(&mut state).set_title("Edited".to_owned());
         run_frame(&mut state, &mut platform, &ctx, 1.0, vec![]);
 
         // Undo should rebuild the tile tree while moving the SAME PlatformWidget (token 42) intact

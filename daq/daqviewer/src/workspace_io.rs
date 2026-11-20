@@ -1848,7 +1848,7 @@ mod tests {
     }
 
     #[test]
-    fn scope_styles_axes_and_stacked_layout_survive_workspace_reload() {
+    fn scope_styles_and_axes_survive_workspace_reload() {
         use ui::scope_settings::{AxisConfig, AxisSide, SignalStyle, TraceMode};
         let mut scope = ui::scope::Scope::new_multi(
             1,
@@ -1859,9 +1859,6 @@ mod tests {
                 "V".to_owned(),
             )],
         );
-        scope.config.stacked = true;
-        scope.config.lanes = 12;
-        scope.config.plot_names.insert(2, "Powertrain".to_owned());
         scope.add_channel(
             "message.gear".to_owned(),
             "Gear".to_owned(),
@@ -1872,7 +1869,7 @@ mod tests {
         scope.config.channels.insert(
             "message.gear".to_owned(),
             SignalStyle {
-                lane: 2,
+                lane: 0,
                 discrete: true,
                 ..Default::default()
             },
@@ -1884,13 +1881,13 @@ mod tests {
                 opacity: 0.4,
                 mode: TraceMode::Steps,
                 points: true,
-                lane: 2,
+                lane: 0,
                 axis: "Independent".to_owned(),
                 ..Default::default()
             },
         );
         scope.config.axes.insert(
-            "2|Independent".to_owned(),
+            "0|Independent".to_owned(),
             AxisConfig {
                 range: Some([100.0, 600.0]),
                 side: AxisSide::Right,

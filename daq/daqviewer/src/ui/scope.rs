@@ -260,7 +260,6 @@ pub struct Scope {
     inspector: Option<(String, ui::scope_settings::InspectorTab)>,
     gesture: Option<ui::scope_interaction::Gesture>,
     measurements: ui::scope_interaction::Measurements,
-    lane_y_overrides: std::collections::BTreeMap<usize, (f64, f64)>,
     plot_frames: Vec<eframe::egui::Rect>,
     hidden_channels: std::collections::HashSet<String>,
     solo_channel: Option<String>,
@@ -301,7 +300,6 @@ impl Scope {
             inspector: None,
             gesture: None,
             measurements: ui::scope_interaction::Measurements::default(),
-            lane_y_overrides: std::collections::BTreeMap::new(),
             plot_frames: Vec::new(),
             y_bounds_override: None,
             cached_data: None,
@@ -326,7 +324,6 @@ impl Scope {
             inspector: None,
             gesture: None,
             measurements: ui::scope_interaction::Measurements::default(),
-            lane_y_overrides: std::collections::BTreeMap::new(),
             plot_frames: Vec::new(),
             y_bounds_override: None,
             cached_data: None,
@@ -365,7 +362,6 @@ impl Scope {
             inspector: None,
             gesture: None,
             measurements: ui::scope_interaction::Measurements::default(),
-            lane_y_overrides: std::collections::BTreeMap::new(),
             plot_frames: Vec::new(),
             y_bounds_override: None,
             cached_data: None,
@@ -405,7 +401,6 @@ impl Scope {
             inspector: None,
             gesture: None,
             measurements: ui::scope_interaction::Measurements::default(),
-            lane_y_overrides: std::collections::BTreeMap::new(),
             plot_frames: Vec::new(),
             y_bounds_override: None,
             cached_data: None,
@@ -438,7 +433,6 @@ impl Scope {
             inspector: None,
             gesture: None,
             measurements: ui::scope_interaction::Measurements::default(),
-            lane_y_overrides: std::collections::BTreeMap::new(),
             plot_frames: Vec::new(),
             y_bounds_override,
             cached_data: None,
@@ -477,17 +471,6 @@ impl Scope {
 
     pub(crate) fn set_hidden_channels(&mut self, hidden: std::collections::HashSet<String>) {
         self.hidden_channels = hidden;
-    }
-
-    pub(crate) fn lane_y_overrides(&self) -> &std::collections::BTreeMap<usize, (f64, f64)> {
-        &self.lane_y_overrides
-    }
-
-    pub(crate) fn set_lane_y_overrides(
-        &mut self,
-        overrides: std::collections::BTreeMap<usize, (f64, f64)>,
-    ) {
-        self.lane_y_overrides = overrides;
     }
 
     pub(crate) fn has_pending_signal_moves(ctx: &eframe::egui::Context) -> bool {
@@ -545,58 +528,6 @@ impl Scope {
             }
             self.refresh_title();
         }
-    }
-
-    pub(super) fn delete_plot(&mut self, lane: usize) {
-        let count = if self.config.stacked {
-            self.config.lanes
-        } else {
-            1
-        };
-        if lane >= count {
-            return;
-        }
-        for index in (0..self.channels.len()).rev() {
-            if self.config.lane(&self.channels[index].signal_id) == lane {
-                self.remove_channel(index);
-            }
-        }
-        for style in self.config.channels.values_mut() {
-            if style.lane > lane {
-                style.lane -= 1;
-            }
-        }
-        self.config.axes = std::mem::take(&mut self.config.axes)
-            .into_iter()
-            .filter_map(|(key, axis)| {
-                let (prefix, name) = key.split_once('|')?;
-                let old_lane: usize = prefix.parse().ok()?;
-                if old_lane == lane {
-                    None
-                } else {
-                    let new_lane = if old_lane > lane {
-                        old_lane - 1
-                    } else {
-                        old_lane
-                    };
-                    Some((format!("{new_lane}|{name}"), axis))
-                }
-            })
-            .collect();
-        self.config.lanes = count.saturating_sub(1).max(1);
-        self.config.stacked = self.config.lanes > 1;
-        self.config.sanitize();
-        self.lane_y_overrides.clear();
-        self.y_bounds_override = None;
-        self.gesture = None;
-        self.inspector = None;
-        self.picker_target = None;
-        self.config.plot_names = std::mem::take(&mut self.config.plot_names)
-            .into_iter()
-            .filter(|(index, _)| *index != lane)
-            .map(|(index, name)| (if index > lane { index - 1 } else { index }, name))
-            .collect();
-        self.cached_data = None;
     }
 
     fn refresh_title(&mut self) {
@@ -1072,13 +1003,8 @@ impl Scope {
                     {
                         self.solo_channel = None;
                     }
-                    if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
-                        self.config.toggle_stack(&self.channels);
-                        self.cached_data = None;
-                        self.lane_y_overrides.clear();
-                        return;
-                    }
-                    if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
+                    if ui::scope_icons::measurements_button(ui, self.measurements.enabled).clicked()
+                    {
                         self.measurements.enabled = !self.measurements.enabled;
                         self.gesture = None;
                     }
@@ -1092,19 +1018,6 @@ impl Scope {
                             ui::scope_settings::Destination::Left,
                         ));
                         self.search_query.clear();
-                    }
-                    if ui
-                        .add(ui::scope_icons::toolbar_button("+"))
-                        .on_hover_text("Add plot")
-                        .clicked()
-                    {
-                        self.config.lanes = if self.config.stacked {
-                            self.config.lanes.saturating_add(1)
-                        } else {
-                            2
-                        };
-                        self.config.stacked = true;
-                        self.cached_data = None;
                     }
                     if is_comparison {
                         ui.label(
@@ -1193,39 +1106,6 @@ impl Scope {
                         }
                         ui.separator();
                         ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
-                        ui.menu_button("Plots", |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("Count");
-                                if ui
-                                    .add(
-                                        eframe::egui::DragValue::new(&mut self.config.lanes)
-                                            .range(1..=usize::MAX),
-                                    )
-                                    .changed()
-                                {
-                                    self.config.stacked = self.config.lanes > 1;
-                                    self.config.sanitize();
-                                    self.cached_data = None;
-                                }
-                            });
-                            if ui.button("Split signals").clicked() {
-                                self.config.stacked = true;
-                                for (index, channel) in self.channels.iter().enumerate() {
-                                    self.config
-                                        .channels
-                                        .entry(channel.signal_id.clone())
-                                        .or_default()
-                                        .lane = index % self.config.lanes;
-                                }
-                                self.cached_data = None;
-                                ui.close();
-                            }
-                            if ui.button("Combine signals").clicked() {
-                                self.config.stacked = false;
-                                self.cached_data = None;
-                                ui.close();
-                            }
-                        });
                         ui.menu_button("Cursors", |ui| {
                             for (slot, label) in [(0, "Set A"), (1, "Set B")] {
                                 if ui.button(label).clicked() {

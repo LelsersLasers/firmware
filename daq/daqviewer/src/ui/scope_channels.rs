@@ -258,7 +258,7 @@ impl Scope {
             return;
         };
         let speed = target == ScopePickerTarget::SpeedSignal;
-        let (mut lane, mut destination) = match target {
+        let (lane, mut destination) = match target {
             ScopePickerTarget::Channels(lane, destination) => (lane, destination),
             _ => (0, Destination::Left),
         };
@@ -273,18 +273,6 @@ impl Scope {
             .show(ctx, |ui| {
                 if !speed {
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("plot")
-                            .selected_text(self.plot_name(lane))
-                            .show_ui(ui, |ui| {
-                                let count = if self.config.stacked {
-                                    self.config.lanes
-                                } else {
-                                    1
-                                };
-                                for index in 0..count {
-                                    ui.selectable_value(&mut lane, index, self.plot_name(index));
-                                }
-                            });
                         for side in [Destination::Left, Destination::Right, Destination::Discrete] {
                             ui.selectable_value(&mut destination, side, side.label());
                         }
@@ -386,14 +374,5 @@ impl Scope {
             }
             self.cached_data = None;
         }
-    }
-
-    pub(super) fn plot_name(&self, lane: usize) -> String {
-        self.config
-            .plot_names
-            .get(&lane)
-            .filter(|name| !name.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| format!("Plot {}", lane + 1))
     }
 }

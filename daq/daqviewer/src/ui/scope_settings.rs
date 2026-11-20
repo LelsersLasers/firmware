@@ -84,41 +84,11 @@ impl AxisConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ScopeConfig {
-    pub stacked: bool,
-    pub lanes: usize,
     pub channels: BTreeMap<String, SignalStyle>,
     pub axes: BTreeMap<String, AxisConfig>,
-    #[serde(deserialize_with = "deserialize_plot_names")]
-    pub plot_names: BTreeMap<usize, String>,
-}
-// PaneSpec's tagged-enum deserializer buffers JSON object keys as strings.
-fn deserialize_plot_names<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<BTreeMap<usize, String>, D::Error> {
-    let names = <BTreeMap<String, String> as serde::Deserialize>::deserialize(deserializer)?;
-    names
-        .into_iter()
-        .map(|(key, name)| {
-            key.parse::<usize>()
-                .map(|lane| (lane, name))
-                .map_err(serde::de::Error::custom)
-        })
-        .collect()
-}
-
-impl Default for ScopeConfig {
-    fn default() -> Self {
-        Self {
-            stacked: false,
-            lanes: 2,
-            channels: BTreeMap::new(),
-            axes: BTreeMap::new(),
-            plot_names: BTreeMap::new(),
-        }
-    }
 }
 pub(super) fn axis_quantity(signal: &str) -> Option<&'static str> {
     let field = signal.rsplit('.').next()?;
@@ -146,12 +116,8 @@ impl ScopeConfig {
     pub fn style(&self, signal: &str) -> SignalStyle {
         self.channels.get(signal).cloned().unwrap_or_default()
     }
-    pub fn lane(&self, signal: &str) -> usize {
-        if self.stacked {
-            self.style(signal).lane.min(self.lanes.saturating_sub(1))
-        } else {
-            0
-        }
+    pub fn lane(&self, _signal: &str) -> usize {
+        0
     }
     pub fn axis_key(&self, channel: &ScopeChannel) -> String {
         let style = self.style(&channel.signal_id);
@@ -227,18 +193,6 @@ impl ScopeConfig {
             .and_then(|(lane, _)| lane.parse().ok())
             .unwrap_or(0)
     }
-    pub fn toggle_stack(&mut self, channels: &[ScopeChannel]) {
-        self.stacked = !self.stacked;
-        if self.stacked && !channels.iter().any(|ch| self.style(&ch.signal_id).lane > 0) {
-            self.lanes = self.lanes.max(2);
-            for (index, channel) in channels.iter().enumerate() {
-                self.channels
-                    .entry(channel.signal_id.clone())
-                    .or_default()
-                    .lane = index % self.lanes;
-            }
-        }
-    }
     pub fn assign(&mut self, channel: &ScopeChannel, lane: usize, destination: Destination) {
         let style = self.channels.entry(channel.signal_id.clone()).or_default();
         style.lane = lane;
@@ -277,7 +231,6 @@ impl ScopeConfig {
     }
 
     pub fn sanitize(&mut self) {
-        self.lanes = self.lanes.max(1);
         for style in self.channels.values_mut() {
             style.width = if style.width.is_finite() {
                 style.width.clamp(0.5, 8.0)
@@ -289,7 +242,7 @@ impl ScopeConfig {
             } else {
                 1.0
             };
-            style.lane = style.lane.min(self.lanes - 1);
+            style.lane = 0;
         }
         for axis in self.axes.values_mut() {
             if axis.valid_range().is_none() {
@@ -401,20 +354,6 @@ pub(super) fn inspector(
                     ui.checkbox(&mut style.envelope, "Show envelope");
                 }
                 InspectorTab::Assignment => {
-                    ui.horizontal(|ui| {
-                        ui.label("Plot");
-                        egui::ComboBox::from_id_salt("signal_lane")
-                            .selected_text((style.lane + 1).to_string())
-                            .show_ui(ui, |ui| {
-                                for lane in 0..config.lanes {
-                                    ui.selectable_value(
-                                        &mut style.lane,
-                                        lane,
-                                        (lane + 1).to_string(),
-                                    );
-                                }
-                            });
-                    });
                     egui::ComboBox::from_id_salt("signal_axis")
                         .selected_text(if style.axis.is_empty() {
                             "Auto"
@@ -538,8 +477,7 @@ mod tests {
     fn configuration_defaults_and_validation_are_safe() {
         let mut config: ScopeConfig = serde_json::from_str(r#"{"lanes":999,"channels":{"a":{"width":-2,"opacity":4,"lane":99}} ,"axes":{"0|V":{"range":[5,1]}}}"#).unwrap();
         config.sanitize();
-        assert_eq!(config.lanes, 999);
-        assert_eq!(config.style("a").lane, 99);
+        assert_eq!(config.style("a").lane, 0);
         assert_eq!(config.style("a").width, 0.5);
         assert_eq!(config.style("a").opacity, 1.0);
         assert_eq!(config.axes["0|V"].range, None);
