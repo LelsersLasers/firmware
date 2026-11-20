@@ -504,9 +504,7 @@ impl RouterBackend for NativeRouterBackend {
     }
 
     fn set_cloud_write_token(&mut self, token: Option<String>) {
-        let normalized = token
-            .map(|t| t.trim().to_owned())
-            .filter(|t| !t.is_empty());
+        let normalized = token.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
         self.cloud_write_token = normalized.clone();
         if let Some(cloud) = &self.cloud_sync {
             cloud.set_write_token(normalized);

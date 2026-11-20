@@ -242,9 +242,7 @@ impl CloudSyncHandle {
     }
 
     pub fn set_write_token(&self, token: Option<String>) {
-        let normalized = token
-            .map(|t| t.trim().to_owned())
-            .filter(|t| !t.is_empty());
+        let normalized = token.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
         if let Ok(mut guard) = self.write_token.lock() {
             *guard = normalized;
         }

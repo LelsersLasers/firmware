@@ -688,9 +688,7 @@ impl RouterBackend for WebCloudRouterBackend {
     }
 
     fn set_cloud_write_token(&mut self, token: Option<String>) {
-        self.write_token = token
-            .map(|t| t.trim().to_owned())
-            .filter(|t| !t.is_empty());
+        self.write_token = token.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
         if self.write_auth_error.take().is_some() && self.initial_catalog_loaded {
             self.update_connected_status();
         }

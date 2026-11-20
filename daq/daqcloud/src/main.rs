@@ -101,13 +101,13 @@ async fn main() -> Result<(), db::Error> {
     let trust_tailscale: bool = cli
         .trust_tailscale
         .or_else(|| {
-            env::var("DAQCLOUD_TRUST_TAILSCALE")
-                .ok()
-                .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+            env::var("DAQCLOUD_TRUST_TAILSCALE").ok().and_then(|s| {
+                match s.trim().to_ascii_lowercase().as_str() {
                     "1" | "true" | "yes" => Some(true),
                     "0" | "false" | "no" => Some(false),
                     _ => None,
-                })
+                }
+            })
         })
         .unwrap_or(true);
 

@@ -264,7 +264,8 @@ async fn log_request_middleware(
         .extensions()
         .get::<ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip());
-    let has_token = state.write_token().is_some() && has_valid_write_credentials(&state, req.headers());
+    let has_token =
+        state.write_token().is_some() && has_valid_write_credentials(&state, req.headers());
     let is_heavy = is_heavy_download_request(&method, uri.path());
     let (category, include_in_overall) = classify_endpoint(&method, uri.path());
     let start = std::time::Instant::now();
@@ -2508,10 +2509,9 @@ mod tests {
         assert!(is_write_authorized(&state, &empty_headers, Some(ts_ip)));
         assert!(!is_write_authorized(&state, &empty_headers, Some(pub_ip)));
 
-        let state_no_ts = state.clone().with_write_auth(
-            Some("per-secret-token-2026".to_owned()),
-            false,
-        );
+        let state_no_ts = state
+            .clone()
+            .with_write_auth(Some("per-secret-token-2026".to_owned()), false);
         assert!(!is_write_authorized(
             &state_no_ts,
             &empty_headers,
