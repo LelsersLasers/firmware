@@ -128,7 +128,22 @@ fn hints(
     result
 }
 
+fn focus_opacity(focused: Option<usize>, channel_index: usize) -> f32 {
+    if focused.is_some_and(|index| index != channel_index) {
+        0.22
+    } else {
+        1.0
+    }
+}
+
 impl Scope {
+    fn channel_is_visible(&self, channel: &ScopeChannel) -> bool {
+        self.solo_channel.as_ref().map_or_else(
+            || !self.hidden_channels.contains(&channel.signal_id),
+            |solo| solo == &channel.signal_id,
+        )
+    }
+
     pub(super) fn build_legend_entries(
         &self,
         view: &workspace_view::WorkspaceDataView<'_>,
@@ -190,16 +205,24 @@ impl Scope {
                     return None;
                 }
                 let pair = measurement_pair(index);
+                let short = ui::scope_legend::short_label(channel);
+                let unique_label = if self.channels.iter().any(|other| {
+                    other.signal_id != channel.signal_id
+                        && ui::scope_legend::short_label(other) == short
+                }) {
+                    channel.signal_id.clone()
+                } else {
+                    short.to_owned()
+                };
                 let label = if is_comparison {
                     format!(
-                        "{} ({})",
-                        ui::scope_legend::short_label(channel),
+                        "{unique_label} ({})",
                         comparison[index % traces_per_channel].name
                     )
                 } else if channel.is_derived {
-                    format!("ƒ {}", ui::scope_legend::short_label(channel))
+                    format!("ƒ {unique_label}")
                 } else {
-                    ui::scope_legend::short_label(channel).to_owned()
+                    unique_label
                 };
                 let value = if let Some((a, b)) = pair {
                     Some(format!("Δ ({:.3} {})", b - a, channel.unit))
@@ -225,7 +248,7 @@ impl Scope {
                     color: trace.color,
                     style: style.mode.line_style(trace.style),
                     stats: if is_comparison { None } else { stats },
-                    visible: !self.hidden_channels.contains(&channel.signal_id),
+                    visible: self.channel_is_visible(channel),
                     measurements: pair,
                     drag: Some(ui::scope_legend::SignalDrag::new(
                         self.instance_num,
@@ -240,7 +263,17 @@ impl Scope {
     pub(super) fn apply_legend_action(&mut self, action: ui::scope_legend::Action) {
         match action {
             ui::scope_legend::Action::Remove(index) => self.remove_channel(index),
-            ui::scope_legend::Action::Toggle(index) => self.toggle_channel_visibility(index),
+            ui::scope_legend::Action::Toggle(index) => {
+                self.solo_channel = None;
+                self.toggle_channel_visibility(index);
+            }
+            ui::scope_legend::Action::Solo(index) => {
+                if let Some(channel) = self.channels.get(index) {
+                    let signal = &channel.signal_id;
+                    self.solo_channel =
+                        (self.solo_channel.as_ref() != Some(signal)).then(|| signal.clone());
+                }
+            }
             ui::scope_legend::Action::Inspect(index, tab) => {
                 if let Some(channel) = self.channels.get(index) {
                     self.inspector = Some((channel.signal_id.clone(), tab));
@@ -259,6 +292,11 @@ impl Scope {
         let Some(cached) = self.cached_data.as_ref() else {
             return egui_tiles::UiResponse::None;
         };
+        let visible: Vec<_> = self
+            .channels
+            .iter()
+            .map(|ch| self.channel_is_visible(ch))
+            .collect();
         let is_comparison = comparison.len() >= 2;
         let x_mode = self.x_axis_mode;
         let start_ms = view.timeline.start_utc_ms();
@@ -383,7 +421,18 @@ impl Scope {
                                 .desired_width(title_width)
                                 .frame(false),
                         );
+                        if !self.show_legend
+                            && let Some(action) = ui::scope_legend::show_toolbar_strip(
+                                ui,
+                                legend_instance,
+                                &legend_entries,
+                                self.show_inline_stats,
+                            )
+                        {
+                            actions.push(action);
+                        }
                     });
+                    let focused = ui::scope_legend::hovered_channel(ui.ctx(), legend_instance);
                     let plot_id = (
                         "scope_plot_v3",
                         self.instance_num,
@@ -448,7 +497,7 @@ impl Scope {
                             };
                             if self.config.lane(&channel.signal_id) != lane
                                 || self.config.style(&channel.signal_id).discrete
-                                || self.hidden_channels.contains(&channel.signal_id)
+                                || !visible[channel_index]
                             {
                                 continue;
                             }
@@ -459,7 +508,9 @@ impl Scope {
                                 plot_height,
                                 window_s,
                             );
-                            let color = trace.color.gamma_multiply(style.opacity);
+                            let color = trace.color.gamma_multiply(
+                                style.opacity * focus_opacity(focused, channel_index),
+                            );
                             if style.mode != TraceMode::Points {
                                 let points = if style.mode == TraceMode::Steps {
                                     ui::scope_settings::steps(&trace.mean_points)
@@ -553,8 +604,9 @@ impl Scope {
                         }
                         let legend_interaction = self.show_legend
                             && ui::scope_legend::bounds(
+                                plot.ctx(),
                                 frame,
-                                legend_entries.len(),
+                                &legend_entries,
                                 self.show_inline_stats,
                             )
                             .is_some_and(|rect| {
@@ -669,8 +721,7 @@ impl Scope {
                                 continue;
                             };
                             if self.config.lane(&channel.signal_id) != lane
-                                || self.config.style(&channel.signal_id).discrete
-                                || self.hidden_channels.contains(&channel.signal_id)
+                                || !visible[channel_index]
                             {
                                 continue;
                             }
@@ -682,7 +733,9 @@ impl Scope {
                             {
                                 continue;
                             }
-                            let fill_color = trace.color.gamma_multiply(style.opacity * 0.22);
+                            let fill_color = trace.color.gamma_multiply(
+                                style.opacity * 0.22 * focus_opacity(focused, channel_index),
+                            );
                             for quad in &trace.envelope_bands {
                                 let base = envelope_mesh.vertices.len() as u32;
                                 for pt in quad {
@@ -714,7 +767,7 @@ impl Scope {
                         && sel_end_ms > sel_start_ms
                     {
                         Self::draw_selection_stats_overlay(
-                            (&self.channels, &self.config, &self.hidden_channels),
+                            (&self.channels, &self.config, &visible),
                             ui,
                             *response.transform.frame(),
                             cached,
@@ -814,8 +867,9 @@ impl Scope {
                     }
                     if self.show_legend
                         && let Some(rect) = ui::scope_legend::bounds(
+                            ui.ctx(),
                             *response.transform.frame(),
-                            legend_entries.len(),
+                            &legend_entries,
                             self.show_inline_stats,
                         )
                         && let Some(action) = ui::scope_legend::show(
@@ -875,11 +929,7 @@ impl Scope {
 
     #[allow(clippy::too_many_arguments)]
     fn draw_selection_stats_overlay(
-        (channels, config, hidden_channels): (
-            &[ScopeChannel],
-            &ui::scope_settings::ScopeConfig,
-            &std::collections::HashSet<String>,
-        ),
+        (channels, config, visible): (&[ScopeChannel], &ui::scope_settings::ScopeConfig, &[bool]),
         ui: &mut egui::Ui,
         frame: egui::Rect,
         cached: &CachedScopeData,
@@ -896,9 +946,7 @@ impl Scope {
         };
 
         for (ch_idx, channel) in channels.iter().enumerate() {
-            if config.lane(&channel.signal_id) != lane
-                || hidden_channels.contains(&channel.signal_id)
-            {
+            if config.lane(&channel.signal_id) != lane || !visible[ch_idx] {
                 continue;
             }
             let stats = cached

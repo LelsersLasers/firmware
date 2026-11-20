@@ -263,6 +263,7 @@ pub struct Scope {
     lane_y_overrides: std::collections::BTreeMap<usize, (f64, f64)>,
     plot_frames: Vec<eframe::egui::Rect>,
     hidden_channels: std::collections::HashSet<String>,
+    solo_channel: Option<String>,
     y_bounds_override: Option<(f64, f64)>,
     cached_data: Option<CachedScopeData>,
 }
@@ -295,6 +296,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -319,6 +321,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -357,6 +360,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -396,6 +400,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -428,6 +433,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -506,6 +512,9 @@ impl Scope {
         if index < self.channels.len() {
             let removed = self.channels.remove(index);
             self.hidden_channels.remove(&removed.signal_id);
+            if self.solo_channel.as_ref() == Some(&removed.signal_id) {
+                self.solo_channel = None;
+            }
             self.config.channels.remove(&removed.signal_id);
             if self.channels.is_empty() {
                 self.custom_title = false;
@@ -1020,22 +1029,26 @@ impl Scope {
             }
         }
 
-        // One small toolbar. Signal keys live inline in the toolbar by default (0% plot coverage),
-        // or in the compact floating overlay when toggled on via the legend button.
+        // Each plot uses its header legend or the optional floating overlay.
         let entries = self.build_legend_entries(view, &comparison_annotations, &channel_stats);
         let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
-        let mut toolbar_action: Option<ui::scope_legend::Action> = None;
 
         eframe::egui::Frame::group(ui.style())
             .inner_margin(eframe::egui::Margin::symmetric(4, 3))
             .corner_radius(5.0)
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
+                ui.horizontal(|ui| {
                     if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
                         self.show_legend = !self.show_legend;
+                    }
+                    if self.solo_channel.is_some()
+                        && ui
+                            .add(ui::scope_icons::toolbar_button("Exit solo"))
+                            .clicked()
+                    {
+                        self.solo_channel = None;
                     }
                     if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
                         self.config.toggle_stack(&self.channels);
@@ -1219,21 +1232,8 @@ impl Scope {
                             ui.close();
                         }
                     });
-
-                    if !self.show_legend {
-                        toolbar_action = ui::scope_legend::show_toolbar_strip(
-                            ui,
-                            self.instance_num,
-                            &entries,
-                            self.show_inline_stats,
-                        );
-                    }
                 });
             });
-
-        if let Some(action) = toolbar_action {
-            self.apply_legend_action(action);
-        }
 
         if export_csv {
             view.request_open_export_modal();
@@ -1245,6 +1245,7 @@ impl Scope {
         if clear_all {
             self.channels.clear();
             self.hidden_channels.clear();
+            self.solo_channel = None;
             self.config.channels.clear();
             self.config.axes.clear();
             self.cached_data = None;
@@ -1734,13 +1735,23 @@ mod tests {
             !scope.show_legend,
             "Floating legend is off by default so keys live in the top toolbar strip"
         );
-        frame(&ctx, &mut scope, &router, vec![]);
+        let initial = frame(&ctx, &mut scope, &router, vec![]);
+        let first_key = find(&initial, "Channel 0").expect("First toolbar key");
+        let last_visible_key = find(&initial, "Channel 6").expect("Later toolbar key");
+        assert_eq!(
+            first_key.y, last_visible_key.y,
+            "Toolbar keys stay on one row"
+        );
+        assert!(
+            find(&initial, "Channel 19").is_none(),
+            "Overflow is summarized"
+        );
         let toggle = egui::pos2(20.0, 17.0);
         // Click toggle to open the floating legend overlay
         let output = click(&ctx, &mut scope, &router, toggle);
         assert!(scope.show_legend);
         assert!(find(&output, "Legend").is_none(), "The toggle is icon only");
-        let entry = find(&output, "message.signal_0").expect("Floating legend is visible");
+        let entry = find(&output, "Channel 0").expect("Floating legend is visible");
         assert!(
             entry.x < 450.0 && entry.y > 250.0,
             "Floating legend belongs at the bottom left"
@@ -1750,9 +1761,9 @@ mod tests {
             .iter()
             .find_map(|shape| match &shape.shape {
                 egui::Shape::Rect(rect)
-                    if rect.rect.width() >= 140.0
-                        && rect.rect.width() <= 300.0
-                        && rect.rect.height() <= 150.0
+                    if rect.rect.width() >= 150.0
+                        && rect.rect.width() <= 330.0
+                        && rect.rect.height() <= 190.0
                         && rect.rect.contains(entry) =>
                 {
                     Some(rect.rect)
@@ -1786,7 +1797,7 @@ mod tests {
             colors
         );
         assert!(
-            find(&output, "message.signal_19").is_none(),
+            find(&output, "Channel 19").is_none(),
             "Long legends scroll instead of growing"
         );
         frame(
@@ -1836,10 +1847,24 @@ mod tests {
         assert!(!scope.show_legend);
         let output = click(&ctx, &mut scope, &router, toggle);
         assert!(scope.show_legend);
-        let entry = find(&output, "message.signal_0")
+        let entry = find(&output, "Channel 0")
             .or_else(|| find(&output, "message.signal_1"))
             .expect("Visible legend row");
-        let output = click(&ctx, &mut scope, &router, entry);
+        frame(&ctx, &mut scope, &router, vec![Event::PointerMoved(entry)]);
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut scope,
+                &router,
+                vec![Event::PointerButton {
+                    pos: entry,
+                    button: PointerButton::Secondary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+        }
+        let output = frame(&ctx, &mut scope, &router, vec![]);
         let remove = find(&output, "Remove signal").expect("Channel details popup");
         click(&ctx, &mut scope, &router, remove);
         assert_eq!(scope.channels.len(), 19);

@@ -494,8 +494,10 @@ fn legend_appearance_axis_menus_and_lane_drag_work() {
     for _ in 0..2 {
         h.frame(vec![]);
     }
-    let speed = h.find(SPEED);
-    h.click(speed);
+    let speed = h.find("Speed");
+    h.press(speed, PointerButton::Secondary);
+    h.release(speed, PointerButton::Secondary);
+    h.frame(vec![]);
     let appearance = h.find("Appearance");
     h.click(appearance);
     let mode = h.find("Solid");
@@ -516,8 +518,10 @@ fn legend_appearance_axis_menus_and_lane_drag_work() {
     }]);
     egui::Popup::close_all(&h.ctx);
     h.frame(vec![]);
-    let speed = h.find(SPEED);
-    h.click(speed);
+    let speed = h.find("Speed");
+    h.press(speed, PointerButton::Secondary);
+    h.release(speed, PointerButton::Secondary);
+    h.frame(vec![]);
     let axis = h.find("Axis");
     h.click(axis);
     let fixed = h.find("Fixed");
@@ -825,7 +829,7 @@ fn signals_move_across_scopes_from_every_source_and_destination() {
                         reverse,
                     ));
                 }
-                let start = h.find(SPEED);
+                let start = h.find("Speed");
                 let rect = target.plot_frames[0];
                 let end = match destination {
                     Destination::Left => egui::pos2(rect.left() + 20.0, rect.center().y),
@@ -921,7 +925,7 @@ fn discrete_band_can_be_dragged_back_to_either_axis() {
         for _ in 0..3 {
             h.frame(vec![]);
         }
-        let label = h.find(SPEED);
+        let label = h.find("Speed");
         let plot = h.scope.plot_frames[0];
         let start = egui::pos2(
             if gutter {
@@ -956,7 +960,7 @@ fn discrete_band_can_be_dragged_back_to_either_axis() {
 fn cancelled_signal_drag_leaves_source_unchanged() {
     let mut h = Harness::new(false);
     let original = h.scope.channels.len();
-    let start = h.find(SPEED);
+    let start = h.find("Speed");
     h.press(start, PointerButton::Primary);
     h.frame(vec![Event::PointerMoved(egui::pos2(500.0, 17.0))]);
     assert!(egui::DragAndDrop::has_any_payload(&h.ctx));
@@ -975,4 +979,75 @@ fn cancelled_signal_drag_leaves_source_unchanged() {
             .iter()
             .any(|channel| channel.signal_id == SPEED)
     );
+}
+
+#[test]
+fn overflowing_legend_remains_searchable_and_solo_is_reversible() {
+    let mut h = Harness::new(false);
+    h.scope = Scope::new_multi(
+        1,
+        "Overflow",
+        (0..30)
+            .map(|index| {
+                (
+                    format!("message.signal_{index}"),
+                    format!("Signal {index:02}"),
+                    "V".to_owned(),
+                )
+            })
+            .collect(),
+    );
+    h.scope.config.stacked = true;
+    h.scope.config.lanes = 2;
+    for _ in 0..2 {
+        h.frame(vec![]);
+    }
+    let overflow = h
+        .output
+        .as_ref()
+        .unwrap()
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text().ends_with(" more") => {
+                Some(text.pos + text.galley.size() * 0.5)
+            }
+            _ => None,
+        })
+        .expect("Overflow button");
+    let first = h.find("Signal 00");
+    assert!((first.y - overflow.y).abs() < 4.0);
+    h.click(first);
+    h.click(first);
+    assert_eq!(h.scope.solo_channel.as_deref(), Some("message.signal_0"));
+    let exit = h.find("Exit solo");
+    h.click(exit);
+    assert!(h.scope.solo_channel.is_none());
+
+    h.click(overflow);
+    let _ = h.find("Filter channels");
+    assert!(egui::Popup::is_any_open(&h.ctx));
+
+    let filter = h.find("Filter channels");
+    h.click(filter);
+    h.frame(vec![Event::Text("29".to_owned())]);
+    for _ in 0..3 {
+        h.frame(vec![]);
+    }
+    let source = h.find("Signal 29");
+    let target = h.point(1, 0.25);
+    h.press(source, PointerButton::Primary);
+    assert!(egui::Popup::is_any_open(&h.ctx), "Popup hit at {source:?}");
+    h.frame(vec![Event::PointerMoved(target)]);
+    h.frame(vec![Event::PointerMoved(target)]);
+    let payload = egui::DragAndDrop::payload::<ui::scope_legend::SignalDrag>(&h.ctx)
+        .expect("Overflow channel starts a drag");
+    assert_eq!(payload.channel.signal_id, "message.signal_29");
+    assert!(
+        !egui::Popup::is_any_open(&h.ctx),
+        "The list clears the drop target"
+    );
+    h.release(target, PointerButton::Primary);
+    h.frame(vec![]);
+    assert_eq!(h.scope.config.lane("message.signal_29"), 1);
 }
