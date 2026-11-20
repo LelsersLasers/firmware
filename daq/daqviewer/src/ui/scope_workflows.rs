@@ -1051,3 +1051,90 @@ fn overflowing_legend_remains_searchable_and_solo_is_reversible() {
     h.frame(vec![]);
     assert_eq!(h.scope.config.lane("message.signal_29"), 1);
 }
+
+#[test]
+fn same_unit_quantities_have_distinct_axes_and_can_move_as_a_group() {
+    use ui::scope_settings::{AxisConfig, AxisSide};
+
+    let mut h = Harness::new(false);
+    h.scope = Scope::new_multi(
+        1,
+        "Torque and Throttle",
+        [
+            ("INVA_CRIT.AMK_ActualTorque", "Torque A", "%"),
+            ("INVB_CRIT.AMK_ActualTorque", "Torque B", "%"),
+            (THROTTLE, "Throttle", "%"),
+        ]
+        .into_iter()
+        .map(|(signal, label, unit)| (signal.to_owned(), label.to_owned(), unit.to_owned()))
+        .collect(),
+    );
+    let torque = h.scope.config.axis_key(&h.scope.channels[0]);
+    let throttle = h.scope.config.axis_key(&h.scope.channels[2]);
+    assert_eq!(h.scope.config.axis_key(&h.scope.channels[1]), torque);
+    assert_ne!(torque, throttle);
+
+    h.scope.config.axes.insert(
+        "0|%".to_owned(),
+        AxisConfig {
+            range: Some([-100.0, 100.0]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        h.scope.config.axis_config(&torque).unwrap().range,
+        Some([-100.0, 100.0])
+    );
+    h.scope.config.axes.insert(
+        torque,
+        AxisConfig {
+            side: AxisSide::Right,
+            range: Some([-200.0, 200.0]),
+            ..Default::default()
+        },
+    );
+    let sides = h.scope.config.resolved_axis_sides(&h.scope.channels);
+    assert_eq!(sides[&throttle], AxisSide::Left);
+
+    h.scope.add_channel(
+        RPM.to_owned(),
+        "RPM".to_owned(),
+        "rpm".to_owned(),
+        None,
+        false,
+    );
+    for _ in 0..4 {
+        h.frame(vec![]);
+    }
+    let output = h.output.as_ref().unwrap();
+    for unit in ["%", "rpm"] {
+        let prefix = format!("{unit}\n");
+        assert!(
+            output.shapes.iter().any(|shape| {
+                matches!(&shape.shape, egui::Shape::Text(text) if text.angle == 0.0
+                    && text.galley.rows.len() == 2
+                    && text.galley.text().strip_prefix(&prefix).is_some_and(|value| value.parse::<f64>().is_ok()))
+            }),
+            "Missing a unit above the tick value for {unit}"
+        );
+    }
+    assert!(!output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "Torque (%)")
+    }));
+
+    let entry = h.find("Torque A");
+    h.press(entry, PointerButton::Secondary);
+    h.release(entry, PointerButton::Secondary);
+    h.frame(vec![]);
+    let _ = h.find("Right · Torque (%)");
+    let move_axis = h.find("Move axis to linked plot");
+    h.click(move_axis);
+    assert_eq!(h.scope.config.lane("INVA_CRIT.AMK_ActualTorque"), 1);
+    assert_eq!(h.scope.config.lane("INVB_CRIT.AMK_ActualTorque"), 1);
+    assert_eq!(h.scope.config.lane(THROTTLE), 0);
+    assert_eq!(h.scope.plot_frames.len(), 2);
+    let new_key = h.scope.config.axis_key(&h.scope.channels[0]);
+    let axis = h.scope.config.axis_config(&new_key).unwrap();
+    assert_eq!(axis.side, AxisSide::Right);
+    assert_eq!(axis.range, Some([-200.0, 200.0]));
+}

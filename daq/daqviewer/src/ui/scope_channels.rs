@@ -236,6 +236,7 @@ impl Scope {
         };
         let mut open = !ctx.input(|input| input.key_pressed(egui::Key::Escape));
         let mut action = ui::message_picker::SignalPickerAction::None;
+        let sides = self.config.resolved_axis_sides(&self.channels);
         let mut remove = None;
         egui::Window::new(if speed { "Speed signal" } else { "Channels" })
             .id(egui::Id::new(("scope_channels", self.instance_num)))
@@ -277,7 +278,13 @@ impl Scope {
                                         {
                                             remove = Some(index);
                                         }
-                                        let current = self.config.destination(channel);
+                                        let current = if sides.get(&self.config.axis_key(channel))
+                                            == Some(&ui::scope_settings::AxisSide::Right)
+                                        {
+                                            Destination::Right
+                                        } else {
+                                            self.config.destination(channel)
+                                        };
                                         let mut assigned = current;
                                         egui::ComboBox::from_id_salt("assignment")
                                             .selected_text(assigned.label())

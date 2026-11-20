@@ -7,9 +7,9 @@ struct AxisView {
     index: usize,
     lane: usize,
     right: bool,
-    custom_label: String,
-    unit: String,
-    color: Color32,
+    label: String,
+    tick_unit: String,
+    color: Option<Color32>,
 }
 
 /// Scale trace stroke thickness as a function of plot dimensions (`plot_width`, `plot_height`)
@@ -36,40 +36,71 @@ pub(super) fn adaptive_trace_width(
     (base_width * size_scale * zoom_scale).clamp(base_width, 4.5)
 }
 
+fn axis_label(quantity: Option<&str>, unit: &str, custom_label: &str) -> String {
+    let unit = if unit.trim().is_empty() {
+        "unit unknown"
+    } else {
+        unit
+    };
+    let name = if custom_label.is_empty() {
+        quantity
+    } else {
+        Some(custom_label)
+    };
+    match name {
+        None => unit.to_owned(),
+        Some(name)
+            if name == unit
+                || name.ends_with(&format!("({unit})"))
+                || name.ends_with(&format!("[{unit}]")) =>
+        {
+            name.to_owned()
+        }
+        Some(name) => format!("{name} ({unit})"),
+    }
+}
+
 fn axes(
     cached: &CachedScopeData,
     config: &ScopeConfig,
     channels: &[ScopeChannel],
 ) -> Vec<AxisView> {
-    let mut counts = std::collections::BTreeMap::<usize, usize>::new();
+    let sides = config.resolved_axis_sides(channels);
     cached
         .unit_groups
         .iter()
         .enumerate()
         .filter_map(|(index, key)| {
-            let channel = channels.iter().find(|channel| {
+            let side = sides.get(key)?;
+            let mut members = channels.iter().filter(|channel| {
                 !config.style(&channel.signal_id).discrete && config.axis_key(channel) == *key
-            })?;
-            let lane = ScopeConfig::axis_lane(key);
-            let order = counts.entry(lane).or_default();
-            let axis = config.axes.get(key).cloned().unwrap_or_default();
-            let unit = channel.unit.clone();
-            let color = axis
-                .color
-                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                .unwrap_or(channel.color);
-            let right = match axis.side {
-                AxisSide::Auto => *order % 2 == 1,
-                AxisSide::Left => false,
-                AxisSide::Right => true,
-            };
-            *order += 1;
+            });
+            let first = members.next()?;
+            let mut quantity = ui::scope_settings::axis_quantity(&first.signal_id);
+            let mut unit = first.unit.as_str();
+            for member in members {
+                if ui::scope_settings::axis_quantity(&member.signal_id) != quantity {
+                    quantity = None;
+                }
+                if member.unit != unit {
+                    unit = "mixed units";
+                }
+            }
+            let config = config.axis_config(key);
+            let custom_label = config.map_or("", |axis| axis.label.as_str());
+            let color = config
+                .and_then(|axis| axis.color)
+                .map(|[r, g, b]| Color32::from_rgb(r, g, b));
             Some(AxisView {
                 index,
-                lane,
-                right,
-                custom_label: axis.label,
-                unit,
+                lane: ScopeConfig::axis_lane(key),
+                right: *side == AxisSide::Right,
+                label: axis_label(quantity, unit, custom_label),
+                tick_unit: if unit == "mixed units" {
+                    String::new()
+                } else {
+                    unit.trim().to_owned()
+                },
                 color,
             })
         })
@@ -96,28 +127,27 @@ fn hints(
             } else {
                 egui_plot::HPlacement::Left
             };
-            let mut hint = egui_plot::AxisHints::new_y()
+            let hint = egui_plot::AxisHints::new_y()
                 .placement(placement)
                 .min_thickness(min_thick);
             result.push(if let Some(axis) = selected.get(slot) {
                 let tf = cached.unit_transforms[axis.index];
-                let unit_suffix = axis.unit.clone();
-                if !axis.custom_label.is_empty() {
-                    hint = hint.label(
-                        RichText::new(axis.custom_label.chars().take(18).collect::<String>())
-                            .color(axis.color),
-                    );
-                }
+                let unit = axis.tick_unit.clone();
+                let hint = if unit.is_empty() {
+                    hint
+                } else {
+                    hint.label_spacing(28.0..=40.0)
+                };
                 hint.formatter(move |mark, _| {
                     let value = tf.plot_to_phys(mark.value);
                     let step = (mark.step_size / tf.scale.abs().max(1e-9)).max(1e-6);
                     let decimals = (-step.log10().floor() as isize).clamp(0, 3) as usize;
-                    let num_str =
+                    let number =
                         egui::emath::format_with_decimals_in_range(value, decimals..=decimals);
-                    if unit_suffix.is_empty() {
-                        num_str
+                    if unit.is_empty() {
+                        number
                     } else {
-                        format!("{num_str} {unit_suffix}")
+                        format!("{unit}\n{number}")
                     }
                 })
             } else {
@@ -249,6 +279,10 @@ impl Scope {
                     style: style.mode.line_style(trace.style),
                     stats: if is_comparison { None } else { stats },
                     visible: self.channel_is_visible(channel),
+                    destination: None,
+                    axis_label: String::new(),
+                    axis_color: None,
+                    can_move_axis: false,
                     measurements: pair,
                     drag: Some(ui::scope_legend::SignalDrag::new(
                         self.instance_num,
@@ -274,12 +308,45 @@ impl Scope {
                         (self.solo_channel.as_ref() != Some(signal)).then(|| signal.clone());
                 }
             }
+            ui::scope_legend::Action::MoveAxis(index) => self.move_axis_to_linked_plot(index),
             ui::scope_legend::Action::Inspect(index, tab) => {
                 if let Some(channel) = self.channels.get(index) {
                     self.inspector = Some((channel.signal_id.clone(), tab));
                 }
             }
         }
+    }
+
+    fn move_axis_to_linked_plot(&mut self, index: usize) {
+        let Some(channel) = self.channels.get(index) else {
+            return;
+        };
+        let origin = self.config.axis_key(channel);
+        let lane = if self.config.stacked {
+            self.config.lanes
+        } else {
+            1
+        };
+        let axis = self.config.axis_config(&origin).cloned();
+        for channel in &self.channels {
+            let current_lane = self.config.lane(&channel.signal_id);
+            let move_channel = self.config.axis_key(channel) == origin
+                && !self.config.style(&channel.signal_id).discrete;
+            let style = self
+                .config
+                .channels
+                .entry(channel.signal_id.clone())
+                .or_default();
+            style.lane = if move_channel { lane } else { current_lane };
+        }
+        self.config.stacked = true;
+        self.config.lanes = lane + 1;
+        if let Some(axis) = axis {
+            self.config
+                .axes
+                .insert(self.config.axis_key(&self.channels[index]), axis);
+        }
+        self.cached_data = None;
     }
 
     pub(super) fn render_plots(
@@ -369,10 +436,30 @@ impl Scope {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for lane in 0..lane_count {
+                    let lane_axes: Vec<_> =
+                        axis_views.iter().filter(|axis| axis.lane == lane).collect();
                     let legend_entries: Vec<_> = entries
                         .iter()
                         .filter(|entry| self.config.lane(&entry.signal_id) == lane)
                         .cloned()
+                        .map(|mut entry| {
+                            let channel = &self.channels[entry.channel_index];
+                            let key = self.config.axis_key(channel);
+                            if let Some(axis) = lane_axes
+                                .iter()
+                                .find(|axis| cached.unit_groups[axis.index] == key)
+                            {
+                                entry.destination = Some(if axis.right {
+                                    Destination::Right
+                                } else {
+                                    Destination::Left
+                                });
+                                entry.axis_label = axis.label.clone();
+                                entry.axis_color = axis.color;
+                                entry.can_move_axis = lane_axes.len() > 2;
+                            }
+                            entry
+                        })
                         .collect();
                     let legend_instance = if lane_count == 1 {
                         self.instance_num

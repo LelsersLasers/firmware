@@ -926,8 +926,7 @@ impl Scope {
                 .map(|(index, &(lo, hi))| {
                     if let Some(range) = self
                         .config
-                        .axes
-                        .get(&unit_groups[index])
+                        .axis_config(&unit_groups[index])
                         .and_then(|axis| axis.valid_range())
                     {
                         range

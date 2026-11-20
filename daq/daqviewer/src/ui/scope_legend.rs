@@ -15,6 +15,10 @@ pub(super) struct Entry {
     pub style: egui_plot::LineStyle,
     pub stats: Option<ChannelStats>,
     pub visible: bool,
+    pub destination: Option<ui::scope_settings::Destination>,
+    pub axis_label: String,
+    pub axis_color: Option<Color32>,
+    pub can_move_axis: bool,
     pub measurements: Option<(f64, f64)>,
     pub drag: Option<SignalDrag>,
 }
@@ -38,8 +42,7 @@ impl SignalDrag {
             channel: channel.clone(),
             style: config.style(&channel.signal_id),
             axis: config
-                .axes
-                .get(&config.axis_key(channel))
+                .axis_config(&config.axis_key(channel))
                 .cloned()
                 .unwrap_or_default(),
         }
@@ -50,6 +53,7 @@ pub(super) enum Action {
     Remove(usize),
     Toggle(usize),
     Solo(usize),
+    MoveAxis(usize),
     Inspect(usize, ui::scope_settings::InspectorTab),
 }
 
@@ -432,6 +436,13 @@ fn paint_overflow_row(ui: &egui::Ui, row: Rect, entry: &Entry) {
 
 fn channel_tooltip(entry: &Entry) -> String {
     let mut text = entry.signal_id.clone();
+    if let Some(destination) = entry.destination {
+        text.push_str(&format!(
+            "\nAxis: {} · {}",
+            destination.label(),
+            entry.axis_label
+        ));
+    }
     if let Some(value) = &entry.value {
         text.push_str(&format!("\nCursor: {value}"));
     }
@@ -766,6 +777,19 @@ fn show_channel_details_popup(
         )
         .show(|ui| {
             ui.label(&entry.signal_id);
+            if let Some(destination) = entry.destination {
+                let color = entry
+                    .axis_color
+                    .unwrap_or_else(|| ui.visuals().weak_text_color());
+                ui.colored_label(
+                    color,
+                    format!("{} · {}", destination.label(), entry.axis_label),
+                );
+            }
+            if entry.can_move_axis && ui.button("Move axis to linked plot").clicked() {
+                *action = Some(Action::MoveAxis(entry.channel_index));
+                ui.close();
+            }
             if let Some(stats) = entry.stats {
                 egui::Grid::new(("legend_statistics", instance, index)).show(ui, |ui| {
                     for (label, value) in
@@ -884,6 +908,10 @@ mod tests {
                 style: egui_plot::LineStyle::Solid,
                 stats: None,
                 visible: true,
+                destination: None,
+                axis_label: String::new(),
+                axis_color: None,
+                can_move_axis: false,
                 measurements: None,
                 drag: None,
             })
