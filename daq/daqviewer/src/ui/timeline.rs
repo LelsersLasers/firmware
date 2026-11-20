@@ -18,6 +18,38 @@ pub struct AnnotationDraft {
     pub min_updated_at_ms: i64,
 }
 
+fn resolve_track_day_id_for_span(
+    router: &daqcore::router::VirtualTimelineRouter,
+    start_utc_ms: i64,
+    end_utc_ms: i64,
+) -> String {
+    let hi = end_utc_ms.max(start_utc_ms);
+    if let Some(part) = router
+        .partitions()
+        .iter()
+        .find(|p| p.start_utc_ms <= hi && p.end_utc_ms >= start_utc_ms)
+    {
+        return part.track_day_id.clone();
+    }
+    let track_days = router.list_track_days().unwrap_or_default();
+    if let Some(day) = track_days
+        .iter()
+        .find(|td| td.end_utc_ms > 0 && td.start_utc_ms <= hi && td.end_utc_ms >= start_utc_ms)
+    {
+        return day.id.clone();
+    }
+    let utc_date = format_utc_date(start_utc_ms);
+    if let Some(day) = track_days.iter().find(|td| td.id == utc_date) {
+        return day.id.clone();
+    }
+    router
+        .timeline()
+        .active_track_day_id()
+        .map(str::to_owned)
+        .or_else(|| track_days.last().map(|td| td.id.clone()))
+        .unwrap_or(utc_date)
+}
+
 impl AnnotationDraft {
     pub fn new_at_playhead(
         router: &daqcore::router::VirtualTimelineRouter,
@@ -30,16 +62,7 @@ impl AnnotationDraft {
         } else {
             (timeline.start_utc_ms(), timeline.end_utc_ms())
         };
-        let track_day_id = timeline
-            .active_track_day_id()
-            .map(str::to_owned)
-            .or_else(|| {
-                router
-                    .list_track_days()
-                    .ok()
-                    .and_then(|days| days.last().map(|td| td.id.clone()))
-            })
-            .unwrap_or_else(|| format_utc_date(setpoint_ms));
+        let track_day_id = resolve_track_day_id_for_span(router, start_utc_ms, end_utc_ms);
 
         Self {
             id: format!("user_ann_{}", uuid::Uuid::new_v4()),
@@ -415,6 +438,7 @@ impl TimelineUiState {
         let mut draft = AnnotationDraft::new_at_playhead(router, true);
         draft.start_utc_ms = utc_ms;
         draft.end_utc_ms = utc_ms;
+        draft.track_day_id = resolve_track_day_id_for_span(router, utc_ms, utc_ms);
         self.editor = Some(draft);
     }
 
@@ -2602,6 +2626,12 @@ pub fn show_annotation_editor_modal(
 
     let now_ms = daqcore::time::Time::now().unix_millis();
     if save_clicked {
+        let end_for_day = if draft.is_point_bookmark {
+            draft.start_utc_ms
+        } else {
+            draft.end_utc_ms
+        };
+        draft.track_day_id = resolve_track_day_id_for_span(router, draft.start_utc_ms, end_for_day);
         let ann = draft.into_annotation(now_ms);
         if let Err(err) = router.upsert_annotation(&ann) {
             *diagnostic = Some(format!("Failed to save annotation: {err}"));
@@ -3986,5 +4016,77 @@ mod tests {
         assert_eq!(format_window_label(150_000), "2m30s");
         assert_eq!(format_window_label(3_600_000), "1h");
         assert_eq!(format_window_label(4_500_000), "1h15m");
+    }
+
+    #[test]
+    fn annotation_draft_resolves_track_day_from_partition_span_instead_of_last_day() {
+        use daqcore::{
+            log_parse::correlate::{ClockConfidence, ClockMapping},
+            storage::PartitionManifest,
+        };
+
+        let mut router = daqcore::router::VirtualTimelineRouter::live(
+            daqcore::time::Time::from_unix_millis(1_775_917_254_048),
+            30.0,
+        )
+        .expect("live router");
+
+        let april_manifest = PartitionManifest {
+            partition_id: "epoch_1775917228420_8504b97e74fe".to_owned(),
+            track_day_id: "2026-04-11".to_owned(),
+            start_utc_ms: 1_775_917_228_420,
+            end_utc_ms: 1_775_917_564_433,
+            clock_mapping: ClockMapping {
+                slope: 1.0,
+                intercept_ms: 0.0,
+                confidence: ClockConfidence::RtcEstimated,
+            },
+            superdbc_hash: "deadbeef".to_owned(),
+            raw_log_hashes: Vec::new(),
+            signals: Vec::new(),
+            annotations: Vec::new(),
+        };
+        let sept_manifest = PartitionManifest {
+            partition_id: "epoch_1788719701725_efcc4b76159f".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            start_utc_ms: 1_788_719_701_725,
+            end_utc_ms: 1_788_720_601_724,
+            clock_mapping: ClockMapping {
+                slope: 1.0,
+                intercept_ms: 0.0,
+                confidence: ClockConfidence::RtcEstimated,
+            },
+            superdbc_hash: "deadbeef".to_owned(),
+            raw_log_hashes: Vec::new(),
+            signals: Vec::new(),
+            annotations: Vec::new(),
+        };
+
+        router
+            .register_and_preload_manifest(&april_manifest, std::path::Path::new("."))
+            .expect("register april");
+        router
+            .register_and_preload_manifest(&sept_manifest, std::path::Path::new("."))
+            .expect("register sept");
+
+        // 1. In "All Track Days" mode (`None`), creating a range annotation on 2026-04-11
+        // must resolve to "2026-04-11" (not `days.last()` = "2026-09-06").
+        router.select_track_day(None).expect("all track days");
+        router
+            .timeline_mut()
+            .snap_to_range_ms(1_775_917_254_048, 1_775_917_264_385);
+        let draft_all = AnnotationDraft::new_at_playhead(&router, false);
+        assert_eq!(draft_all.track_day_id, "2026-04-11");
+
+        // 2. Even if "2026-09-06" is selected in the dropdown while the viewport is positioned
+        // at a 2026-04-11 timestamp, the annotation resolves to "2026-04-11".
+        router
+            .select_track_day(Some("2026-09-06".to_owned()))
+            .expect("select sept");
+        router
+            .timeline_mut()
+            .snap_to_range_ms(1_775_917_254_048, 1_775_917_264_385);
+        let draft_cross = AnnotationDraft::new_at_playhead(&router, false);
+        assert_eq!(draft_cross.track_day_id, "2026-04-11");
     }
 }
