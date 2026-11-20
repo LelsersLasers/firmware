@@ -10,6 +10,9 @@ REMOTE_HOST="${DAQ_REMOTE_HOST:-root@45.76.8.71}"
 REMOTE_DIR="${DAQ_REMOTE_DIR:-/opt/daqstuff}"
 MAX_CACHE_MB="${DAQ_MAX_CACHE_MB:-96}"
 MAX_CONCURRENT_DECODES="${DAQ_MAX_CONCURRENT_DECODES:-2}"
+RATE_LIMIT_MB_PER_MIN="${DAQ_RATE_LIMIT_MB_PER_MIN:-150}"
+RATE_LIMIT_REQS_PER_MIN="${DAQ_RATE_LIMIT_REQS_PER_MIN:-600}"
+WRITE_TOKEN_OVERRIDE="${DAQ_WRITE_TOKEN:-}"
 
 SYNC_DATA=false
 for arg in "$@"; do
@@ -72,8 +75,19 @@ fi
 echo "==> [4/4] Swapping binary and restarting daqcloud.service..."
 ssh "${REMOTE_HOST}" "
     set -e
+    id -u daqcloud >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin daqcloud
     mv '${REMOTE_DIR}/daqcloud.new' '${REMOTE_DIR}/daqcloud'
     chmod +x '${REMOTE_DIR}/daqcloud'
+    if [[ -n '${WRITE_TOKEN_OVERRIDE}' ]]; then
+        printf 'DAQCLOUD_WRITE_TOKEN=%s\n' '${WRITE_TOKEN_OVERRIDE}' > '${REMOTE_DIR}/.env'
+    elif [[ ! -f '${REMOTE_DIR}/.env' ]] || ! grep -q '^DAQCLOUD_WRITE_TOKEN=' '${REMOTE_DIR}/.env'; then
+        GEN_TOKEN=\"\$(openssl rand -hex 12)\"
+        printf 'DAQCLOUD_WRITE_TOKEN=%s\n' \"\${GEN_TOKEN}\" > '${REMOTE_DIR}/.env'
+        echo \"Generated new DAQCLOUD_WRITE_TOKEN in ${REMOTE_DIR}/.env\"
+    fi
+    chown -R daqcloud:daqcloud '${REMOTE_DIR}'
+    chown root:daqcloud '${REMOTE_DIR}/.env'
+    chmod 640 '${REMOTE_DIR}/.env'
     cat << EOF > /etc/systemd/system/daqcloud.service
 [Unit]
 Description=PER DAQ Cloud Server & Web Demo
@@ -81,11 +95,22 @@ After=network.target
 
 [Service]
 Type=simple
+User=daqcloud
+Group=daqcloud
 WorkingDirectory=${REMOTE_DIR}
+EnvironmentFile=-${REMOTE_DIR}/.env
 Environment=RUST_LOG=info
 Environment=MALLOC_ARENA_MAX=2
 Environment=DAQCLOUD_WEB_DIST_DIR=${REMOTE_DIR}/dist
 Environment=DAQCLOUD_MAX_CONCURRENT_DECODES=${MAX_CONCURRENT_DECODES}
+Environment=DAQCLOUD_TRUST_TAILSCALE=true
+Environment=DAQCLOUD_RATE_LIMIT_MB_PER_MIN=${RATE_LIMIT_MB_PER_MIN}
+Environment=DAQCLOUD_RATE_LIMIT_REQS_PER_MIN=${RATE_LIMIT_REQS_PER_MIN}
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
 ExecStart=${REMOTE_DIR}/daqcloud --bind 0.0.0.0:80 --store-dir ${REMOTE_DIR}/cloud_store --db-path ${REMOTE_DIR}/cloud_store/cloud_registry.sqlite --max-cache-mb ${MAX_CACHE_MB}
 Restart=always
 RestartSec=2
@@ -96,7 +121,7 @@ EOF
     systemctl daemon-reload
     systemctl restart daqcloud.service
     sleep 1
-    systemctl status daqcloud.service --no-pager | head -n 15
+    systemctl status daqcloud.service --no-pager | head -n 18
 "
 
 echo "==> Deploy complete! Live at http://${REMOTE_HOST#*@}/"
