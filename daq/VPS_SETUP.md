@@ -9,6 +9,8 @@ Concise reference for the production `daqcloud` + `daqweb` Vultr VPS configurati
 | Property | Value |
 | :--- | :--- |
 | **Public IPv4** | `45.76.8.71` (`enp1s0`) |
+| **Tailscale IPv4** | `100.75.133.29` (`tailscale0`) |
+| **Tailscale MagicDNS** | `daqstuff0.tailef6d22.ts.net` (or short name `daqstuff0`) |
 | **OS** | Debian 13 (Trixie) x86_64 |
 | **Resources** | 1 vCPU, 512 MiB RAM + 1 GiB `/swapfile` (`vm.swappiness=10`) |
 | **Service User** | `daqcloud` (unprivileged system user, `/usr/sbin/nologin`) |
