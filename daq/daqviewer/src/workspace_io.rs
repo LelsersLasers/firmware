@@ -638,8 +638,15 @@ impl WorkspaceView {
 
         let mut new_widget_ids = widget_ids::WidgetIds::new();
         let mut tiles = egui_tiles::Tiles::default();
-        let root_id = build_tile_node(&root_node, &mut tiles, &mut new_widget_ids, platform)
-            .ok_or(WorkspaceIoError::EmptyLayout)?;
+        let root_id = build_tile_node_with_reuse(
+            &root_node,
+            &mut tiles,
+            &mut new_widget_ids,
+            platform,
+            Some(router.formula_engine()),
+            &mut Vec::new(),
+        )
+        .ok_or(WorkspaceIoError::EmptyLayout)?;
 
         *tile_tree = egui_tiles::Tree::new("workspace_tree", root_id, tiles);
         *widget_ids = new_widget_ids;
@@ -687,7 +694,7 @@ impl WorkspaceView {
     }
 }
 
-fn capture_tile_node(
+pub(crate) fn capture_tile_node(
     tiles: &egui_tiles::Tiles<widgets::Widget>,
     tile_id: egui_tiles::TileId,
 ) -> Option<WorkspaceLayoutNode> {
@@ -845,9 +852,26 @@ pub fn build_tile_node(
     widget_ids: &mut widget_ids::WidgetIds,
     platform: &mut dyn ViewerPlatform,
 ) -> Option<egui_tiles::TileId> {
+    build_tile_node_with_reuse(node, tiles, widget_ids, platform, None, &mut Vec::new())
+}
+
+pub(crate) fn build_tile_node_with_reuse(
+    node: &WorkspaceLayoutNode,
+    tiles: &mut egui_tiles::Tiles<widgets::Widget>,
+    widget_ids: &mut widget_ids::WidgetIds,
+    platform: &mut dyn ViewerPlatform,
+    formulas: Option<&daqcore::analysis::FormulaEngine>,
+    reusable_platform_widgets: &mut Vec<Box<dyn crate::app::PlatformWidget>>,
+) -> Option<egui_tiles::TileId> {
     match node {
         WorkspaceLayoutNode::Pane { spec } => {
-            let widget = instantiate_pane_spec(spec, widget_ids, platform)?;
+            let widget = instantiate_pane_spec_with_reuse(
+                spec,
+                widget_ids,
+                platform,
+                formulas,
+                reusable_platform_widgets,
+            )?;
             Some(tiles.insert_pane(widget))
         }
         WorkspaceLayoutNode::Linear {
@@ -858,7 +882,14 @@ pub fn build_tile_node(
             let mut child_ids = Vec::with_capacity(children.len());
             let mut child_shares = Vec::with_capacity(children.len());
             for (idx, child) in children.iter().enumerate() {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
+                if let Some(cid) = build_tile_node_with_reuse(
+                    child,
+                    tiles,
+                    widget_ids,
+                    platform,
+                    formulas,
+                    reusable_platform_widgets,
+                ) {
                     child_ids.push(cid);
                     let share = shares
                         .get(idx)
@@ -884,7 +915,14 @@ pub fn build_tile_node(
         WorkspaceLayoutNode::Tabs { children, active } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
+                if let Some(cid) = build_tile_node_with_reuse(
+                    child,
+                    tiles,
+                    widget_ids,
+                    platform,
+                    formulas,
+                    reusable_platform_widgets,
+                ) {
                     child_ids.push(cid);
                 }
             }
@@ -904,7 +942,14 @@ pub fn build_tile_node(
         WorkspaceLayoutNode::Grid { children } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node(child, tiles, widget_ids, platform) {
+                if let Some(cid) = build_tile_node_with_reuse(
+                    child,
+                    tiles,
+                    widget_ids,
+                    platform,
+                    formulas,
+                    reusable_platform_widgets,
+                ) {
                     child_ids.push(cid);
                 }
             }
@@ -916,10 +961,45 @@ pub fn build_tile_node(
     }
 }
 
+#[cfg(test)]
 fn instantiate_pane_spec(
     spec: &PaneSpec,
     widget_ids: &mut widget_ids::WidgetIds,
     platform: &mut dyn ViewerPlatform,
+) -> Option<widgets::Widget> {
+    instantiate_pane_spec_with_reuse(spec, widget_ids, platform, None, &mut Vec::new())
+}
+
+fn platform_spec_kind_and_title(spec: &PaneSpec) -> Option<(widget_constructor::WidgetKind, &str)> {
+    match spec {
+        PaneSpec::LogParser { title } => {
+            Some((widget_constructor::WidgetKind::LogParser, title.as_str()))
+        }
+        PaneSpec::SendUi { title } => {
+            Some((widget_constructor::WidgetKind::SendUi, title.as_str()))
+        }
+        PaneSpec::Bootloader { title } => {
+            Some((widget_constructor::WidgetKind::Bootloader, title.as_str()))
+        }
+        PaneSpec::Hil { title } => Some((widget_constructor::WidgetKind::Hil, title.as_str())),
+        _ => None,
+    }
+}
+
+fn is_derived_signal_id(sig_id: &str, formulas: Option<&daqcore::analysis::FormulaEngine>) -> bool {
+    formulas.is_some_and(|engine| engine.get(sig_id).is_some())
+        || !sig_id.contains('.')
+        || sig_id.starts_with("battery.")
+        || sig_id.starts_with("vd.")
+        || sig_id.starts_with("thermals.")
+}
+
+fn instantiate_pane_spec_with_reuse(
+    spec: &PaneSpec,
+    widget_ids: &mut widget_ids::WidgetIds,
+    platform: &mut dyn ViewerPlatform,
+    formulas: Option<&daqcore::analysis::FormulaEngine>,
+    reusable_platform_widgets: &mut Vec<Box<dyn crate::app::PlatformWidget>>,
 ) -> Option<widgets::Widget> {
     match spec {
         PaneSpec::Scope {
@@ -944,10 +1024,7 @@ fn instantiate_pane_spec(
                     };
                     let label = sig_id.clone();
                     resolved_channels.push(ui::scope::ScopeChannel {
-                        is_derived: !sig_id.contains('.')
-                            || sig_id.starts_with("battery.")
-                            || sig_id.starts_with("vd.")
-                            || sig_id.starts_with("thermals."),
+                        is_derived: is_derived_signal_id(&sig_id, formulas),
                         signal_id: sig_id,
                         label,
                         unit: String::new(),
@@ -964,10 +1041,7 @@ fn instantiate_pane_spec(
                             ui::scope::CHANNEL_PALETTE[idx % ui::scope::CHANNEL_PALETTE.len()];
                         idx += 1;
                         resolved_channels.push(ui::scope::ScopeChannel {
-                            is_derived: !sig_id.contains('.')
-                                || sig_id.starts_with("battery.")
-                                || sig_id.starts_with("vd.")
-                                || sig_id.starts_with("thermals."),
+                            is_derived: is_derived_signal_id(&sig_id, formulas),
                             label: sig_id.clone(),
                             signal_id: sig_id,
                             unit: axis.unit.clone(),
@@ -1045,9 +1119,7 @@ fn instantiate_pane_spec(
                 title.clone()
             };
             let mut w = ui::state_lane::StateLane::new_with_lanes(id, effective_title, pairs);
-            if !*custom_title && title.is_empty() {
-                let _ = &mut w;
-            }
+            w.set_custom_title(*custom_title && !title.is_empty());
             Some(widgets::Widget::StateLane(w))
         }
         PaneSpec::XYScatter {
@@ -1148,9 +1220,23 @@ fn instantiate_pane_spec(
         spec @ (PaneSpec::LogParser { .. }
         | PaneSpec::SendUi { .. }
         | PaneSpec::Bootloader { .. }
-        | PaneSpec::Hil { .. }) => platform
-            .instantiate_platform_pane(spec, widget_ids)
-            .map(widgets::Widget::Platform),
+        | PaneSpec::Hil { .. }) => {
+            if let Some((kind, desired_title)) = platform_spec_kind_and_title(spec)
+                && let Some(pos) = reusable_platform_widgets
+                    .iter()
+                    .position(|w| w.kind() == kind)
+            {
+                let mut reused = reusable_platform_widgets.remove(pos);
+                let _ = widget_ids.next(kind);
+                if !desired_title.is_empty() && reused.title() != desired_title {
+                    reused.set_title(desired_title.to_owned());
+                }
+                return Some(widgets::Widget::Platform(reused));
+            }
+            platform
+                .instantiate_platform_pane(spec, widget_ids)
+                .map(widgets::Widget::Platform)
+        }
     }
 }
 

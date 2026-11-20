@@ -471,6 +471,29 @@ impl Scope {
         self.y_bounds_override
     }
 
+    pub(crate) fn hidden_channels(&self) -> &std::collections::HashSet<String> {
+        &self.hidden_channels
+    }
+
+    pub(crate) fn set_hidden_channels(&mut self, hidden: std::collections::HashSet<String>) {
+        self.hidden_channels = hidden;
+    }
+
+    pub(crate) fn lane_y_overrides(&self) -> &std::collections::BTreeMap<usize, (f64, f64)> {
+        &self.lane_y_overrides
+    }
+
+    pub(crate) fn set_lane_y_overrides(
+        &mut self,
+        overrides: std::collections::BTreeMap<usize, (f64, f64)>,
+    ) {
+        self.lane_y_overrides = overrides;
+    }
+
+    pub(crate) fn has_pending_signal_moves(ctx: &eframe::egui::Context) -> bool {
+        channel_selector::has_pending_signal_moves(ctx)
+    }
+
     pub fn add_channel(
         &mut self,
         signal_id: String,

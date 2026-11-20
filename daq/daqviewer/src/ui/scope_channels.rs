@@ -144,11 +144,33 @@ pub(super) fn state_strips(
     bounds
 }
 
+const PENDING_MOVE_SCOPES_KEY: &str = "scope_signal_move_pending_scopes";
+
+pub(super) fn has_pending_signal_moves(ctx: &egui::Context) -> bool {
+    ctx.data(|data| {
+        data.get_temp::<std::collections::BTreeSet<usize>>(egui::Id::new(PENDING_MOVE_SCOPES_KEY))
+            .is_some_and(|pending| !pending.is_empty())
+    })
+}
+
 impl Scope {
     pub(super) fn process_signal_moves(&mut self, ctx: &egui::Context) {
         let id = egui::Id::new(("scope_signal_moves", self.instance_num));
         let signals = ctx
-            .data_mut(|data| data.remove_temp::<Vec<String>>(id))
+            .data_mut(|data| {
+                let pending_id = egui::Id::new(PENDING_MOVE_SCOPES_KEY);
+                if let Some(mut pending) =
+                    data.get_temp::<std::collections::BTreeSet<usize>>(pending_id)
+                {
+                    pending.remove(&self.instance_num);
+                    if pending.is_empty() {
+                        data.remove::<std::collections::BTreeSet<usize>>(pending_id);
+                    } else {
+                        data.insert_temp(pending_id, pending);
+                    }
+                }
+                data.remove_temp::<Vec<String>>(id)
+            })
             .unwrap_or_default();
         for signal in signals {
             if let Some(index) = self
@@ -210,12 +232,18 @@ impl Scope {
         self.refresh_title();
         if payload.scope != self.instance_num {
             let id = egui::Id::new(("scope_signal_moves", payload.scope));
+            let pending_id = egui::Id::new(PENDING_MOVE_SCOPES_KEY);
             ctx.data_mut(|data| {
                 let mut signals = data.get_temp::<Vec<String>>(id).unwrap_or_default();
                 if !signals.contains(&signal) {
                     signals.push(signal);
                 }
                 data.insert_temp(id, signals);
+                let mut pending = data
+                    .get_temp::<std::collections::BTreeSet<usize>>(pending_id)
+                    .unwrap_or_default();
+                pending.insert(payload.scope);
+                data.insert_temp(pending_id, pending);
             });
             ctx.request_repaint();
         }
