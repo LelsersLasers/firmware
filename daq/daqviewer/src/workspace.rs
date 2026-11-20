@@ -217,6 +217,29 @@ fn show_workspace_tabs_bar(
                     app.action_queue.push(action::AppAction::ClearWorkspace);
                 }
 
+                ui.separator();
+
+                if history_icon_button(
+                    ui,
+                    false,
+                    app.history.can_undo(),
+                    muted_color,
+                    accent_color,
+                    "Undo (Ctrl+Z)",
+                ) {
+                    app.action_queue.push(action::AppAction::Undo);
+                }
+                if history_icon_button(
+                    ui,
+                    true,
+                    app.history.can_redo(),
+                    muted_color,
+                    accent_color,
+                    "Redo (Ctrl+Shift+Z)",
+                ) {
+                    app.action_queue.push(action::AppAction::Redo);
+                }
+
                 ui.with_layout(
                     eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
                     |ui| {
@@ -236,6 +259,65 @@ fn show_workspace_tabs_bar(
                 );
             });
         });
+}
+
+fn history_icon_button(
+    ui: &mut eframe::egui::Ui,
+    is_redo: bool,
+    enabled: bool,
+    muted_color: eframe::egui::Color32,
+    accent_color: eframe::egui::Color32,
+    tooltip: &str,
+) -> bool {
+    let sense = if enabled {
+        eframe::egui::Sense::click()
+    } else {
+        eframe::egui::Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(eframe::egui::vec2(20.0, 18.0), sense);
+    let color = if !enabled {
+        muted_color.gamma_multiply(0.35)
+    } else if response.hovered() {
+        ui.visuals().strong_text_color()
+    } else {
+        muted_color
+    };
+    if enabled && response.hovered() {
+        ui.painter()
+            .rect_filled(rect, 3.0, accent_color.gamma_multiply(0.14));
+        ui.painter().rect_stroke(
+            rect,
+            3.0,
+            eframe::egui::Stroke::new(1.0_f32, accent_color.gamma_multiply(0.65)),
+            eframe::egui::StrokeKind::Inside,
+        );
+    }
+    let dir = if is_redo { 1.0_f32 } else { -1.0_f32 };
+    let c = rect.center();
+    let stroke = eframe::egui::Stroke::new(1.4_f32, color);
+    // Curved U-turn arrow: top horizontal shaft -> right/left curve -> bottom tail
+    let tip = c + eframe::egui::vec2(dir * 5.0, -2.5);
+    let points = vec![
+        tip,
+        c + eframe::egui::vec2(-dir * 1.5, -2.5),
+        c + eframe::egui::vec2(-dir * 4.5, -0.5),
+        c + eframe::egui::vec2(-dir * 4.5, 2.5),
+        c + eframe::egui::vec2(-dir * 1.5, 4.0),
+        c + eframe::egui::vec2(dir * 2.5, 4.0),
+    ];
+    ui.painter().add(eframe::egui::Shape::line(points, stroke));
+    // Arrowhead at `tip`
+    ui.painter()
+        .line_segment([tip, tip + eframe::egui::vec2(-dir * 2.8, -2.5)], stroke);
+    ui.painter()
+        .line_segment([tip, tip + eframe::egui::vec2(-dir * 2.8, 2.5)], stroke);
+
+    let response = if enabled {
+        response.on_hover_cursor(eframe::egui::CursorIcon::PointingHand)
+    } else {
+        response
+    };
+    response.on_hover_text(tooltip).clicked()
 }
 
 pub fn show(

@@ -1,6 +1,6 @@
 use crate::{
-    action, shortcuts, ui, widget_constructor, widget_ids, widgets, workspace, workspace_io,
-    workspace_view,
+    action, history, shortcuts, ui, widget_constructor, widget_ids, widgets, workspace,
+    workspace_io, workspace_view,
 };
 use std::{collections::VecDeque, mem, ops::RangeInclusive, path};
 
@@ -229,6 +229,7 @@ pub struct ViewerState {
     pub workspace_presets: workspace_io::WorkspacePresetRegistry,
     pub workspace_view_modal: workspace_io::WorkspaceViewModalState,
     pub export_modal: ui::export_modal::ExportModalState,
+    pub history: history::WorkspaceHistory,
     frame_times: VecDeque<web_time::Instant>,
     pub fps: f32,
     pub frame_time_ms: f32,
@@ -274,6 +275,7 @@ impl ViewerState {
             workspace_presets: workspace_io::WorkspacePresetRegistry::with_builtin(),
             workspace_view_modal: workspace_io::WorkspaceViewModalState::default(),
             export_modal: ui::export_modal::ExportModalState::default(),
+            history: history::WorkspaceHistory::new(),
             frame_times: VecDeque::with_capacity(256),
             fps: 60.0,
             frame_time_ms: 16.6,
@@ -553,7 +555,45 @@ impl ViewerState {
                 let next = !self.router.timeline().collapse_idle_gaps();
                 self.router.timeline_mut().set_collapse_idle_gaps(next);
             }
+            action::AppAction::Undo => {
+                if let Some(snapshot) = self.history.step_undo() {
+                    history::apply_snapshot(
+                        &snapshot,
+                        &mut self.tile_tree,
+                        &mut self.widget_ids,
+                        &mut self.router,
+                        &mut self.active_workspace_tab,
+                        platform,
+                        ctx,
+                    );
+                    platform.on_workspace_changed(self);
+                }
+            }
+            action::AppAction::Redo => {
+                if let Some(snapshot) = self.history.step_redo() {
+                    history::apply_snapshot(
+                        &snapshot,
+                        &mut self.tile_tree,
+                        &mut self.widget_ids,
+                        &mut self.router,
+                        &mut self.active_workspace_tab,
+                        platform,
+                        ctx,
+                    );
+                    platform.on_workspace_changed(self);
+                }
+            }
         }
+    }
+
+    /// Seed or reset the Undo/Redo baseline to the current workspace state.
+    pub fn reset_undo_history(&mut self) {
+        let baseline = history::WorkspaceSnapshot::capture(
+            &self.tile_tree,
+            &self.router,
+            self.active_workspace_tab.clone(),
+        );
+        self.history.reset(baseline);
     }
 
     pub fn set_theme(&mut self, ctx: &eframe::egui::Context, selection: ui::theme::ThemeSelection) {
@@ -649,6 +689,12 @@ impl ViewerState {
         for action in mem::take(&mut self.action_queue) {
             self.handle_action(action, platform, ctx);
         }
+        self.history.sync_after_frame(
+            &self.tile_tree,
+            &self.router,
+            self.active_workspace_tab.clone(),
+            ctx,
+        );
         ctx.request_repaint();
     }
 }

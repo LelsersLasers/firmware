@@ -101,6 +101,7 @@ pub fn build_web_viewer_app<B: BrowserEnv>(
         }
     }
 
+    state.reset_undo_history();
     let _ = platform.sync_browser_url(&state);
     ViewerApp::new(state, platform)
 }
