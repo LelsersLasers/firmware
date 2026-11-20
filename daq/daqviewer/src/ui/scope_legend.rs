@@ -24,7 +24,7 @@ pub(super) struct Entry {
 }
 
 #[derive(Clone)]
-pub(super) struct SignalDrag {
+pub(crate) struct SignalDrag {
     pub scope: usize,
     pub channel: ScopeChannel,
     pub style: ui::scope_settings::SignalStyle,

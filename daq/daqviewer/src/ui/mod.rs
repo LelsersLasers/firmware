@@ -8,7 +8,7 @@ pub mod message_picker;
 pub mod scope;
 mod scope_icons;
 mod scope_interaction;
-mod scope_legend;
+pub(crate) mod scope_legend;
 pub mod scope_settings;
 pub mod sidebar;
 pub mod signal_browser;

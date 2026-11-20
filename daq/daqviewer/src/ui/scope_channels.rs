@@ -184,7 +184,7 @@ impl Scope {
         }
     }
 
-    pub(super) fn accept_scope_signal(
+    pub(crate) fn accept_scope_signal(
         &mut self,
         ctx: &egui::Context,
         payload: ui::scope_legend::SignalDrag,
