@@ -1108,4 +1108,83 @@ mod tests {
             "Focused TextEdit must retain native Ctrl+Z"
         );
     }
+
+    #[test]
+    fn closing_tab_in_powertrain_preset_undoes_and_redoes_cleanly() {
+        let (mut state, mut platform, ctx) = test_state();
+        run_frame(&mut state, &mut platform, &ctx, 1.0, Vec::new());
+
+        // 1. Load Powertrain / Accumulator preset
+        state.action_queue.push(AppAction::LoadWorkspacePreset {
+            preset_id: "powertrain_accumulator".to_owned(),
+            apply_time_context: false,
+        });
+        run_frame(&mut state, &mut platform, &ctx, 1.1, Vec::new());
+        // Run an additional frame so `tile_tree.ui()` renders the loaded preset
+        run_frame(&mut state, &mut platform, &ctx, 1.2, Vec::new());
+
+        let has_pane_titled = |state: &ViewerState, title: &str| {
+            state
+                .tile_tree
+                .tiles
+                .tiles()
+                .any(|tile| matches!(tile, egui_tiles::Tile::Pane(w) if w.title() == title))
+        };
+
+        assert!(
+            has_pane_titled(&state, "Battery Power and Current"),
+            "Powertrain preset must contain 'Battery Power and Current'"
+        );
+        let initial_cursor = state.history.cursor;
+
+        // 2. Simulate closing 'Battery Power and Current' via its tab × button
+        let battery_tile_id = state
+            .tile_tree
+            .tiles
+            .iter()
+            .find_map(|(id, tile)| match tile {
+                egui_tiles::Tile::Pane(w) if w.title() == "Battery Power and Current" => Some(*id),
+                _ => None,
+            })
+            .expect("find 'Battery Power and Current' tile id");
+        state.tile_tree.tiles.remove(battery_tile_id);
+        run_frame(&mut state, &mut platform, &ctx, 1.3, Vec::new());
+
+        assert!(
+            !has_pane_titled(&state, "Battery Power and Current"),
+            "Tab must be removed after closing"
+        );
+        assert_eq!(
+            state.history.cursor,
+            initial_cursor + 1,
+            "Closing the tab must record exactly one undo step"
+        );
+        assert!(state.history.can_undo());
+
+        // 3. Undo once — 'Battery Power and Current' must immediately reappear
+        //    and Redo must remain available across subsequent frames.
+        state.action_queue.push(AppAction::Undo);
+        run_frame(&mut state, &mut platform, &ctx, 1.4, Vec::new());
+        run_frame(&mut state, &mut platform, &ctx, 1.5, Vec::new());
+
+        assert!(
+            has_pane_titled(&state, "Battery Power and Current"),
+            "Undo must restore 'Battery Power and Current'"
+        );
+        assert!(
+            state.history.can_redo(),
+            "Redo must remain available after Undo renders on subsequent frames"
+        );
+
+        // 4. Redo — 'Battery Power and Current' closes again
+        state.action_queue.push(AppAction::Redo);
+        run_frame(&mut state, &mut platform, &ctx, 1.6, Vec::new());
+        run_frame(&mut state, &mut platform, &ctx, 1.7, Vec::new());
+
+        assert!(
+            !has_pane_titled(&state, "Battery Power and Current"),
+            "Redo must re-close 'Battery Power and Current'"
+        );
+        assert!(state.history.can_undo());
+    }
 }

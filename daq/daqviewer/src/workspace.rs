@@ -389,6 +389,12 @@ pub fn show(
                 };
                 ui.add_enabled_ui(!selection_pending, |ui| {
                     app.tile_tree.ui(&mut behavior, ui);
+                    let simplify_options =
+                        <WorkspaceTileBehavior as egui_tiles::Behavior<widgets::Widget>>::simplification_options(
+                            &behavior,
+                        );
+                    app.tile_tree.simplify(&simplify_options);
+                    app.tile_tree.gc(&mut behavior);
                 });
             }
 

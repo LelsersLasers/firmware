@@ -863,6 +863,26 @@ pub(crate) fn build_tile_node_with_reuse(
     formulas: Option<&daqcore::analysis::FormulaEngine>,
     reusable_platform_widgets: &mut Vec<Box<dyn crate::app::PlatformWidget>>,
 ) -> Option<egui_tiles::TileId> {
+    build_tile_node_inner(
+        node,
+        tiles,
+        widget_ids,
+        platform,
+        formulas,
+        reusable_platform_widgets,
+        false,
+    )
+}
+
+fn build_tile_node_inner(
+    node: &WorkspaceLayoutNode,
+    tiles: &mut egui_tiles::Tiles<widgets::Widget>,
+    widget_ids: &mut widget_ids::WidgetIds,
+    platform: &mut dyn ViewerPlatform,
+    formulas: Option<&daqcore::analysis::FormulaEngine>,
+    reusable_platform_widgets: &mut Vec<Box<dyn crate::app::PlatformWidget>>,
+    parent_is_tabs: bool,
+) -> Option<egui_tiles::TileId> {
     match node {
         WorkspaceLayoutNode::Pane { spec } => {
             let widget = instantiate_pane_spec_with_reuse(
@@ -872,7 +892,12 @@ pub(crate) fn build_tile_node_with_reuse(
                 formulas,
                 reusable_platform_widgets,
             )?;
-            Some(tiles.insert_pane(widget))
+            let pane_id = tiles.insert_pane(widget);
+            if parent_is_tabs {
+                Some(pane_id)
+            } else {
+                Some(tiles.insert_tab_tile(vec![pane_id]))
+            }
         }
         WorkspaceLayoutNode::Linear {
             dir,
@@ -882,13 +907,14 @@ pub(crate) fn build_tile_node_with_reuse(
             let mut child_ids = Vec::with_capacity(children.len());
             let mut child_shares = Vec::with_capacity(children.len());
             for (idx, child) in children.iter().enumerate() {
-                if let Some(cid) = build_tile_node_with_reuse(
+                if let Some(cid) = build_tile_node_inner(
                     child,
                     tiles,
                     widget_ids,
                     platform,
                     formulas,
                     reusable_platform_widgets,
+                    false,
                 ) {
                     child_ids.push(cid);
                     let share = shares
@@ -915,13 +941,14 @@ pub(crate) fn build_tile_node_with_reuse(
         WorkspaceLayoutNode::Tabs { children, active } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node_with_reuse(
+                if let Some(cid) = build_tile_node_inner(
                     child,
                     tiles,
                     widget_ids,
                     platform,
                     formulas,
                     reusable_platform_widgets,
+                    true,
                 ) {
                     child_ids.push(cid);
                 }
@@ -942,13 +969,14 @@ pub(crate) fn build_tile_node_with_reuse(
         WorkspaceLayoutNode::Grid { children } => {
             let mut child_ids = Vec::with_capacity(children.len());
             for child in children {
-                if let Some(cid) = build_tile_node_with_reuse(
+                if let Some(cid) = build_tile_node_inner(
                     child,
                     tiles,
                     widget_ids,
                     platform,
                     formulas,
                     reusable_platform_widgets,
+                    false,
                 ) {
                     child_ids.push(cid);
                 }
