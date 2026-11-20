@@ -46,35 +46,32 @@ fn axes(
         .unit_groups
         .iter()
         .enumerate()
-        .map(|(index, key)| {
+        .filter_map(|(index, key)| {
+            let channel = channels.iter().find(|channel| {
+                !config.style(&channel.signal_id).discrete && config.axis_key(channel) == *key
+            })?;
             let lane = ScopeConfig::axis_lane(key);
             let order = counts.entry(lane).or_default();
             let axis = config.axes.get(key).cloned().unwrap_or_default();
-            let channel = channels
-                .iter()
-                .find(|channel| config.axis_key(channel) == *key);
-            let unit = channel
-                .map(|channel| channel.unit.clone())
-                .unwrap_or_default();
+            let unit = channel.unit.clone();
             let color = axis
                 .color
                 .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-                .or_else(|| channel.map(|channel| channel.color))
-                .unwrap_or(Color32::GRAY);
+                .unwrap_or(channel.color);
             let right = match axis.side {
                 AxisSide::Auto => *order % 2 == 1,
                 AxisSide::Left => false,
                 AxisSide::Right => true,
             };
             *order += 1;
-            AxisView {
+            Some(AxisView {
                 index,
                 lane,
                 right,
                 custom_label: axis.label,
                 unit,
                 color,
-            }
+            })
         })
         .collect()
 }
@@ -189,6 +186,9 @@ impl Scope {
                 let channel = self.channels.get(channel_index)?;
                 let stats = channel_stats.get(channel_index).copied().flatten();
                 let style = self.config.style(&channel.signal_id);
+                if style.discrete {
+                    return None;
+                }
                 let pair = measurement_pair(index);
                 let label = if is_comparison {
                     format!(
@@ -396,8 +396,16 @@ impl Scope {
                     } else {
                         self.lane_y_overrides.get(&lane).copied()
                     };
+                    let discrete_count = self
+                        .channels
+                        .iter()
+                        .filter(|ch| {
+                            self.config.lane(&ch.signal_id) == lane
+                                && self.config.style(&ch.signal_id).discrete
+                        })
+                        .count();
                     let plot_width = ui.available_width().max(1.0);
-                    let plot_height = height.max(100.0);
+                    let plot_height = (height - discrete_count.max(1) as f32 * 36.0).max(100.0);
                     let plot = egui_plot::Plot::new(plot_id)
                         .custom_y_axes(hints(cached, &axis_views, lane, lane_count, slots))
                         .width(plot_width)
@@ -433,6 +441,7 @@ impl Scope {
                                 continue;
                             };
                             if self.config.lane(&channel.signal_id) != lane
+                                || self.config.style(&channel.signal_id).discrete
                                 || self.hidden_channels.contains(&channel.signal_id)
                             {
                                 continue;
@@ -654,12 +663,14 @@ impl Scope {
                                 continue;
                             };
                             if self.config.lane(&channel.signal_id) != lane
+                                || self.config.style(&channel.signal_id).discrete
                                 || self.hidden_channels.contains(&channel.signal_id)
                             {
                                 continue;
                             }
                             let style = self.config.style(&channel.signal_id);
-                            if !style.envelope
+                            if style.discrete
+                                || !style.envelope
                                 || style.mode == TraceMode::Points
                                 || trace.envelope_bands.is_empty()
                             {
@@ -708,6 +719,20 @@ impl Scope {
                             &to_x,
                         );
                     }
+                    let frame = *response.transform.frame();
+                    let _discrete_rect = ui::scope::channel_selector::state_strips(
+                        ui,
+                        view,
+                        &self.channels,
+                        &self.config,
+                        lane,
+                        self.instance_num,
+                        frame,
+                        &to_x,
+                        &to_ms,
+                        max_x,
+                        is_comparison,
+                    );
                     if let Some(payload) =
                         egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx())
                         && ui.input(|input| {

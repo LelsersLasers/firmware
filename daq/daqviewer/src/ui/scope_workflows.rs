@@ -660,3 +660,32 @@ fn stacks_beyond_eight_keep_plots_readable() {
         assert!(frame.height() >= 100.0);
     }
 }
+
+#[test]
+fn channels_window_assigns_signals_and_stays_open() {
+    use ui::scope_settings::Destination;
+    let mut h = Harness::new(false);
+    h.scope = Scope::new_empty(1);
+    for _ in 0..3 {
+        h.frame(vec![]);
+    }
+    let button = h.find("ƒ");
+    h.click(button);
+    for _ in 0..3 {
+        h.frame(vec![]);
+    }
+    assert!(matches!(
+        h.scope.picker_target,
+        Some(ScopePickerTarget::Channels(0, Destination::Left))
+    ));
+    let right = h.find("Right");
+    h.click(right);
+    let candidate = h.find(&format!("{SPEED} [m/s]"));
+    h.click(candidate);
+    assert_eq!(h.scope.channels.len(), 1);
+    assert_eq!(
+        h.scope.config.destination(&h.scope.channels[0]),
+        Destination::Right
+    );
+    assert!(h.scope.picker_target.is_some());
+}

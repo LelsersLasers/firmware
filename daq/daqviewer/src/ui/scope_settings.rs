@@ -42,6 +42,7 @@ pub struct SignalStyle {
     pub envelope: bool,
     pub axis: String,
     pub lane: usize,
+    pub discrete: bool,
 }
 impl Default for SignalStyle {
     fn default() -> Self {
@@ -53,6 +54,7 @@ impl Default for SignalStyle {
             envelope: true,
             axis: String::new(),
             lane: 0,
+            discrete: false,
         }
     }
 }
@@ -158,6 +160,44 @@ impl ScopeConfig {
             }
         }
     }
+    pub fn assign(&mut self, channel: &ScopeChannel, lane: usize, destination: Destination) {
+        let style = self.channels.entry(channel.signal_id.clone()).or_default();
+        style.lane = lane;
+        style.discrete = destination == Destination::Discrete;
+        if style.discrete {
+            style.axis = format!("discrete:{}", channel.signal_id);
+        } else {
+            let side = if destination == Destination::Right {
+                "right"
+            } else {
+                "left"
+            };
+            style.axis = format!("{side}:{}", channel.unit);
+            self.axes
+                .entry(format!("{lane}|{}", style.axis))
+                .or_default()
+                .side = if destination == Destination::Right {
+                AxisSide::Right
+            } else {
+                AxisSide::Left
+            };
+        }
+    }
+
+    pub fn destination(&self, channel: &ScopeChannel) -> Destination {
+        if self.style(&channel.signal_id).discrete {
+            Destination::Discrete
+        } else if self
+            .axes
+            .get(&self.axis_key(channel))
+            .is_some_and(|axis| axis.side == AxisSide::Right)
+        {
+            Destination::Right
+        } else {
+            Destination::Left
+        }
+    }
+
     pub fn sanitize(&mut self) {
         self.lanes = self.lanes.max(1);
         for style in self.channels.values_mut() {
@@ -177,6 +217,22 @@ impl ScopeConfig {
             if axis.valid_range().is_none() {
                 axis.range = None;
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Destination {
+    Left,
+    Right,
+    Discrete,
+}
+impl Destination {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+            Self::Discrete => "Discrete",
         }
     }
 }

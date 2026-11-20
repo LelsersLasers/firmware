@@ -3,6 +3,8 @@ use crate::{ui, workspace_view};
 #[path = "scope_plot.rs"]
 mod plot;
 
+#[path = "scope_channels.rs"]
+mod channel_selector;
 #[cfg(test)]
 #[path = "scope_workflows.rs"]
 mod workflows;
@@ -164,8 +166,8 @@ impl UnitAxisTransform {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopePickerTarget {
-    AddChannel,
+pub(super) enum ScopePickerTarget {
+    Channels(usize, ui::scope_settings::Destination),
     SpeedSignal,
 }
 
@@ -603,48 +605,6 @@ impl Scope {
         }
     }
 
-    fn show_picker(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        target: ScopePickerTarget,
-        view: &workspace_view::WorkspaceDataView<'_>,
-    ) {
-        let prompt = match target {
-            ScopePickerTarget::AddChannel => "Select signal to plot:",
-            ScopePickerTarget::SpeedSignal => "Select speed signal:",
-        };
-        let allow_cancel = !self.channels.is_empty();
-        match ui::message_picker::show_signal_picker(
-            ui,
-            ("scope_signal_picker", self.instance_num),
-            prompt,
-            allow_cancel,
-            false,
-            &mut self.search_query,
-            view,
-        ) {
-            ui::message_picker::SignalPickerAction::None => {}
-            ui::message_picker::SignalPickerAction::Cancelled => {
-                self.picker_target = None;
-            }
-            ui::message_picker::SignalPickerAction::Picked(picked) => match target {
-                ScopePickerTarget::AddChannel => {
-                    self.add_channel(
-                        picked.signal_id.clone(),
-                        picked.signal_id,
-                        picked.unit,
-                        picked.key,
-                        picked.is_derived,
-                    );
-                }
-                ScopePickerTarget::SpeedSignal => {
-                    self.speed_signal_id = picked.signal_id;
-                    self.picker_target = None;
-                }
-            },
-        }
-    }
-
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
@@ -670,11 +630,6 @@ impl Scope {
                     ui.ctx(),
                 );
             }
-        }
-
-        if let Some(target) = self.picker_target {
-            self.show_picker(ui, target, view);
-            return egui_tiles::UiResponse::None;
         }
 
         // Resolve engineering units directly from each channel's `signal_id`.
@@ -1113,10 +1068,14 @@ impl Scope {
                     }
                     if ui
                         .add(ui::scope_icons::toolbar_button("ƒ"))
-                        .on_hover_text("Add signal")
+                        .on_hover_text("Channels")
                         .clicked()
                     {
-                        open_picker = Some(ScopePickerTarget::AddChannel);
+                        open_picker = Some(ScopePickerTarget::Channels(
+                            0,
+                            ui::scope_settings::Destination::Left,
+                        ));
+                        self.search_query.clear();
                     }
                     if ui
                         .add(ui::scope_icons::toolbar_button("+"))
@@ -1301,7 +1260,6 @@ impl Scope {
 
         if let Some(target) = open_picker {
             self.picker_target = Some(target);
-            return egui_tiles::UiResponse::None;
         }
         if clear_all {
             self.channels.clear();
@@ -1315,7 +1273,9 @@ impl Scope {
             return egui_tiles::UiResponse::None;
         }
 
-        self.render_plots(ui, view, &comparison_annotations, &entries)
+        let response = self.render_plots(ui, view, &comparison_annotations, &entries);
+        self.show_channel_selector(ui.ctx(), view);
+        response
     }
 }
 
