@@ -1161,6 +1161,8 @@ fn show_transport_bar(
                                     ("Fold Idle Gaps", "G"),
                                     ("Mark Timestamp", "M"),
                                     ("Focus Search", "/"),
+                                    ("Undo Workspace", "Ctrl+Z"),
+                                    ("Redo Workspace", "Ctrl+Shift+Z / Ctrl+Y"),
                                 ] {
                                     ui.label(act);
                                     ui.label(eframe::egui::RichText::new(key).monospace().weak());
