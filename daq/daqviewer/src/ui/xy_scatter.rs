@@ -355,39 +355,14 @@ impl XYScatter {
         }
 
         // Single compact Nominal-style header strip:
-        // Clickable X / Y / Z pills with live cursor value + `…` menu for Presets, 1:1 Aspect, and G-Rings.
+        // Clickable X / Y / Z pills + `…` menu for Presets, 1:1 Aspect, and G-Rings.
         let mut clear_z = false;
         let mut preset_choice: Option<u8> = None;
 
-        let cursor_ms = view.active_cursor_utc_ms();
         let (x_pill, y_pill, z_pill, x_tip, y_tip, z_tip, x_axis_lbl, y_axis_lbl) = {
             let Some(cached) = self.cached_data.as_ref() else {
                 return egui_tiles::UiResponse::None;
             };
-            let cursor_idx = if cached.timestamps_ms.is_empty() {
-                None
-            } else {
-                let pos = cached.timestamps_ms.partition_point(|&t| t <= cursor_ms);
-                (pos > 0).then(|| (pos - 1).min(cached.timestamps_ms.len() - 1))
-            };
-
-            let x_u = if cached.x_unit.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", cached.x_unit)
-            };
-            let y_u = if cached.y_unit.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", cached.y_unit)
-            };
-
-            let x_val_str = cursor_idx
-                .map(|i| format!(" = {:.2}{x_u}", cached.x_vals[i]))
-                .unwrap_or_else(|| x_u.clone());
-            let y_val_str = cursor_idx
-                .map(|i| format!(" = {:.2}{y_u}", cached.y_vals[i]))
-                .unwrap_or_else(|| y_u.clone());
 
             let (z_p, z_t) = if let Some(z_sig) = &self.z_color_signal {
                 let z_u = if cached.z_unit.is_empty() {
@@ -395,16 +370,12 @@ impl XYScatter {
                 } else {
                     format!(" {}", cached.z_unit)
                 };
-                let z_val = cursor_idx
-                    .and_then(|i| cached.z_vals.as_ref().map(|zv| zv[i]))
-                    .map(|v| format!(" = {v:.2}{z_u}"))
-                    .unwrap_or_else(|| z_u.clone());
                 let range_str = cached
                     .z_range
                     .map(|(lo, hi)| format!("\nRange: {lo:.2}{z_u} .. {hi:.2}{z_u}"))
                     .unwrap_or_default();
                 (
-                    format!("Z: {z_sig}{z_val}"),
+                    format!("Z: {z_sig}"),
                     format!("Color (Z): {z_sig}{range_str}\nClick to change or drag signal here"),
                 )
             } else {
@@ -426,8 +397,8 @@ impl XYScatter {
             };
 
             (
-                format!("X: {}{x_val_str}", self.x_signal),
-                format!("Y: {}{y_val_str}", self.y_signal),
+                format!("X: {}", self.x_signal),
+                format!("Y: {}", self.y_signal),
                 z_p,
                 format!(
                     "X Axis: {}\nClick to change or drag signal here",
