@@ -229,6 +229,24 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
         .connect_cloud(&base_url)
         .expect("connect Router A to daqcloud");
 
+    // Wait for Instance A to finish uploading both partitions before Instance B connects,
+    // so Instance B's initial day-fit snap sees the full >15m span and stays in 1Hz overview.
+    let client = reqwest::Client::new();
+    let upload_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < upload_deadline {
+        router_a.poll_cloud_sync();
+        if let Ok(resp) = client
+            .get(format!("{base_url}/api/v1/catalog"))
+            .send()
+            .await
+            && let Ok(json) = resp.json::<serde_json::Value>().await
+            && json["partitions"].as_array().is_some_and(|p| p.len() == 2)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
     // -------------------------------------------------------------------------
     // 2. Instance B: Point at an empty local folder and connect to daqcloud
     // -------------------------------------------------------------------------
