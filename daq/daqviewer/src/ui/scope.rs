@@ -997,6 +997,7 @@ impl Scope {
             .inner_margin(eframe::egui::Margin::symmetric(4, 3))
             .corner_radius(5.0)
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
                         self.show_legend = !self.show_legend;
