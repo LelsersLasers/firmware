@@ -76,6 +76,9 @@ enum Command {
         /// Also download all remote full_res.parquet and overview_10hz.parquet files upfront
         #[arg(long, default_value_t = false)]
         download_full: bool,
+        /// Optional write password/token for uploading partitions and annotations (or set DAQCLOUD_WRITE_TOKEN)
+        #[arg(long)]
+        write_token: Option<String>,
     },
     /// Process and import all PER26 / PER25 datasets (raw logs and parsed CSVs) into a store directory
     ImportPer26 {
@@ -173,28 +176,33 @@ fn main() -> process::ExitCode {
             store_dir,
             cloud_url,
             download_full,
-        } => match daqnative::storage::sync_store_with_cloud_blocking(
-            &store_dir,
-            &cloud_url,
-            download_full,
-        ) {
-            Ok(summary) => {
-                log::info!(
-                    "Cloud sync complete ({}): {} remote track days, {} remote partitions ({} full-res downloaded), {} local partitions uploaded, {} annotations pulled",
-                    cloud_url,
-                    summary.remote_track_days,
-                    summary.remote_partitions,
-                    summary.full_partitions_downloaded,
-                    summary.partitions_uploaded,
-                    summary.annotations_pulled
-                );
-                process::ExitCode::SUCCESS
+            write_token,
+        } => {
+            let token = write_token.or_else(|| std::env::var("DAQCLOUD_WRITE_TOKEN").ok());
+            match daqnative::storage::sync_store_with_cloud_blocking_with_token(
+                &store_dir,
+                &cloud_url,
+                download_full,
+                token.as_deref(),
+            ) {
+                Ok(summary) => {
+                    log::info!(
+                        "Cloud sync complete ({}): {} remote track days, {} remote partitions ({} full-res downloaded), {} local partitions uploaded, {} annotations pulled",
+                        cloud_url,
+                        summary.remote_track_days,
+                        summary.remote_partitions,
+                        summary.full_partitions_downloaded,
+                        summary.partitions_uploaded,
+                        summary.annotations_pulled
+                    );
+                    process::ExitCode::SUCCESS
+                }
+                Err(err) => {
+                    log::error!("Cloud sync failed: {err}");
+                    process::ExitCode::FAILURE
+                }
             }
-            Err(err) => {
-                log::error!("Cloud sync failed: {err}");
-                process::ExitCode::FAILURE
-            }
-        },
+        }
         Command::ImportPer26 {
             per26_dir,
             store_dir,

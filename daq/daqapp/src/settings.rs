@@ -32,6 +32,8 @@ pub struct Settings {
     #[serde(default = "default_cloud_url")]
     pub cloud_url: String,
     #[serde(default)]
+    pub cloud_write_token: String,
+    #[serde(default)]
     pub cloud_auto_connect: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_view: Option<workspace_io::WorkspaceView>,
@@ -50,6 +52,7 @@ impl Default for Settings {
             log_folder: None,
             window_secs: 30.0,
             cloud_url: default_cloud_url(),
+            cloud_write_token: String::new(),
             cloud_auto_connect: false,
             workspace_view: None,
         }

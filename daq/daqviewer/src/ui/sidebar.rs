@@ -847,6 +847,24 @@ fn show_settings_tab(
         }
     });
 
+    ui.horizontal(|ui| {
+        ui.label("Write Password:");
+        let resp = ui.add(
+            eframe::egui::TextEdit::singleline(&mut app.cloud_write_token)
+                .password(true)
+                .hint_text("Optional (for public writes)")
+                .desired_width(ui.available_width().max(80.0)),
+        );
+        if resp.changed() {
+            let token = (!app.cloud_write_token.trim().is_empty())
+                .then(|| app.cloud_write_token.trim().to_owned());
+            app.router.set_cloud_write_token(token);
+        }
+        if resp.lost_focus() {
+            platform.save_settings(app);
+        }
+    });
+
     if ui
         .checkbox(&mut app.cloud_auto_connect, "Auto-connect on startup")
         .changed()

@@ -103,6 +103,9 @@ pub trait ViewerPlatform {
 
     fn on_connect_cloud(&mut self, state: &mut ViewerState, url: String) {
         state.cloud_url = url.clone();
+        let token = (!state.cloud_write_token.trim().is_empty())
+            .then(|| state.cloud_write_token.trim().to_owned());
+        state.router.set_cloud_write_token(token);
         if let Err(err) = state.router.connect_cloud(url) {
             state.diagnostic = Some(format!("Failed to connect to daqcloud: {err}"));
         } else {
@@ -223,6 +226,7 @@ pub struct ViewerState {
     pub diagnostic: Option<String>,
     pub log_folder: Option<path::PathBuf>,
     pub cloud_url: String,
+    pub cloud_write_token: String,
     pub cloud_auto_connect: bool,
     pub timeline_ui: ui::timeline::TimelineUiState,
     pub signal_browser: ui::signal_browser::SignalBrowserState,
@@ -268,6 +272,7 @@ impl ViewerState {
             diagnostic: None,
             log_folder,
             cloud_url,
+            cloud_write_token: String::new(),
             cloud_auto_connect,
             timeline_ui: ui::timeline::TimelineUiState::default(),
             signal_browser: ui::signal_browser::SignalBrowserState::default(),

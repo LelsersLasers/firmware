@@ -137,6 +137,12 @@ pub trait RouterBackend: Send {
         )))
     }
 
+    fn set_cloud_write_token(&mut self, _token: Option<String>) {}
+
+    fn cloud_write_token(&self) -> Option<String> {
+        None
+    }
+
     fn disconnect_cloud(&mut self) {}
 
     fn cloud_status(&self) -> CloudSyncStatus {
@@ -582,6 +588,16 @@ impl VirtualTimelineRouter {
     pub fn connect_cloud(&mut self, base_url: impl Into<String>) -> Result<(), RouterError> {
         let active_day = self.timeline.active_track_day_id().map(str::to_owned);
         self.backend.connect_cloud(base_url.into(), active_day)
+    }
+
+    /// Set or clear the optional write password/token used for `daqcloud` mutations.
+    pub fn set_cloud_write_token(&mut self, token: Option<String>) {
+        self.backend.set_cloud_write_token(token);
+    }
+
+    /// Return the currently configured `daqcloud` write password/token, if any.
+    pub fn cloud_write_token(&self) -> Option<String> {
+        self.backend.cloud_write_token()
     }
 
     /// Disconnect from `daqcloud` and terminate any background sync worker.

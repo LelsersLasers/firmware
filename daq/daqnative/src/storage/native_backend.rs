@@ -299,6 +299,7 @@ pub struct NativeRouterBackend {
     store_dir: Option<PathBuf>,
     registry: Registry,
     cloud_sync: Option<CloudSyncHandle>,
+    cloud_write_token: Option<String>,
     repaint_cb: Option<RepaintCallback>,
     loader: Arc<NativeTileLoader>,
 }
@@ -314,6 +315,7 @@ impl NativeRouterBackend {
             store_dir: Some(store_dir),
             registry,
             cloud_sync: None,
+            cloud_write_token: None,
             repaint_cb: None,
             loader,
         })
@@ -325,6 +327,7 @@ impl NativeRouterBackend {
             store_dir: None,
             registry,
             cloud_sync: None,
+            cloud_write_token: None,
             repaint_cb: None,
             loader,
         })
@@ -489,14 +492,29 @@ impl RouterBackend for NativeRouterBackend {
         if let Some(mut existing) = self.cloud_sync.take() {
             existing.shutdown();
         }
-        let handle = CloudSyncHandle::spawn(
+        let handle = CloudSyncHandle::spawn_with_token(
             base_url,
             store_dir,
             active_track_day_id,
+            self.cloud_write_token.clone(),
             self.repaint_cb.clone(),
         );
         self.cloud_sync = Some(handle);
         Ok(())
+    }
+
+    fn set_cloud_write_token(&mut self, token: Option<String>) {
+        let normalized = token
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+        self.cloud_write_token = normalized.clone();
+        if let Some(cloud) = &self.cloud_sync {
+            cloud.set_write_token(normalized);
+        }
+    }
+
+    fn cloud_write_token(&self) -> Option<String> {
+        self.cloud_write_token.clone()
     }
 
     fn disconnect_cloud(&mut self) {

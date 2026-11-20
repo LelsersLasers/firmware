@@ -152,6 +152,7 @@ impl DesktopPlatform {
             log_folder: state.log_folder.clone(),
             window_secs: state.router.timeline().window_secs(),
             cloud_url: state.cloud_url.clone(),
+            cloud_write_token: state.cloud_write_token.clone(),
             cloud_auto_connect: state.cloud_auto_connect,
             workspace_view: workspace_io::WorkspaceView::capture_from_state(
                 state,
@@ -799,6 +800,9 @@ impl ViewerPlatform for DesktopPlatform {
             state.log_folder = Some(fallback_dir);
         }
         state.cloud_url = url.clone();
+        let token = (!state.cloud_write_token.trim().is_empty())
+            .then(|| state.cloud_write_token.trim().to_owned());
+        state.router.set_cloud_write_token(token);
         if let Err(err) = state.router.connect_cloud(url) {
             state.diagnostic = Some(format!("Failed to connect to daqcloud: {err}"));
         } else {
@@ -945,6 +949,12 @@ impl DAQApp {
             settings.log_folder,
             load_formatter(),
         );
+        state.cloud_write_token = settings.cloud_write_token;
+        if !state.cloud_write_token.trim().is_empty() {
+            state
+                .router
+                .set_cloud_write_token(Some(state.cloud_write_token.trim().to_owned()));
+        }
 
         if let Some(saved_view) = &settings.workspace_view {
             let has_local_store = state.router.partitions().iter().any(|p| p.is_local);

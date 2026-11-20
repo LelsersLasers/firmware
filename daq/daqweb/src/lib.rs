@@ -29,6 +29,9 @@ pub fn build_web_viewer_app<B: BrowserEnv>(
 
     let mut router = web_cloud_router(Some(cloud_url.clone()), Time::now(), 30.0)
         .expect("Failed to initialize WebCloudRouterBackend");
+    if !settings.cloud_write_token.trim().is_empty() {
+        router.set_cloud_write_token(Some(settings.cloud_write_token.trim().to_owned()));
+    }
     router
         .timeline_mut()
         .set_collapse_idle_gaps(settings.collapse_idle_gaps);
@@ -51,6 +54,7 @@ pub fn build_web_viewer_app<B: BrowserEnv>(
         None,
         load_embedded_formatter(),
     );
+    state.cloud_write_token = settings.cloud_write_token;
     state.workspace_view_modal.save_file_path = settings.daqview_file_path;
 
     let initial_path = platform.browser().pathname();

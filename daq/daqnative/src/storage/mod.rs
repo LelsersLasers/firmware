@@ -11,7 +11,7 @@ pub use cloud_sync::{
     CloudSyncSummary, CloudWsMessage, DerivedSignalUpsertPayload, RANGE_CHECKSUM_HEADER,
     compute_file_sha256_hex, compute_sha256_hex, download_file_resumable, http_base_to_ws_url,
     is_safe_path_segment, normalize_http_base_url, sync_store_with_cloud_blocking,
-    upload_file_verified,
+    sync_store_with_cloud_blocking_with_token, upload_file_verified,
 };
 
 pub use native_backend::{

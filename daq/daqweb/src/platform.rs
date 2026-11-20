@@ -144,6 +144,8 @@ impl BrowserEnv for MemoryBrowserEnv {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WebSettings {
     pub cloud_url: String,
+    #[serde(default)]
+    pub cloud_write_token: String,
     pub pixels_per_point: Option<f32>,
     pub theme: ThemeSelection,
     #[serde(default = "default_true")]
@@ -168,6 +170,7 @@ impl Default for WebSettings {
     fn default() -> Self {
         Self {
             cloud_url: DEFAULT_CLOUD_URL.to_owned(),
+            cloud_write_token: String::new(),
             pixels_per_point: None,
             theme: ThemeSelection::default(),
             collapse_idle_gaps: true,
@@ -377,6 +380,7 @@ impl<B: BrowserEnv> ViewerPlatform for WebPlatform<B> {
 
         let settings = WebSettings {
             cloud_url: state.cloud_url.clone(),
+            cloud_write_token: state.cloud_write_token.clone(),
             pixels_per_point: state.pixels_per_point,
             theme: state.theme_selection,
             collapse_idle_gaps: state.router.timeline().collapse_idle_gaps(),

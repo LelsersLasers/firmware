@@ -68,10 +68,7 @@ struct WorkerMetrics {
 
 impl WorkerMetrics {
     fn to_status(&self, url: &str) -> CloudSyncStatus {
-        if let Some(err) = &self.last_error
-            && !self.connected
-            && !self.ws_connected
-        {
+        if let Some(err) = &self.last_error {
             return CloudSyncStatus::Error {
                 url: url.to_owned(),
                 error: err.clone(),
@@ -107,6 +104,7 @@ impl WorkerMetrics {
 /// Handle to the non-blocking background `daqcloud` sync & WebSocket worker.
 pub struct CloudSyncHandle {
     base_url: String,
+    write_token: Arc<Mutex<Option<String>>>,
     cmd_tx: tokio_mpsc::UnboundedSender<CloudSyncCommand>,
     event_rx: Mutex<mpsc::Receiver<CloudSyncEvent>>,
     status: Arc<Mutex<CloudSyncStatus>>,
@@ -127,7 +125,22 @@ impl CloudSyncHandle {
         active_track_day_id: Option<String>,
         repaint_cb: Option<RepaintCallback>,
     ) -> Self {
+        Self::spawn_with_token(base_url, store_dir, active_track_day_id, None, repaint_cb)
+    }
+
+    /// Spawn a background `daqcloud` sync worker with an optional write password/token.
+    pub fn spawn_with_token(
+        base_url: impl Into<String>,
+        store_dir: impl AsRef<path::Path>,
+        active_track_day_id: Option<String>,
+        write_token: Option<String>,
+        repaint_cb: Option<RepaintCallback>,
+    ) -> Self {
         let base_url = normalize_http_base_url(&base_url.into());
+        let normalized_token = write_token
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+        let write_token = Arc::new(Mutex::new(normalized_token));
         let store_dir = store_dir.as_ref().to_path_buf();
         let (cmd_tx, cmd_rx) = tokio_mpsc::unbounded_channel::<CloudSyncCommand>();
         let (event_tx, event_rx) = mpsc::channel::<CloudSyncEvent>();
@@ -154,6 +167,7 @@ impl CloudSyncHandle {
         }
 
         let thread_url = base_url.clone();
+        let thread_token = Arc::clone(&write_token);
         let thread_store = store_dir.clone();
         let thread_status = Arc::clone(&status);
         let thread_metrics = Arc::clone(&metrics);
@@ -186,6 +200,7 @@ impl CloudSyncHandle {
 
                 rt.block_on(run_cloud_sync_runtime(
                     thread_url,
+                    thread_token,
                     thread_store,
                     active_track_day_id,
                     cmd_rx,
@@ -208,6 +223,7 @@ impl CloudSyncHandle {
 
         Self {
             base_url,
+            write_token,
             cmd_tx,
             event_rx: Mutex::new(event_rx),
             status,
@@ -223,6 +239,27 @@ impl CloudSyncHandle {
 
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    pub fn set_write_token(&self, token: Option<String>) {
+        let normalized = token
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+        if let Ok(mut guard) = self.write_token.lock() {
+            *guard = normalized;
+        }
+        update_status_snapshot(&self.metrics, &self.status, &self.base_url, |m| {
+            if m.last_error
+                .as_ref()
+                .is_some_and(|e| e.contains("Write rejected"))
+            {
+                m.last_error = None;
+            }
+        });
+    }
+
+    pub fn write_token(&self) -> Option<String> {
+        self.write_token.lock().ok().and_then(|g| g.clone())
     }
 
     pub fn status(&self) -> CloudSyncStatus {
@@ -384,9 +421,22 @@ fn update_status_snapshot(
     }
 }
 
+fn build_cloud_http_client(write_token: Option<&str>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder().timeout(time::Duration::from_secs(60));
+    if let Some(token) = write_token.map(str::trim).filter(|t| !t.is_empty())
+        && let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+    {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::AUTHORIZATION, val);
+        builder = builder.default_headers(headers);
+    }
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_cloud_sync_runtime(
     base_url: String,
+    write_token: Arc<Mutex<Option<String>>>,
     store_dir: path::PathBuf,
     initial_track_day: Option<String>,
     mut cmd_rx: tokio_mpsc::UnboundedReceiver<CloudSyncCommand>,
@@ -400,10 +450,8 @@ async fn run_cloud_sync_runtime(
     repaint_cb: Arc<Mutex<Option<RepaintCallback>>>,
     shutdown_flag: Arc<AtomicBool>,
 ) {
-    let client = reqwest::Client::builder()
-        .timeout(time::Duration::from_secs(60))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    let mut active_token = write_token.lock().ok().and_then(|g| g.clone());
+    let mut client = build_cloud_http_client(active_token.as_deref());
 
     let uploaded_partitions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
     let mut active_track_day = initial_track_day;
@@ -522,9 +570,31 @@ async fn run_cloud_sync_runtime(
         }
     });
 
+    let record_write_http_status = |http_status: reqwest::StatusCode, url: &str| {
+        log::warn!("Write request to {url} returned HTTP {http_status}");
+        if http_status == reqwest::StatusCode::UNAUTHORIZED
+            || http_status == reqwest::StatusCode::FORBIDDEN
+        {
+            let msg = format!(
+                "Write rejected (HTTP {}): enter Write Password in Settings (⚙) or connect via Tailscale",
+                http_status.as_u16()
+            );
+            update_status_snapshot(&metrics, &status, &base_url, |m| {
+                m.last_error = Some(msg.clone());
+            });
+            let _ = event_tx.send(CloudSyncEvent::Error(msg));
+            notify_repaint(&repaint_cb);
+        }
+    };
+
     while let Some(cmd) = cmd_rx.recv().await {
         if shutdown_flag.load(Ordering::SeqCst) {
             break;
+        }
+        let latest_token = write_token.lock().ok().and_then(|g| g.clone());
+        if latest_token != active_token {
+            active_token = latest_token;
+            client = build_cloud_http_client(active_token.as_deref());
         }
         match cmd {
             CloudSyncCommand::Shutdown => break,
@@ -655,7 +725,7 @@ async fn run_cloud_sync_runtime(
                 let payload = AnnotationUpsertPayload::Single(Box::new(annotation));
                 match client.post(&url).json(&payload).send().await {
                     Ok(resp) if !resp.status().is_success() => {
-                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                        record_write_http_status(resp.status(), &url);
                     }
                     Err(err) => {
                         log::warn!("Failed to push annotation to {url}: {err}");
@@ -667,7 +737,7 @@ async fn run_cloud_sync_runtime(
                 let url = format!("{base_url}/api/v1/track-days");
                 match client.post(&url).json(&day).send().await {
                     Ok(resp) if !resp.status().is_success() => {
-                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                        record_write_http_status(resp.status(), &url);
                     }
                     Err(err) => {
                         log::warn!("Failed to push track day to {url}: {err}");
@@ -684,7 +754,7 @@ async fn run_cloud_sync_runtime(
                 );
                 match client.delete(&url).send().await {
                     Ok(resp) if !resp.status().is_success() => {
-                        log::warn!("DELETE {url} returned HTTP {}", resp.status());
+                        record_write_http_status(resp.status(), &url);
                     }
                     Err(err) => {
                         log::warn!("Failed to delete annotation at {url}: {err}");
@@ -697,7 +767,7 @@ async fn run_cloud_sync_runtime(
                 let payload = DerivedSignalUpsertPayload::Single(Box::new(signal));
                 match client.post(&url).json(&payload).send().await {
                     Ok(resp) if !resp.status().is_success() => {
-                        log::warn!("POST {url} returned HTTP {}", resp.status());
+                        record_write_http_status(resp.status(), &url);
                     }
                     Err(err) => {
                         log::warn!("Failed to push derived signal to {url}: {err}");
@@ -710,7 +780,7 @@ async fn run_cloud_sync_runtime(
                     format!("{base_url}/api/v1/derived-signals/{id}?updated_at_ms={updated_at_ms}");
                 match client.delete(&url).send().await {
                     Ok(resp) if !resp.status().is_success() => {
-                        log::warn!("DELETE {url} returned HTTP {}", resp.status());
+                        record_write_http_status(resp.status(), &url);
                     }
                     Err(err) => {
                         log::warn!("Failed to delete derived signal at {url}: {err}");
@@ -1499,14 +1569,24 @@ pub fn sync_store_with_cloud_blocking(
     base_url: &str,
     download_full: bool,
 ) -> Result<CloudSyncSummary, String> {
+    sync_store_with_cloud_blocking_with_token(store_dir, base_url, download_full, None)
+}
+
+pub fn sync_store_with_cloud_blocking_with_token(
+    store_dir: impl AsRef<path::Path>,
+    base_url: &str,
+    download_full: bool,
+    write_token: Option<&str>,
+) -> Result<CloudSyncSummary, String> {
     let store_dir = store_dir.as_ref().to_path_buf();
     let base_url = normalize_http_base_url(base_url);
+    let owned_token = write_token
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned);
 
     let run = async move {
-        let client = reqwest::Client::builder()
-            .timeout(time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = build_cloud_http_client(owned_token.as_deref());
 
         let (event_tx, _event_rx) = mpsc::channel();
         let repaint_cb = Arc::new(Mutex::new(None));

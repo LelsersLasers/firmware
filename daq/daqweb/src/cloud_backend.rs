@@ -163,6 +163,10 @@ enum WebCloudEvent {
     },
     AnnotationSaved(Annotation),
     DerivedSignalSaved(DerivedSignalDef),
+    WriteAuthError {
+        url: String,
+        status: u16,
+    },
     Error {
         url: String,
         error: String,
@@ -175,6 +179,8 @@ pub struct WebCloudRouterBackend {
     catalog: InMemoryCatalog,
     loader: Arc<WebTileLoader>,
     base_url: Option<String>,
+    write_token: Option<String>,
+    write_auth_error: Option<String>,
     status: CloudSyncStatus,
     repaint_cb: Option<RepaintCallback>,
     ev_tx: mpsc::Sender<WebCloudEvent>,
@@ -199,6 +205,8 @@ impl WebCloudRouterBackend {
             catalog: InMemoryCatalog::new(),
             loader,
             base_url: None,
+            write_token: None,
+            write_auth_error: None,
             status: CloudSyncStatus::Disconnected,
             repaint_cb: None,
             ev_tx,
@@ -214,6 +222,15 @@ impl WebCloudRouterBackend {
             last_annotation_sync_ms: 0,
             last_derived_sync_ms: 0,
             stats_snapshot: Arc::new(Mutex::new(CloudStatsSnapshot::default())),
+        }
+    }
+
+    fn attach_write_auth(&self, req: &mut ehttp::Request) {
+        if let Some(token) = &self.write_token
+            && !token.is_empty()
+        {
+            req.headers
+                .insert("Authorization", format!("Bearer {token}"));
         }
     }
 
@@ -407,6 +424,13 @@ impl WebCloudRouterBackend {
 
     fn update_connected_status(&mut self) {
         if let Some(url) = &self.base_url {
+            if let Some(err) = &self.write_auth_error {
+                self.status = CloudSyncStatus::Error {
+                    url: url.clone(),
+                    error: err.clone(),
+                };
+                return;
+            }
             self.status = CloudSyncStatus::Connected {
                 url: url.clone(),
                 synced_partitions: self.preloaded_partitions.len(),
@@ -449,7 +473,23 @@ impl RouterBackend for WebCloudRouterBackend {
             let trimmed = base_url.trim_end_matches('/');
             let mut req = ehttp::Request::post(format!("{trimmed}/api/v1/track-days"), body);
             req.headers.insert("Content-Type", "application/json");
-            ehttp::fetch(req, |_| {});
+            self.attach_write_auth(&mut req);
+            let tx = self.ev_tx.clone();
+            let repaint = self.repaint_cb.clone();
+            let url_for_ev = base_url.clone();
+            ehttp::fetch(req, move |res| {
+                if let Ok(resp) = res
+                    && (resp.status == 401 || resp.status == 403)
+                {
+                    let _ = tx.send(WebCloudEvent::WriteAuthError {
+                        url: url_for_ev,
+                        status: resp.status,
+                    });
+                    if let Some(cb) = &repaint {
+                        cb();
+                    }
+                }
+            });
         }
         Ok(updated)
     }
@@ -487,13 +527,24 @@ impl RouterBackend for WebCloudRouterBackend {
             let trimmed = base_url.trim_end_matches('/');
             let mut req = ehttp::Request::post(format!("{trimmed}/api/v1/annotations"), body);
             req.headers.insert("Content-Type", "application/json");
+            self.attach_write_auth(&mut req);
             let tx = self.ev_tx.clone();
+            let repaint = self.repaint_cb.clone();
+            let url_for_ev = base_url.clone();
             let ann_clone = annotation.clone();
             ehttp::fetch(req, move |res| {
-                if let Ok(resp) = res
-                    && resp.ok
-                {
-                    let _ = tx.send(WebCloudEvent::AnnotationSaved(ann_clone));
+                if let Ok(resp) = res {
+                    if resp.ok {
+                        let _ = tx.send(WebCloudEvent::AnnotationSaved(ann_clone));
+                    } else if resp.status == 401 || resp.status == 403 {
+                        let _ = tx.send(WebCloudEvent::WriteAuthError {
+                            url: url_for_ev,
+                            status: resp.status,
+                        });
+                    }
+                    if let Some(cb) = &repaint {
+                        cb();
+                    }
                 }
             });
         }
@@ -514,7 +565,23 @@ impl RouterBackend for WebCloudRouterBackend {
                 "{trimmed}/api/v1/annotations/{annotation_id}?updated_at_ms={updated_at_ms}"
             ));
             req.method = "DELETE".to_owned();
-            ehttp::fetch(req, |_| {});
+            self.attach_write_auth(&mut req);
+            let tx = self.ev_tx.clone();
+            let repaint = self.repaint_cb.clone();
+            let url_for_ev = base_url.clone();
+            ehttp::fetch(req, move |res| {
+                if let Ok(resp) = res
+                    && (resp.status == 401 || resp.status == 403)
+                {
+                    let _ = tx.send(WebCloudEvent::WriteAuthError {
+                        url: url_for_ev,
+                        status: resp.status,
+                    });
+                    if let Some(cb) = &repaint {
+                        cb();
+                    }
+                }
+            });
         }
         Ok(deleted)
     }
@@ -535,13 +602,24 @@ impl RouterBackend for WebCloudRouterBackend {
             let trimmed = base_url.trim_end_matches('/');
             let mut req = ehttp::Request::post(format!("{trimmed}/api/v1/derived-signals"), body);
             req.headers.insert("Content-Type", "application/json");
+            self.attach_write_auth(&mut req);
             let tx = self.ev_tx.clone();
+            let repaint = self.repaint_cb.clone();
+            let url_for_ev = base_url.clone();
             let def_clone = def.clone();
             ehttp::fetch(req, move |res| {
-                if let Ok(resp) = res
-                    && resp.ok
-                {
-                    let _ = tx.send(WebCloudEvent::DerivedSignalSaved(def_clone));
+                if let Ok(resp) = res {
+                    if resp.ok {
+                        let _ = tx.send(WebCloudEvent::DerivedSignalSaved(def_clone));
+                    } else if resp.status == 401 || resp.status == 403 {
+                        let _ = tx.send(WebCloudEvent::WriteAuthError {
+                            url: url_for_ev,
+                            status: resp.status,
+                        });
+                    }
+                    if let Some(cb) = &repaint {
+                        cb();
+                    }
                 }
             });
         }
@@ -560,7 +638,23 @@ impl RouterBackend for WebCloudRouterBackend {
                 "{trimmed}/api/v1/derived-signals/{id}?updated_at_ms={updated_at_ms}"
             ));
             req.method = "DELETE".to_owned();
-            ehttp::fetch(req, |_| {});
+            self.attach_write_auth(&mut req);
+            let tx = self.ev_tx.clone();
+            let repaint = self.repaint_cb.clone();
+            let url_for_ev = base_url.clone();
+            ehttp::fetch(req, move |res| {
+                if let Ok(resp) = res
+                    && (resp.status == 401 || resp.status == 403)
+                {
+                    let _ = tx.send(WebCloudEvent::WriteAuthError {
+                        url: url_for_ev,
+                        status: resp.status,
+                    });
+                    if let Some(cb) = &repaint {
+                        cb();
+                    }
+                }
+            });
         }
         Ok(deleted)
     }
@@ -581,6 +675,7 @@ impl RouterBackend for WebCloudRouterBackend {
         if active_track_day_id.is_some() {
             self.active_track_day_id = active_track_day_id;
         }
+        self.write_auth_error = None;
         self.status = CloudSyncStatus::Connecting { url: normalized };
         self.catalog_in_flight = false;
         self.annotations_in_flight = false;
@@ -590,6 +685,19 @@ impl RouterBackend for WebCloudRouterBackend {
         self.last_derived_sync_ms = 0;
         self.spawn_catalog_fetch();
         Ok(())
+    }
+
+    fn set_cloud_write_token(&mut self, token: Option<String>) {
+        self.write_token = token
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+        if self.write_auth_error.take().is_some() && self.initial_catalog_loaded {
+            self.update_connected_status();
+        }
+    }
+
+    fn cloud_write_token(&self) -> Option<String> {
+        self.write_token.clone()
     }
 
     fn set_active_track_day(&mut self, track_day_id: Option<String>) {
@@ -613,6 +721,7 @@ impl RouterBackend for WebCloudRouterBackend {
     fn disconnect_cloud(&mut self) {
         self.loader.set_base_url(None);
         self.base_url = None;
+        self.write_auth_error = None;
         self.status = CloudSyncStatus::Disconnected;
         self.catalog = InMemoryCatalog::new();
         self.preloaded_partitions.clear();
@@ -739,15 +848,26 @@ impl RouterBackend for WebCloudRouterBackend {
                     self.update_connected_status();
                 }
                 WebCloudEvent::AnnotationSaved(ann) => {
+                    self.write_auth_error = None;
                     self.last_annotation_sync_ms =
                         self.last_annotation_sync_ms.max(ann.updated_at_ms);
                     self.catalog.upsert_annotation(&ann);
                     outcome.invalidate_annotations = true;
+                    self.update_connected_status();
                 }
                 WebCloudEvent::DerivedSignalSaved(sig) => {
+                    self.write_auth_error = None;
                     self.last_derived_sync_ms = self.last_derived_sync_ms.max(sig.updated_at_ms);
                     self.catalog.upsert_derived_signal(&sig);
                     outcome.reload_derived_signals = true;
+                    self.update_connected_status();
+                }
+                WebCloudEvent::WriteAuthError { url, status } => {
+                    let msg = format!(
+                        "Write rejected (HTTP {status}): enter Write Password in Settings (⚙) or connect via Tailscale"
+                    );
+                    self.write_auth_error = Some(msg.clone());
+                    self.status = CloudSyncStatus::Error { url, error: msg };
                 }
                 WebCloudEvent::Error { url, error } => {
                     self.catalog_in_flight = false;
