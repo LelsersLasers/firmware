@@ -42,6 +42,7 @@ pub struct SignalStyle {
     pub envelope: bool,
     pub axis: String,
     pub lane: usize,
+    pub discrete: bool,
 }
 impl Default for SignalStyle {
     fn default() -> Self {
@@ -53,6 +54,7 @@ impl Default for SignalStyle {
             envelope: true,
             axis: String::new(),
             lane: 0,
+            discrete: false,
         }
     }
 }
@@ -89,7 +91,24 @@ pub struct ScopeConfig {
     pub lanes: usize,
     pub channels: BTreeMap<String, SignalStyle>,
     pub axes: BTreeMap<String, AxisConfig>,
+    #[serde(deserialize_with = "deserialize_plot_names")]
+    pub plot_names: BTreeMap<usize, String>,
 }
+// PaneSpec's tagged-enum deserializer buffers JSON object keys as strings.
+fn deserialize_plot_names<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<usize, String>, D::Error> {
+    let names = <BTreeMap<String, String> as serde::Deserialize>::deserialize(deserializer)?;
+    names
+        .into_iter()
+        .map(|(key, name)| {
+            key.parse::<usize>()
+                .map(|lane| (lane, name))
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+
 impl Default for ScopeConfig {
     fn default() -> Self {
         Self {
@@ -97,9 +116,32 @@ impl Default for ScopeConfig {
             lanes: 2,
             channels: BTreeMap::new(),
             axes: BTreeMap::new(),
+            plot_names: BTreeMap::new(),
         }
     }
 }
+pub(super) fn axis_quantity(signal: &str) -> Option<&'static str> {
+    let field = signal.rsplit('.').next()?;
+    match field {
+        "AMK_TorqueSetpoint"
+        | "AMK_ActualTorque"
+        | "total_actual_torque"
+        | "total_torque_request" => Some("Torque"),
+        "throttle" => Some("Throttle"),
+        _ => None,
+    }
+}
+
+fn unit_group(channel: &ScopeChannel) -> String {
+    if matches!(channel.unit.trim(), "" | "%" | "percent")
+        && let Some(quantity) = axis_quantity(&channel.signal_id)
+    {
+        format!("quantity:{quantity}:{}", channel.unit)
+    } else {
+        channel.unit.clone()
+    }
+}
+
 impl ScopeConfig {
     pub fn style(&self, signal: &str) -> SignalStyle {
         self.channels.get(signal).cloned().unwrap_or_default()
@@ -113,15 +155,72 @@ impl ScopeConfig {
     }
     pub fn axis_key(&self, channel: &ScopeChannel) -> String {
         let style = self.style(&channel.signal_id);
-        format!(
-            "{}|{}",
-            self.lane(&channel.signal_id),
-            if style.axis.is_empty() {
-                &channel.unit
-            } else {
-                &style.axis
+        let group = unit_group(channel);
+        let axis = match style.axis.split_once(':') {
+            Some((side @ ("left" | "right"), unit)) if unit == channel.unit => {
+                format!("{side}:{group}")
             }
-        )
+            _ if style.axis.is_empty() => group,
+            _ => style.axis,
+        };
+        format!("{}|{axis}", self.lane(&channel.signal_id))
+    }
+
+    pub(super) fn axis_config(&self, key: &str) -> Option<&AxisConfig> {
+        self.axes.get(key).or_else(|| {
+            // Before quantity grouping, saved scales used only the unit and optional side.
+            let (lane, group) = key.split_once('|')?;
+            let (side, group) = match group.split_once(':') {
+                Some((side @ ("left" | "right"), group)) => (Some(side), group),
+                _ => (None, group),
+            };
+            let (_, unit) = group.strip_prefix("quantity:")?.split_once(':')?;
+            let old_key = side.map_or_else(
+                || format!("{lane}|{unit}"),
+                |side| format!("{lane}|{side}:{unit}"),
+            );
+            self.axes.get(&old_key)
+        })
+    }
+
+    pub(super) fn resolved_axis_sides(
+        &self,
+        channels: &[ScopeChannel],
+    ) -> BTreeMap<String, AxisSide> {
+        let mut counts = BTreeMap::<usize, [usize; 2]>::new();
+        let mut sides = BTreeMap::new();
+        let mut automatic = Vec::new();
+        for channel in channels {
+            if self.style(&channel.signal_id).discrete {
+                continue;
+            }
+            let key = self.axis_key(channel);
+            if sides.contains_key(&key) {
+                continue;
+            }
+            let side = self
+                .axis_config(&key)
+                .map_or(AxisSide::Auto, |axis| axis.side);
+            let lane = self.lane(&channel.signal_id);
+            match side {
+                AxisSide::Left => counts.entry(lane).or_default()[0] += 1,
+                AxisSide::Right => counts.entry(lane).or_default()[1] += 1,
+                AxisSide::Auto => automatic.push((lane, key.clone())),
+            }
+            sides.insert(key, side);
+        }
+        for (lane, key) in automatic {
+            let [left, right] = counts.entry(lane).or_default();
+            let side = if *left > *right {
+                *right += 1;
+                AxisSide::Right
+            } else {
+                *left += 1;
+                AxisSide::Left
+            };
+            sides.insert(key, side);
+        }
+        sides
     }
     pub fn axis_lane(key: &str) -> usize {
         key.split_once('|')
@@ -131,17 +230,54 @@ impl ScopeConfig {
     pub fn toggle_stack(&mut self, channels: &[ScopeChannel]) {
         self.stacked = !self.stacked;
         if self.stacked && !channels.iter().any(|ch| self.style(&ch.signal_id).lane > 0) {
-            self.lanes = 2;
+            self.lanes = self.lanes.max(2);
             for (index, channel) in channels.iter().enumerate() {
                 self.channels
                     .entry(channel.signal_id.clone())
                     .or_default()
-                    .lane = index % 2;
+                    .lane = index % self.lanes;
             }
         }
     }
+    pub fn assign(&mut self, channel: &ScopeChannel, lane: usize, destination: Destination) {
+        let style = self.channels.entry(channel.signal_id.clone()).or_default();
+        style.lane = lane;
+        style.discrete = destination == Destination::Discrete;
+        if style.discrete {
+            style.axis = format!("discrete:{}", channel.signal_id);
+        } else {
+            let side = if destination == Destination::Right {
+                "right"
+            } else {
+                "left"
+            };
+            style.axis = format!("{side}:{}", unit_group(channel));
+            self.axes
+                .entry(format!("{lane}|{}", style.axis))
+                .or_default()
+                .side = if destination == Destination::Right {
+                AxisSide::Right
+            } else {
+                AxisSide::Left
+            };
+        }
+    }
+
+    pub fn destination(&self, channel: &ScopeChannel) -> Destination {
+        if self.style(&channel.signal_id).discrete {
+            Destination::Discrete
+        } else if self
+            .axis_config(&self.axis_key(channel))
+            .is_some_and(|axis| axis.side == AxisSide::Right)
+        {
+            Destination::Right
+        } else {
+            Destination::Left
+        }
+    }
+
     pub fn sanitize(&mut self) {
-        self.lanes = self.lanes.clamp(1, 8);
+        self.lanes = self.lanes.max(1);
         for style in self.channels.values_mut() {
             style.width = if style.width.is_finite() {
                 style.width.clamp(0.5, 8.0)
@@ -159,6 +295,22 @@ impl ScopeConfig {
             if axis.valid_range().is_none() {
                 axis.range = None;
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Destination {
+    Left,
+    Right,
+    Discrete,
+}
+impl Destination {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+            Self::Discrete => "Discrete",
         }
     }
 }
@@ -273,7 +425,14 @@ pub(super) fn inspector(
                             ui.selectable_value(
                                 &mut style.axis,
                                 String::new(),
-                                format!("Auto ({})", channel.unit),
+                                format!(
+                                    "Auto ({})",
+                                    if channel.unit.is_empty() {
+                                        "unit unknown"
+                                    } else {
+                                        &channel.unit
+                                    }
+                                ),
                             );
                             let mut choices = std::collections::BTreeSet::new();
                             for other in channels {
@@ -291,7 +450,7 @@ pub(super) fn inspector(
                     }
                 }
                 InspectorTab::Axis => {
-                    let mut axis = config.axes.get(&key).cloned().unwrap_or_default();
+                    let mut axis = config.axis_config(&key).cloned().unwrap_or_default();
                     if axis_editor(ui, &mut axis, auto_range, channel.color) {
                         axis_update = Some((key.clone(), axis));
                     }
@@ -379,8 +538,8 @@ mod tests {
     fn configuration_defaults_and_validation_are_safe() {
         let mut config: ScopeConfig = serde_json::from_str(r#"{"lanes":999,"channels":{"a":{"width":-2,"opacity":4,"lane":99}} ,"axes":{"0|V":{"range":[5,1]}}}"#).unwrap();
         config.sanitize();
-        assert_eq!(config.lanes, 8);
-        assert_eq!(config.style("a").lane, 7);
+        assert_eq!(config.lanes, 999);
+        assert_eq!(config.style("a").lane, 99);
         assert_eq!(config.style("a").width, 0.5);
         assert_eq!(config.style("a").opacity, 1.0);
         assert_eq!(config.axes["0|V"].range, None);

@@ -109,6 +109,10 @@ impl StateLane {
         self.custom_title
     }
 
+    pub fn set_custom_title(&mut self, custom: bool) {
+        self.custom_title = custom;
+    }
+
     pub fn set_title(&mut self, new_title: String) {
         self.title = new_title;
         self.custom_title = !self.title.trim().is_empty();

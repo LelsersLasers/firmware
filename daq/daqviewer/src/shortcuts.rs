@@ -34,9 +34,22 @@ impl ShortcutHandler {
             actions.push(action::AppAction::DecreaseScale);
         }
 
-        // When a text field or modal input does not have keyboard focus, enable vim/arrow
-        // timeline navigation, playback, and search shortcuts:
+        // When a text field or modal input does not have keyboard focus, enable undo/redo,
+        // vim/arrow timeline navigation, playback, and search shortcuts:
         if !ctx.wants_keyboard_input() {
+            // CMD/CTRL+Shift+Z or CMD/CTRL+Y = Redo; CMD/CTRL+Z = Undo
+            if input.modifiers.command
+                && input.modifiers.shift
+                && !input.modifiers.alt
+                && input.key_pressed(eframe::egui::Key::Z)
+            {
+                actions.push(action::AppAction::Redo);
+            } else if input.modifiers.command_only() && input.key_pressed(eframe::egui::Key::Z) {
+                actions.push(action::AppAction::Undo);
+            } else if input.modifiers.command_only() && input.key_pressed(eframe::egui::Key::Y) {
+                actions.push(action::AppAction::Redo);
+            }
+
             // `/` = open & focus sidebar search bar
             if !input.modifiers.command
                 && !input.modifiers.ctrl

@@ -1,6 +1,7 @@
 pub mod action;
 pub mod app;
 pub mod assets;
+pub mod history;
 pub mod shortcuts;
 pub mod ui;
 pub mod widget_constructor;

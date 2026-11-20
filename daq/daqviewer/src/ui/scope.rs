@@ -3,6 +3,8 @@ use crate::{ui, workspace_view};
 #[path = "scope_plot.rs"]
 mod plot;
 
+#[path = "scope_channels.rs"]
+mod channel_selector;
 #[cfg(test)]
 #[path = "scope_workflows.rs"]
 mod workflows;
@@ -164,8 +166,8 @@ impl UnitAxisTransform {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopePickerTarget {
-    AddChannel,
+pub(super) enum ScopePickerTarget {
+    Channels(usize, ui::scope_settings::Destination),
     SpeedSignal,
 }
 
@@ -261,6 +263,7 @@ pub struct Scope {
     lane_y_overrides: std::collections::BTreeMap<usize, (f64, f64)>,
     plot_frames: Vec<eframe::egui::Rect>,
     hidden_channels: std::collections::HashSet<String>,
+    solo_channel: Option<String>,
     y_bounds_override: Option<(f64, f64)>,
     cached_data: Option<CachedScopeData>,
 }
@@ -293,6 +296,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -310,13 +314,14 @@ impl Scope {
             instance_num,
             custom_title: false,
             channels: Vec::new(),
-            picker_target: Some(ScopePickerTarget::AddChannel),
+            picker_target: None,
             search_query: String::new(),
             x_axis_mode: ScopeXAxisMode::UtcTime,
             speed_signal_id: "gps_speed_heading.gps_speed".to_owned(),
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -355,6 +360,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -394,6 +400,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -426,6 +433,7 @@ impl Scope {
             show_inline_stats: false,
             show_legend: false,
             hidden_channels: std::collections::HashSet::new(),
+            solo_channel: None,
             config: ui::scope_settings::ScopeConfig::default(),
             inspector: None,
             gesture: None,
@@ -461,6 +469,29 @@ impl Scope {
 
     pub fn y_bounds_override(&self) -> Option<(f64, f64)> {
         self.y_bounds_override
+    }
+
+    pub(crate) fn hidden_channels(&self) -> &std::collections::HashSet<String> {
+        &self.hidden_channels
+    }
+
+    pub(crate) fn set_hidden_channels(&mut self, hidden: std::collections::HashSet<String>) {
+        self.hidden_channels = hidden;
+    }
+
+    pub(crate) fn lane_y_overrides(&self) -> &std::collections::BTreeMap<usize, (f64, f64)> {
+        &self.lane_y_overrides
+    }
+
+    pub(crate) fn set_lane_y_overrides(
+        &mut self,
+        overrides: std::collections::BTreeMap<usize, (f64, f64)>,
+    ) {
+        self.lane_y_overrides = overrides;
+    }
+
+    pub(crate) fn has_pending_signal_moves(ctx: &eframe::egui::Context) -> bool {
+        channel_selector::has_pending_signal_moves(ctx)
     }
 
     pub fn add_channel(
@@ -504,13 +535,68 @@ impl Scope {
         if index < self.channels.len() {
             let removed = self.channels.remove(index);
             self.hidden_channels.remove(&removed.signal_id);
+            if self.solo_channel.as_ref() == Some(&removed.signal_id) {
+                self.solo_channel = None;
+            }
             self.config.channels.remove(&removed.signal_id);
             if self.channels.is_empty() {
                 self.custom_title = false;
-                self.picker_target = Some(ScopePickerTarget::AddChannel);
+                self.picker_target = None;
             }
             self.refresh_title();
         }
+    }
+
+    pub(super) fn delete_plot(&mut self, lane: usize) {
+        let count = if self.config.stacked {
+            self.config.lanes
+        } else {
+            1
+        };
+        if lane >= count {
+            return;
+        }
+        for index in (0..self.channels.len()).rev() {
+            if self.config.lane(&self.channels[index].signal_id) == lane {
+                self.remove_channel(index);
+            }
+        }
+        for style in self.config.channels.values_mut() {
+            if style.lane > lane {
+                style.lane -= 1;
+            }
+        }
+        self.config.axes = std::mem::take(&mut self.config.axes)
+            .into_iter()
+            .filter_map(|(key, axis)| {
+                let (prefix, name) = key.split_once('|')?;
+                let old_lane: usize = prefix.parse().ok()?;
+                if old_lane == lane {
+                    None
+                } else {
+                    let new_lane = if old_lane > lane {
+                        old_lane - 1
+                    } else {
+                        old_lane
+                    };
+                    Some((format!("{new_lane}|{name}"), axis))
+                }
+            })
+            .collect();
+        self.config.lanes = count.saturating_sub(1).max(1);
+        self.config.stacked = self.config.lanes > 1;
+        self.config.sanitize();
+        self.lane_y_overrides.clear();
+        self.y_bounds_override = None;
+        self.gesture = None;
+        self.inspector = None;
+        self.picker_target = None;
+        self.config.plot_names = std::mem::take(&mut self.config.plot_names)
+            .into_iter()
+            .filter(|(index, _)| *index != lane)
+            .map(|(index, name)| (if index > lane { index - 1 } else { index }, name))
+            .collect();
+        self.cached_data = None;
     }
 
     fn refresh_title(&mut self) {
@@ -551,80 +637,13 @@ impl Scope {
         }
     }
 
-    fn show_picker(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        target: ScopePickerTarget,
-        view: &workspace_view::WorkspaceDataView<'_>,
-    ) {
-        let prompt = match target {
-            ScopePickerTarget::AddChannel => "Select signal to plot:",
-            ScopePickerTarget::SpeedSignal => "Select speed signal:",
-        };
-        let allow_cancel = !self.channels.is_empty();
-        match ui::message_picker::show_signal_picker(
-            ui,
-            ("scope_signal_picker", self.instance_num),
-            prompt,
-            allow_cancel,
-            false,
-            &mut self.search_query,
-            view,
-        ) {
-            ui::message_picker::SignalPickerAction::None => {}
-            ui::message_picker::SignalPickerAction::Cancelled => {
-                self.picker_target = None;
-            }
-            ui::message_picker::SignalPickerAction::Picked(picked) => match target {
-                ScopePickerTarget::AddChannel => {
-                    self.add_channel(
-                        picked.signal_id.clone(),
-                        picked.signal_id,
-                        picked.unit,
-                        picked.key,
-                        picked.is_derived,
-                    );
-                }
-                ScopePickerTarget::SpeedSignal => {
-                    self.speed_signal_id = picked.signal_id;
-                    self.picker_target = None;
-                }
-            },
-        }
-    }
-
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
+        self.process_signal_moves(ui.ctx());
         self.config.sanitize();
-        let pane_rect = ui.max_rect();
-        if let Some(payload) =
-            eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx())
-            && ui.rect_contains_pointer(pane_rect)
-        {
-            ui.painter().rect_stroke(
-                pane_rect.shrink(1.0),
-                4.0,
-                eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::from_rgb(80, 190, 255)),
-                eframe::egui::StrokeKind::Inside,
-            );
-            if (!self.config.stacked || self.channels.is_empty())
-                && ui.input(|i| i.pointer.any_released())
-            {
-                self.apply_dragged_signal((*payload).clone());
-                let _ = eframe::egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
-                    ui.ctx(),
-                );
-            }
-        }
-
-        if self.channels.is_empty() || self.picker_target.is_some() {
-            let target = self.picker_target.unwrap_or(ScopePickerTarget::AddChannel);
-            self.show_picker(ui, target, view);
-            return egui_tiles::UiResponse::None;
-        }
 
         // Resolve engineering units directly from each channel's `signal_id`.
         for ch in &mut self.channels {
@@ -930,8 +949,7 @@ impl Scope {
                 .map(|(index, &(lo, hi))| {
                     if let Some(range) = self
                         .config
-                        .axes
-                        .get(&unit_groups[index])
+                        .axis_config(&unit_groups[index])
                         .and_then(|axis| axis.valid_range())
                     {
                         range
@@ -1033,191 +1051,211 @@ impl Scope {
             }
         }
 
-        // One small toolbar. Signal keys live inline in the toolbar by default (0% plot coverage),
-        // or in the compact floating overlay when toggled on via the legend button.
+        // Each plot uses its header legend or the optional floating overlay.
         let entries = self.build_legend_entries(view, &comparison_annotations, &channel_stats);
         let mut open_picker: Option<ScopePickerTarget> = None;
         let mut clear_all = false;
         let mut export_csv = false;
-        let mut toolbar_action: Option<ui::scope_legend::Action> = None;
 
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = eframe::egui::vec2(4.0, 2.0);
-            if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
-                self.show_legend = !self.show_legend;
-            }
-            if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
-                self.config.toggle_stack(&self.channels);
-                self.cached_data = None;
-                self.lane_y_overrides.clear();
-                return;
-            }
-            if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
-                self.measurements.enabled = !self.measurements.enabled;
-                self.gesture = None;
-            }
-            if ui.small_button("+").on_hover_text("Add signal").clicked() {
-                open_picker = Some(ScopePickerTarget::AddChannel);
-            }
-            if is_comparison {
-                ui.label(
-                    eframe::egui::RichText::new(format!(
-                        "Comparing ({})",
-                        comparison_annotations.len()
-                    ))
-                    .small(),
-                );
-            }
-            if self.x_axis_mode != ScopeXAxisMode::UtcTime
-                && ui
-                    .small_button(self.x_axis_mode.label())
-                    .on_hover_text("Use time axis")
-                    .clicked()
-            {
-                self.x_axis_mode = ScopeXAxisMode::UtcTime;
-            }
-
-            eframe::egui::containers::menu::MenuButton::new("…")
-                .config(
-                    eframe::egui::containers::menu::MenuConfig::new()
-                        .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
-                )
-                .ui(ui, |ui| {
-                    ui.set_min_width(195.0);
-                    ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
-                    ui.horizontal(|ui| {
-                        let resp = ui.add(
-                            eframe::egui::TextEdit::singleline(&mut self.title)
-                                .desired_width(140.0)
-                                .hint_text("Tab title…"),
+        eframe::egui::Frame::group(ui.style())
+            .inner_margin(eframe::egui::Margin::symmetric(4, 3))
+            .corner_radius(5.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui::scope_legend::toggle_button(ui, self.show_legend).clicked() {
+                        self.show_legend = !self.show_legend;
+                    }
+                    if self.solo_channel.is_some()
+                        && ui
+                            .add(ui::scope_icons::toolbar_button("Exit solo"))
+                            .clicked()
+                    {
+                        self.solo_channel = None;
+                    }
+                    if ui::scope_icons::button(ui, true, self.config.stacked).clicked() {
+                        self.config.toggle_stack(&self.channels);
+                        self.cached_data = None;
+                        self.lane_y_overrides.clear();
+                        return;
+                    }
+                    if ui::scope_icons::button(ui, false, self.measurements.enabled).clicked() {
+                        self.measurements.enabled = !self.measurements.enabled;
+                        self.gesture = None;
+                    }
+                    if ui
+                        .add(ui::scope_icons::toolbar_button("ƒ"))
+                        .on_hover_text("Channels")
+                        .clicked()
+                    {
+                        open_picker = Some(ScopePickerTarget::Channels(
+                            0,
+                            ui::scope_settings::Destination::Left,
+                        ));
+                        self.search_query.clear();
+                    }
+                    if ui
+                        .add(ui::scope_icons::toolbar_button("+"))
+                        .on_hover_text("Add plot")
+                        .clicked()
+                    {
+                        self.config.lanes = if self.config.stacked {
+                            self.config.lanes.saturating_add(1)
+                        } else {
+                            2
+                        };
+                        self.config.stacked = true;
+                        self.cached_data = None;
+                    }
+                    if is_comparison {
+                        ui.label(
+                            eframe::egui::RichText::new(format!(
+                                "Comparing ({})",
+                                comparison_annotations.len()
+                            ))
+                            .small(),
                         );
-                        if resp.changed() {
-                            self.custom_title = !self.title.trim().is_empty();
-                        }
-                        if resp.lost_focus() {
-                            if self.title.trim().is_empty() {
+                    }
+                    if self.x_axis_mode != ScopeXAxisMode::UtcTime
+                        && ui
+                            .add(ui::scope_icons::toolbar_button(self.x_axis_mode.label()))
+                            .on_hover_text("Use time axis")
+                            .clicked()
+                    {
+                        self.x_axis_mode = ScopeXAxisMode::UtcTime;
+                    }
+
+                    eframe::egui::containers::menu::MenuButton::from_button(
+                        ui::scope_icons::toolbar_button("…"),
+                    )
+                    .config(
+                        eframe::egui::containers::menu::MenuConfig::new()
+                            .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside),
+                    )
+                    .ui(ui, |ui| {
+                        ui.set_min_width(195.0);
+                        ui.label(eframe::egui::RichText::new("Tab Title").weak().small());
+                        ui.horizontal(|ui| {
+                            let resp = ui.add(
+                                eframe::egui::TextEdit::singleline(&mut self.title)
+                                    .desired_width(140.0)
+                                    .hint_text("Tab title…"),
+                            );
+                            if resp.changed() {
+                                self.custom_title = !self.title.trim().is_empty();
+                            }
+                            if resp.lost_focus() {
+                                if self.title.trim().is_empty() {
+                                    self.custom_title = false;
+                                    self.refresh_title();
+                                }
+                                if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                                    ui.close();
+                                }
+                            }
+                            if self.custom_title
+                                && ui
+                                    .small_button("Auto")
+                                    .on_hover_text("Reset to automatic channel title")
+                                    .clicked()
+                            {
                                 self.custom_title = false;
                                 self.refresh_title();
                             }
-                            if ui.input(|i| i.key_pressed(eframe::egui::Key::Enter)) {
+                        });
+                        ui.separator();
+                        ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
+                        for mode in [
+                            ScopeXAxisMode::UtcTime,
+                            ScopeXAxisMode::ElapsedTime,
+                            ScopeXAxisMode::TrackDistance,
+                        ] {
+                            if ui
+                                .selectable_label(self.x_axis_mode == mode, mode.label())
+                                .clicked()
+                            {
+                                self.x_axis_mode = mode;
+                                if mode == ScopeXAxisMode::TrackDistance
+                                    && self.speed_signal_id.is_empty()
+                                {
+                                    self.speed_signal_id = view.resolve_default_speed_signal();
+                                }
                                 ui.close();
                             }
                         }
-                        if self.custom_title
+                        if self.x_axis_mode == ScopeXAxisMode::TrackDistance
                             && ui
-                                .small_button("Auto")
-                                .on_hover_text("Reset to automatic channel title")
+                                .button(format!("Speed Signal: {}…", self.speed_signal_id))
+                                .on_hover_text(&self.speed_signal_id)
                                 .clicked()
                         {
-                            self.custom_title = false;
-                            self.refresh_title();
-                        }
-                    });
-                    ui.separator();
-                    ui.label(eframe::egui::RichText::new("X-Axis Mode").weak().small());
-                    for mode in [
-                        ScopeXAxisMode::UtcTime,
-                        ScopeXAxisMode::ElapsedTime,
-                        ScopeXAxisMode::TrackDistance,
-                    ] {
-                        if ui
-                            .selectable_label(self.x_axis_mode == mode, mode.label())
-                            .clicked()
-                        {
-                            self.x_axis_mode = mode;
-                            if mode == ScopeXAxisMode::TrackDistance
-                                && self.speed_signal_id.is_empty()
-                            {
-                                self.speed_signal_id = view.resolve_default_speed_signal();
-                            }
+                            open_picker = Some(ScopePickerTarget::SpeedSignal);
                             ui.close();
                         }
-                    }
-                    if self.x_axis_mode == ScopeXAxisMode::TrackDistance
-                        && ui
-                            .button(format!("Speed Signal: {}…", self.speed_signal_id))
-                            .on_hover_text(&self.speed_signal_id)
-                            .clicked()
-                    {
-                        open_picker = Some(ScopePickerTarget::SpeedSignal);
-                        ui.close();
-                    }
-                    ui.separator();
-                    ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
-                    ui.menu_button("Plots", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Count");
-                            if ui
-                                .add(
-                                    eframe::egui::DragValue::new(&mut self.config.lanes)
-                                        .range(1..=8),
-                                )
-                                .changed()
-                            {
-                                self.config.stacked = self.config.lanes > 1;
-                                self.config.sanitize();
+                        ui.separator();
+                        ui.checkbox(&mut self.show_inline_stats, "Show values & statistics");
+                        ui.menu_button("Plots", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Count");
+                                if ui
+                                    .add(
+                                        eframe::egui::DragValue::new(&mut self.config.lanes)
+                                            .range(1..=usize::MAX),
+                                    )
+                                    .changed()
+                                {
+                                    self.config.stacked = self.config.lanes > 1;
+                                    self.config.sanitize();
+                                    self.cached_data = None;
+                                }
+                            });
+                            if ui.button("Split signals").clicked() {
+                                self.config.stacked = true;
+                                for (index, channel) in self.channels.iter().enumerate() {
+                                    self.config
+                                        .channels
+                                        .entry(channel.signal_id.clone())
+                                        .or_default()
+                                        .lane = index % self.config.lanes;
+                                }
                                 self.cached_data = None;
-                            }
-                        });
-                        if ui.button("Split signals").clicked() {
-                            self.config.stacked = true;
-                            for (index, channel) in self.channels.iter().enumerate() {
-                                self.config
-                                    .channels
-                                    .entry(channel.signal_id.clone())
-                                    .or_default()
-                                    .lane = index % self.config.lanes;
-                            }
-                            self.cached_data = None;
-                            ui.close();
-                        }
-                        if ui.button("Combine signals").clicked() {
-                            self.config.stacked = false;
-                            self.cached_data = None;
-                            ui.close();
-                        }
-                    });
-                    ui.menu_button("Cursors", |ui| {
-                        for (slot, label) in [(0, "Set A"), (1, "Set B")] {
-                            if ui.button(label).clicked() {
-                                self.measurements.enabled = true;
-                                self.measurements.next = slot;
                                 ui.close();
                             }
+                            if ui.button("Combine signals").clicked() {
+                                self.config.stacked = false;
+                                self.cached_data = None;
+                                ui.close();
+                            }
+                        });
+                        ui.menu_button("Cursors", |ui| {
+                            for (slot, label) in [(0, "Set A"), (1, "Set B")] {
+                                if ui.button(label).clicked() {
+                                    self.measurements.enabled = true;
+                                    self.measurements.next = slot;
+                                    ui.close();
+                                }
+                            }
+                            if ui.button("Clear cursors").clicked() {
+                                self.measurements.pins = [None, None];
+                                ui.close();
+                            }
+                        });
+                        if self.y_bounds_override.is_some()
+                            && ui.button("Reset Y-Axis Zoom").clicked()
+                        {
+                            self.y_bounds_override = None;
+                            ui.close();
                         }
-                        if ui.button("Clear cursors").clicked() {
-                            self.measurements.pins = [None, None];
+                        if ui.button("Export CSV…").clicked() {
+                            export_csv = true;
+                            ui.close();
+                        }
+                        if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
+                            clear_all = true;
                             ui.close();
                         }
                     });
-                    if self.y_bounds_override.is_some() && ui.button("Reset Y-Axis Zoom").clicked()
-                    {
-                        self.y_bounds_override = None;
-                        ui.close();
-                    }
-                    if ui.button("Export CSV…").clicked() {
-                        export_csv = true;
-                        ui.close();
-                    }
-                    if self.channels.len() > 1 && ui.button("Clear All Channels").clicked() {
-                        clear_all = true;
-                        ui.close();
-                    }
                 });
-
-            if !self.show_legend {
-                toolbar_action = ui::scope_legend::show_toolbar_strip(
-                    ui,
-                    self.instance_num,
-                    &entries,
-                    self.show_inline_stats,
-                );
-            }
-        });
-
-        if let Some(action) = toolbar_action {
-            self.apply_legend_action(action);
-        }
+            });
 
         if export_csv {
             view.request_open_export_modal();
@@ -1225,21 +1263,23 @@ impl Scope {
 
         if let Some(target) = open_picker {
             self.picker_target = Some(target);
-            return egui_tiles::UiResponse::None;
         }
         if clear_all {
             self.channels.clear();
             self.hidden_channels.clear();
+            self.solo_channel = None;
             self.config.channels.clear();
             self.config.axes.clear();
             self.cached_data = None;
             self.custom_title = false;
             self.refresh_title();
-            self.picker_target = Some(ScopePickerTarget::AddChannel);
+            self.picker_target = None;
             return egui_tiles::UiResponse::None;
         }
 
-        self.render_plots(ui, view, &comparison_annotations, &entries)
+        let response = self.render_plots(ui, view, &comparison_annotations, &entries);
+        self.show_channel_selector(ui.ctx(), view);
+        response
     }
 }
 
@@ -1717,13 +1757,23 @@ mod tests {
             !scope.show_legend,
             "Floating legend is off by default so keys live in the top toolbar strip"
         );
-        frame(&ctx, &mut scope, &router, vec![]);
+        let initial = frame(&ctx, &mut scope, &router, vec![]);
+        let first_key = find(&initial, "Channel 0").expect("First toolbar key");
+        let last_visible_key = find(&initial, "Channel 6").expect("Later toolbar key");
+        assert_eq!(
+            first_key.y, last_visible_key.y,
+            "Toolbar keys stay on one row"
+        );
+        assert!(
+            find(&initial, "Channel 19").is_none(),
+            "Overflow is summarized"
+        );
         let toggle = egui::pos2(20.0, 17.0);
         // Click toggle to open the floating legend overlay
         let output = click(&ctx, &mut scope, &router, toggle);
         assert!(scope.show_legend);
         assert!(find(&output, "Legend").is_none(), "The toggle is icon only");
-        let entry = find(&output, "message.signal_0").expect("Floating legend is visible");
+        let entry = find(&output, "Channel 0").expect("Floating legend is visible");
         assert!(
             entry.x < 450.0 && entry.y > 250.0,
             "Floating legend belongs at the bottom left"
@@ -1733,9 +1783,10 @@ mod tests {
             .iter()
             .find_map(|shape| match &shape.shape {
                 egui::Shape::Rect(rect)
-                    if rect.rect.width() >= 140.0
-                        && rect.rect.width() <= 300.0
-                        && rect.rect.height() <= 150.0 =>
+                    if rect.rect.width() >= 150.0
+                        && rect.rect.width() <= 330.0
+                        && rect.rect.height() <= 190.0
+                        && rect.rect.contains(entry) =>
                 {
                     Some(rect.rect)
                 }
@@ -1768,7 +1819,7 @@ mod tests {
             colors
         );
         assert!(
-            find(&output, "message.signal_19").is_none(),
+            find(&output, "Channel 19").is_none(),
             "Long legends scroll instead of growing"
         );
         frame(
@@ -1818,10 +1869,24 @@ mod tests {
         assert!(!scope.show_legend);
         let output = click(&ctx, &mut scope, &router, toggle);
         assert!(scope.show_legend);
-        let entry = find(&output, "message.signal_0")
+        let entry = find(&output, "Channel 0")
             .or_else(|| find(&output, "message.signal_1"))
             .expect("Visible legend row");
-        let output = click(&ctx, &mut scope, &router, entry);
+        frame(&ctx, &mut scope, &router, vec![Event::PointerMoved(entry)]);
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut scope,
+                &router,
+                vec![Event::PointerButton {
+                    pos: entry,
+                    button: PointerButton::Secondary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+        }
+        let output = frame(&ctx, &mut scope, &router, vec![]);
         let remove = find(&output, "Remove signal").expect("Channel details popup");
         click(&ctx, &mut scope, &router, remove);
         assert_eq!(scope.channels.len(), 19);

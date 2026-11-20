@@ -963,6 +963,7 @@ impl DAQApp {
                 log::warn!("Failed to restore workspace view from settings: {err}");
             }
         }
+        state.reset_undo_history();
         let default_dbc_path = settings.superdbc_path.or_else(|| {
             let db_dir = settings::database_dir()?;
             for candidate in ["superdbc_per26.json", "superdbc_1e6fa38.json"] {

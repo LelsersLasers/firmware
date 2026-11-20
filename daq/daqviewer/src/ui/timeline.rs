@@ -1081,7 +1081,9 @@ fn show_transport_bar(
                         theme.muted_text_color(),
                     );
                 }
-                eframe::egui::Popup::menu(&more_resp).show(|ui| {
+                eframe::egui::Popup::menu(&more_resp)
+                    .close_behavior(eframe::egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
                     ui.set_min_width(210.0);
                     ui.label(eframe::egui::RichText::new("Viewport Window").weak().small());
                     ui.horizontal(|ui| {
@@ -1161,6 +1163,8 @@ fn show_transport_bar(
                                     ("Fold Idle Gaps", "G"),
                                     ("Mark Timestamp", "M"),
                                     ("Focus Search", "/"),
+                                    ("Undo Workspace", "Ctrl+Z"),
+                                    ("Redo Workspace", "Ctrl+Shift+Z / Ctrl+Y"),
                                 ] {
                                     ui.label(act);
                                     ui.label(eframe::egui::RichText::new(key).monospace().weak());
@@ -1827,6 +1831,8 @@ fn show_day_overview_lane(
     let r_left = rect.left();
     let r_right = rect.right().max(r_left);
 
+    let popup_open = eframe::egui::Popup::is_any_open(ui.ctx());
+
     if timeline_ui.show_stints {
         let pointer_pos = ui.input(|i| i.pointer.hover_pos().or_else(|| i.pointer.interact_pos()));
         let active_ctx_stint_id = ui.id().with("day_stint_ctx_idx");
@@ -1876,7 +1882,7 @@ fn show_day_overview_lane(
                 }
             }
 
-            if pointer_pos.is_some_and(|p| pill_rect.contains(p)) {
+            if !popup_open && pointer_pos.is_some_and(|p| pill_rect.contains(p)) {
                 hit_pill = Some((stint_idx, pill_rect));
             }
             if saved_ctx_idx == Some(stint_idx) {
@@ -2190,7 +2196,8 @@ fn show_day_overview_lane(
         .hover_pos()
         .or_else(|| lane_response.interact_pointer_pos());
     let mut nearby_faults: Vec<&daqcore::storage::Annotation> = Vec::new();
-    if let Some(pos) = hover_or_interact_pos
+    if !popup_open
+        && let Some(pos) = hover_or_interact_pos
         && timeline_ui.show_faults
         && pos.y >= rect.bottom() - 12.0
     {
@@ -2239,7 +2246,8 @@ fn show_day_overview_lane(
             .is_some_and(|pos| vp_rect.contains(pos));
         ui.data_mut(|data| data.insert_temp(scrub_origin_id, began_in_window));
     }
-    if !interacted_with_overlay
+    if !popup_open
+        && !interacted_with_overlay
         && (lane_response.dragged_by(eframe::egui::PointerButton::Primary)
             || lane_response.clicked())
         && let Some(pointer) = lane_response.interact_pointer_pos()
@@ -2266,7 +2274,7 @@ fn show_day_overview_lane(
         ui.data_mut(|data| data.remove::<bool>(scrub_origin_id));
     }
 
-    if lane_response.hovered() {
+    if !popup_open && lane_response.hovered() {
         let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll_y != 0.0
             && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())

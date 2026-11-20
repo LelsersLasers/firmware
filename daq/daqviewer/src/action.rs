@@ -50,6 +50,8 @@ pub enum AppAction {
     },
     FitDay,
     ToggleFoldGaps,
+    Undo,
+    Redo,
 }
 
 impl AppAction {
@@ -117,6 +119,8 @@ impl AppAction {
                 "Copy Workspace Share String (daqview1:...)",
                 Self::CopyWorkspaceShareString,
             ),
+            ("Edit: Undo (Ctrl+Z)", Self::Undo),
+            ("Edit: Redo (Ctrl+Shift+Z)", Self::Redo),
             ("Clear Workspace (Close All Views)", Self::ClearWorkspace),
             (
                 "Spawn YT Plot",
