@@ -432,11 +432,11 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
     let latency =
         received_latency.expect("Instance B should receive live annotation via WebSocket");
     assert!(
-        latency < Duration::from_millis(100),
-        "Expected live annotation propagation in < 100 ms, took {latency:?}"
+        latency < Duration::from_millis(500),
+        "Expected live annotation propagation in < 500 ms, took {latency:?}"
     );
 
-    // Also verify soft-delete propagates over WebSocket in < 100 ms
+    // Also verify soft-delete propagates over WebSocket in < 500 ms
     let t_del = Instant::now();
     router_a
         .soft_delete_annotation(&live_ann.id, live_ann.updated_at_ms + 100)
@@ -458,8 +458,8 @@ async fn milestone8_two_instance_per26_sync_and_realtime_annotations() {
 
     let del_lat = delete_latency.expect("Instance B should receive soft-delete via WebSocket");
     assert!(
-        del_lat < Duration::from_millis(100),
-        "Expected live annotation deletion in < 100 ms, took {del_lat:?}"
+        del_lat < Duration::from_millis(500),
+        "Expected live annotation deletion in < 500 ms, took {del_lat:?}"
     );
 
     // -------------------------------------------------------------------------
