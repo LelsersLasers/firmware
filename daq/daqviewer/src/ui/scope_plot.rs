@@ -1,7 +1,7 @@
 //! Scope rendering uses one shared X window with independently configured plot lanes.
 use super::*;
 use eframe::egui::{self, Color32, RichText};
-use ui::scope_settings::{AxisSide, ScopeConfig, TraceMode};
+use ui::scope_settings::{AxisSide, Destination, ScopeConfig, TraceMode};
 
 struct AxisView {
     index: usize,
@@ -227,6 +227,11 @@ impl Scope {
                     stats: if is_comparison { None } else { stats },
                     visible: !self.hidden_channels.contains(&channel.signal_id),
                     measurements: pair,
+                    drag: Some(ui::scope_legend::SignalDrag::new(
+                        self.instance_num,
+                        channel,
+                        &self.config,
+                    )),
                 })
             })
             .collect()
@@ -312,6 +317,7 @@ impl Scope {
         let mut actions = Vec::new();
         let mut move_signal = None;
         let mut external_signal = None;
+        let mut scope_signal = None;
         let mut delete_plot = None;
         let delete_id = egui::Id::new(("scope_delete_confirmation", self.instance_num));
         let mut pending_delete = ui
@@ -720,7 +726,7 @@ impl Scope {
                         );
                     }
                     let frame = *response.transform.frame();
-                    let _discrete_rect = ui::scope::channel_selector::state_strips(
+                    let discrete_rect = ui::scope::channel_selector::state_strips(
                         ui,
                         view,
                         &self.channels,
@@ -733,26 +739,70 @@ impl Scope {
                         max_x,
                         is_comparison,
                     );
-                    if let Some(payload) =
-                        egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx())
-                        && ui.input(|input| {
-                            input
-                                .pointer
-                                .hover_pos()
-                                .is_some_and(|pos| response.transform.frame().contains(pos))
-                        })
-                    {
-                        ui.painter().rect_stroke(
-                            *response.transform.frame(),
-                            2.0,
-                            egui::Stroke::new(2.0_f32, Color32::LIGHT_BLUE),
-                            egui::StrokeKind::Inside,
-                        );
-                        if ui.input(|input| input.pointer.any_released()) {
-                            external_signal = Some(((*payload).clone(), lane));
-                            egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
-                                ui.ctx(),
+                    let plot_rect = response.response.rect;
+                    let left_drop = egui::Rect::from_min_max(
+                        plot_rect.min,
+                        egui::pos2(frame.center().x, frame.bottom()),
+                    );
+                    let right_drop = egui::Rect::from_min_max(
+                        egui::pos2(frame.center().x, plot_rect.top()),
+                        egui::pos2(plot_rect.right(), frame.bottom()),
+                    );
+                    let bottom_drop = egui::Rect::from_min_max(
+                        egui::pos2(frame.left(), frame.bottom() - 24.0),
+                        discrete_rect.right_bottom(),
+                    );
+                    let zones = [
+                        (left_drop, Destination::Left),
+                        (right_drop, Destination::Right),
+                        (bottom_drop, Destination::Discrete),
+                    ];
+                    let destination = ui.input(|input| input.pointer.hover_pos()).and_then(|pos| {
+                        zones
+                            .iter()
+                            .rev()
+                            .find(|(rect, _)| rect.contains(pos) && ui.rect_contains_pointer(*rect))
+                            .map(|(_, dest)| *dest)
+                    });
+                    let browser_payload =
+                        egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx());
+                    let legend_payload =
+                        egui::DragAndDrop::payload::<ui::scope_legend::SignalDrag>(ui.ctx());
+                    if browser_payload.is_some() || legend_payload.is_some() {
+                        for (rect, dest) in zones {
+                            let active = destination == Some(dest);
+                            ui.painter().rect_filled(
+                                rect,
+                                2.0,
+                                Color32::LIGHT_BLUE.gamma_multiply(if active { 0.18 } else { 0.06 }),
                             );
+                            let label = match dest {
+                                Destination::Left => "Left axis",
+                                Destination::Right => "Right axis",
+                                Destination::Discrete => "Discrete",
+                            };
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                label,
+                                egui::FontId::proportional(12.0),
+                                Color32::LIGHT_BLUE,
+                            );
+                        }
+                        if let Some(destination) = destination
+                            && ui.input(|input| input.pointer.any_released())
+                        {
+                            if let Some(payload) = browser_payload {
+                                external_signal = Some(((*payload).clone(), lane, destination));
+                                egui::DragAndDrop::take_payload::<
+                                    ui::signal_browser::DraggedSignal,
+                                >(ui.ctx());
+                            } else if let Some(payload) = legend_payload {
+                                scope_signal = Some(((*payload).clone(), lane, destination));
+                                egui::DragAndDrop::take_payload::<ui::scope_legend::SignalDrag>(
+                                    ui.ctx(),
+                                );
+                            }
                         }
                     }
                     if lane_count == 1 {
@@ -761,29 +811,6 @@ impl Scope {
                         self.lane_y_overrides.insert(lane, range);
                     } else {
                         self.lane_y_overrides.remove(&lane);
-                    }
-                    if let Some(payload) =
-                        egui::DragAndDrop::payload::<ui::scope_legend::SignalDrag>(ui.ctx())
-                        && payload.scope == self.instance_num
-                        && ui.input(|input| {
-                            input
-                                .pointer
-                                .hover_pos()
-                                .is_some_and(|pos| response.transform.frame().contains(pos))
-                        })
-                    {
-                        ui.painter().rect_stroke(
-                            *response.transform.frame(),
-                            2.0,
-                            egui::Stroke::new(2.0_f32, Color32::LIGHT_BLUE),
-                            egui::StrokeKind::Inside,
-                        );
-                        if ui.input(|input| input.pointer.any_released()) {
-                            move_signal = Some((payload.signal.clone(), lane));
-                            egui::DragAndDrop::take_payload::<ui::scope_legend::SignalDrag>(
-                                ui.ctx(),
-                            );
-                        }
                     }
                     if self.show_legend
                         && let Some(rect) = ui::scope_legend::bounds(
@@ -797,7 +824,6 @@ impl Scope {
                             legend_instance,
                             &legend_entries,
                             self.show_inline_stats,
-                            self.instance_num,
                         )
                     {
                         actions.push(action);
@@ -807,15 +833,23 @@ impl Scope {
                     }
                 }
             });
-        if let Some((payload, lane)) = external_signal {
+        if let Some((payload, lane, destination)) = external_signal {
             let signal = payload.signal_id();
             self.apply_dragged_signal(payload);
-            self.config.channels.entry(signal).or_default().lane = lane;
+            move_signal = Some((signal, lane, destination));
+        }
+        if let Some((signal, lane, destination)) = move_signal {
+            if let Some(channel) = self
+                .channels
+                .iter()
+                .find(|channel| channel.signal_id == signal)
+            {
+                self.config.assign(channel, lane, destination);
+            }
             self.cached_data = None;
         }
-        if let Some((signal, lane)) = move_signal {
-            self.config.channels.entry(signal).or_default().lane = lane;
-            self.cached_data = None;
+        if let Some((payload, lane, destination)) = scope_signal {
+            self.accept_scope_signal(ui.ctx(), payload, lane, destination);
         }
         for action in actions {
             self.apply_legend_action(action);

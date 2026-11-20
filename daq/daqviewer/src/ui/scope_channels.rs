@@ -56,6 +56,11 @@ pub(super) fn state_strips(
         );
         bounds = bounds.union(row);
         let Some(channel) = channel else { continue };
+        response.dnd_set_drag_payload(ui::scope_legend::SignalDrag::new(
+            scope_instance,
+            channel,
+            config,
+        ));
         let painter = ui.painter().with_clip_rect(row.intersect(ui.clip_rect()));
         painter.text(
             row.left_top(),
@@ -140,6 +145,82 @@ pub(super) fn state_strips(
 }
 
 impl Scope {
+    pub(super) fn process_signal_moves(&mut self, ctx: &egui::Context) {
+        let id = egui::Id::new(("scope_signal_moves", self.instance_num));
+        let signals = ctx
+            .data_mut(|data| data.remove_temp::<Vec<String>>(id))
+            .unwrap_or_default();
+        for signal in signals {
+            if let Some(index) = self
+                .channels
+                .iter()
+                .position(|channel| channel.signal_id == signal)
+            {
+                self.remove_channel(index);
+                self.cached_data = None;
+            }
+        }
+    }
+
+    pub(super) fn accept_scope_signal(
+        &mut self,
+        ctx: &egui::Context,
+        payload: ui::scope_legend::SignalDrag,
+        lane: usize,
+        destination: Destination,
+    ) {
+        let signal = payload.channel.signal_id.clone();
+        let existing = self
+            .channels
+            .iter()
+            .position(|channel| channel.signal_id == signal);
+        let index = existing.unwrap_or_else(|| {
+            self.channels.push(payload.channel.clone());
+            self.config
+                .channels
+                .insert(signal.clone(), payload.style.clone());
+            self.channels.len() - 1
+        });
+        self.config.assign(&self.channels[index], lane, destination);
+        // A transferred custom scale gets its own axis rather than changing
+        // the scale of signals already assigned at the destination.
+        if (existing.is_none() || payload.scope == self.instance_num)
+            && destination != Destination::Discrete
+            && (payload.axis.range.is_some()
+                || payload.axis.color.is_some()
+                || !payload.axis.label.is_empty())
+        {
+            let side = if destination == Destination::Right {
+                "right"
+            } else {
+                "left"
+            };
+            let axis = format!("{side}:{signal}");
+            self.config.channels.entry(signal.clone()).or_default().axis = axis.clone();
+            let mut settings = payload.axis;
+            settings.side = if destination == Destination::Right {
+                ui::scope_settings::AxisSide::Right
+            } else {
+                ui::scope_settings::AxisSide::Left
+            };
+            self.config.axes.insert(format!("{lane}|{axis}"), settings);
+        }
+        self.hidden_channels.remove(&signal);
+        self.cached_data = None;
+        self.refresh_title();
+        if payload.scope != self.instance_num {
+            let id = egui::Id::new(("scope_signal_moves", payload.scope));
+            ctx.data_mut(|data| {
+                let mut signals = data.get_temp::<Vec<String>>(id).unwrap_or_default();
+                if !signals.contains(&signal) {
+                    signals.push(signal);
+                }
+                data.insert_temp(id, signals);
+            });
+            ctx.request_repaint();
+        }
+    }
+
     pub(super) fn show_channel_selector(
         &mut self,
         ctx: &egui::Context,

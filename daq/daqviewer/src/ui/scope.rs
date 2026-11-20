@@ -610,27 +610,8 @@ impl Scope {
         ui: &mut eframe::egui::Ui,
         view: &workspace_view::WorkspaceDataView<'_>,
     ) -> egui_tiles::UiResponse {
+        self.process_signal_moves(ui.ctx());
         self.config.sanitize();
-        let pane_rect = ui.max_rect();
-        if let Some(payload) =
-            eframe::egui::DragAndDrop::payload::<ui::signal_browser::DraggedSignal>(ui.ctx())
-            && ui.rect_contains_pointer(pane_rect)
-        {
-            ui.painter().rect_stroke(
-                pane_rect.shrink(1.0),
-                4.0,
-                eframe::egui::Stroke::new(2.0_f32, eframe::egui::Color32::from_rgb(80, 190, 255)),
-                eframe::egui::StrokeKind::Inside,
-            );
-            if (!self.config.stacked || self.channels.is_empty())
-                && ui.input(|i| i.pointer.any_released())
-            {
-                self.apply_dragged_signal((*payload).clone());
-                let _ = eframe::egui::DragAndDrop::take_payload::<ui::signal_browser::DraggedSignal>(
-                    ui.ctx(),
-                );
-            }
-        }
 
         // Resolve engineering units directly from each channel's `signal_id`.
         for ch in &mut self.channels {

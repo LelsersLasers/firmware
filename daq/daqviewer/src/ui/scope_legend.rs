@@ -16,12 +16,34 @@ pub(super) struct Entry {
     pub stats: Option<ChannelStats>,
     pub visible: bool,
     pub measurements: Option<(f64, f64)>,
+    pub drag: Option<SignalDrag>,
 }
 
 #[derive(Clone)]
 pub(super) struct SignalDrag {
     pub scope: usize,
-    pub signal: String,
+    pub channel: ScopeChannel,
+    pub style: ui::scope_settings::SignalStyle,
+    pub axis: ui::scope_settings::AxisConfig,
+}
+
+impl SignalDrag {
+    pub fn new(
+        scope: usize,
+        channel: &ScopeChannel,
+        config: &ui::scope_settings::ScopeConfig,
+    ) -> Self {
+        Self {
+            scope,
+            channel: channel.clone(),
+            style: config.style(&channel.signal_id),
+            axis: config
+                .axes
+                .get(&config.axis_key(channel))
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
 }
 
 pub(super) enum Action {
@@ -109,8 +131,13 @@ pub(super) fn show_toolbar_strip(
         let value_w = value_galley.as_ref().map_or(0.0, |g| g.size().x + 5.0);
         let pill_w = swatch_w + pad_x + label_galley.size().x + value_w + pad_x + eye_w + 2.0;
 
-        let (pill_rect, response) =
-            ui.allocate_exact_size(egui::vec2(pill_w, strip_height), egui::Sense::click());
+        let (pill_rect, response) = ui.allocate_exact_size(
+            egui::vec2(pill_w, strip_height),
+            egui::Sense::click_and_drag(),
+        );
+        if let Some(payload) = &entry.drag {
+            response.dnd_set_drag_payload(payload.clone());
+        }
         let bg_fill = if response.hovered() {
             ui.visuals().widgets.hovered.weak_bg_fill
         } else {
@@ -136,16 +163,16 @@ pub(super) fn show_toolbar_strip(
             egui::pos2(pill_rect.left() + 3.0, pill_rect.top()),
             egui::vec2(swatch_w, pill_rect.height()),
         );
-        ui.interact(
-            swatch_rect,
-            ui.id().with(("toolbar_signal_drag", index)),
-            egui::Sense::drag(),
-        )
-        .on_hover_text("Drag signal between plots")
-        .dnd_set_drag_payload(SignalDrag {
-            scope: instance,
-            signal: entry.signal_id.clone(),
-        });
+        let swatch_response = ui
+            .interact(
+                swatch_rect,
+                ui.id().with(("toolbar_signal_drag", index)),
+                egui::Sense::drag(),
+            )
+            .on_hover_text("Drag signal between plots");
+        if let Some(payload) = &entry.drag {
+            swatch_response.dnd_set_drag_payload(payload.clone());
+        }
         paint_swatch(
             ui,
             swatch_rect,
@@ -238,7 +265,6 @@ pub(super) fn show(
     instance: usize,
     entries: &[Entry],
     statistics: bool,
-    scope_instance: usize,
 ) -> Option<Action> {
     let theme = ui::theme::get_theme(ui.ctx());
     let mut action = None;
@@ -273,8 +299,11 @@ pub(super) fn show(
                             for (index, entry) in entries.iter().enumerate() {
                                 let (row, response) = ui.allocate_exact_size(
                                     egui::vec2(ui.available_width(), 17.0),
-                                    egui::Sense::click(),
+                                    egui::Sense::click_and_drag(),
                                 );
+                                if let Some(payload) = &entry.drag {
+                                    response.dnd_set_drag_payload(payload.clone());
+                                }
                                 if response.hovered() {
                                     ui.painter().rect_filled(
                                         row,
@@ -310,16 +339,16 @@ pub(super) fn show(
                                     row.left_top(),
                                     egui::vec2(16.0, row.height()),
                                 );
-                                ui.interact(
-                                    swatch,
-                                    ui.id().with(("signal_drag", index)),
-                                    egui::Sense::drag(),
-                                )
-                                .on_hover_text("Drag signal between plots")
-                                .dnd_set_drag_payload(SignalDrag {
-                                    scope: scope_instance,
-                                    signal: entry.signal_id.clone(),
-                                });
+                                let swatch_response = ui
+                                    .interact(
+                                        swatch,
+                                        ui.id().with(("signal_drag", index)),
+                                        egui::Sense::drag(),
+                                    )
+                                    .on_hover_text("Move signal");
+                                if let Some(payload) = &entry.drag {
+                                    swatch_response.dnd_set_drag_payload(payload.clone());
+                                }
                                 let value_right = eye_rect.left() - 4.0;
                                 paint_swatch(
                                     ui,
@@ -550,6 +579,7 @@ mod tests {
                     stats: None,
                     visible: true,
                     measurements: None,
+                    drag: None,
                 })
                 .collect();
             let rect = bounds(plot, rows, false).unwrap();
@@ -566,7 +596,7 @@ mod tests {
                     },
                     |ctx| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            show(ui, rect, rows, &entries, false, rows);
+                            show(ui, rect, rows, &entries, false);
                         });
                     },
                 );
