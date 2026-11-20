@@ -1,0 +1,72 @@
+{
+  "id": "trackside_live_debug",
+  "schema_version": 1,
+  "name": "Trackside Live Debug — CAN Table, Bus Load & States",
+  "description": "Live trackside diagnostic layout with CAN Viewer Table, State & Fault Lanes, Bus Load monitor, Jitter histogram, and live Power/Speed YT Plot.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.55, 0.45],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.6, 0.4],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "viewer_table",
+            "title": "CAN Viewer Table #1"
+          },
+          {
+            "type": "pane",
+            "widget": "state_lane",
+            "title": "Vehicle State & Fault Lanes",
+            "lanes": [
+              { "signal_id": "main_hb.car_state" },
+              { "signal_id": "main_hb_amk.precharge_state" },
+              { "signal_id": "vcu_driver_request.vcu_mode" },
+              { "signal_id": "inva_diagnostics.amk_state" },
+              { "signal_id": "a_box_fault_sync.IMD" },
+              { "signal_id": "a_box_fault_sync.PACK_OVERTEMP" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Live Power & Speed",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "battery.power_kw" },
+              { "signal_id": "gps_speed_heading.gps_speed" }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "bus_load",
+                "title": "Bus Load #1"
+              },
+              {
+                "type": "pane",
+                "widget": "jitter",
+                "title": "Jitter #1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

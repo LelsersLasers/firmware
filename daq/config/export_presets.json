@@ -1,0 +1,151 @@
+{
+  "presets": [
+    {
+      "id": "vd",
+      "name": "Vehicle Dynamics (VD)",
+      "description": "IMU acceleration & gyro, GPS trajectory/speed, steering sensor, wheel speeds, shockpots, pedals, torque requests, and derived roll/heave/damper/understeer channels",
+      "default_sampling": {
+        "mode": "uniform_grid_hz",
+        "rate_hz": 100.0
+      },
+      "signals": [
+        "IMU_acceleration.*",
+        "IMU_angular_rate.*",
+        "gps_coordinates.*",
+        "gps_speed_heading.*",
+        "gps_velocity.*",
+        "front_shockpots.*",
+        "rear_shockpots.*",
+        "LWS_Standard.*",
+        "pedals.*",
+        "wheel_speeds.*",
+        "motor_speeds.*",
+        "INVA_SET.AMK_TorqueSetpoint",
+        "INVB_SET.AMK_TorqueSetpoint",
+        "INVC_SET.AMK_TorqueSetpoint",
+        "INVD_SET.AMK_TorqueSetpoint",
+        "battery.power_kw",
+        "vd.*",
+        "imu.*",
+        "gps.*",
+        "shock_pots.*",
+        "steering.angle_deg",
+        "pedals.throttle_pct",
+        "pedals.brake_pressure_front_psi",
+        "pedals.brake_pressure_rear_psi"
+      ]
+    },
+    {
+      "id": "aero",
+      "name": "Aerodynamics (Aero)",
+      "description": "Ride heights / shockpots, damper velocities, wheel & GPS speeds, IMU longitudinal/vertical acceleration, steering angle, and heave/roll displacements",
+      "default_sampling": {
+        "mode": "uniform_grid_hz",
+        "rate_hz": 50.0
+      },
+      "signals": [
+        "front_shockpots.*",
+        "rear_shockpots.*",
+        "wheel_speeds.*",
+        "gps_speed_heading.*",
+        "IMU_acceleration.X_axis",
+        "IMU_acceleration.Y_axis",
+        "IMU_acceleration.Z_axis",
+        "IMU_angular_rate.*",
+        "LWS_Standard.LWS_ANGLE",
+        "vd.front_roll_displacement_mm",
+        "vd.rear_roll_displacement_mm",
+        "shock_pots.*",
+        "imu.accel_x_g",
+        "imu.accel_z_g",
+        "steering.angle_deg",
+        "aero.front_ride_height_mm",
+        "aero.rear_ride_height_mm"
+      ]
+    },
+    {
+      "id": "powertrain_thermals",
+      "name": "Powertrain & Thermals",
+      "description": "Pack voltage/current/power/energy, cell & pack temperatures, AMK inverter/IGBT/motor temperatures, and commanded vs actual torque",
+      "default_sampling": {
+        "mode": "uniform_grid_hz",
+        "rate_hz": 50.0
+      },
+      "signals": [
+        "pack_stats.*",
+        "temp_summary.*",
+        "cell_temps.*",
+        "INVA_CRIT.*",
+        "INVB_CRIT.*",
+        "INVC_CRIT.*",
+        "INVD_CRIT.*",
+        "INVA_TEMPS.*",
+        "INVB_TEMPS.*",
+        "INVC_TEMPS.*",
+        "INVD_TEMPS.*",
+        "inva_diagnostics.*",
+        "invb_diagnostics.*",
+        "invc_diagnostics.*",
+        "invd_diagnostics.*",
+        "motor_speeds.*",
+        "INVA_SET.AMK_TorqueSetpoint",
+        "INVB_SET.AMK_TorqueSetpoint",
+        "INVC_SET.AMK_TorqueSetpoint",
+        "INVD_SET.AMK_TorqueSetpoint",
+        "pedals.throttle",
+        "pedals.regen",
+        "battery.*",
+        "powertrain.*",
+        "thermals.*",
+        "inverter_status.*",
+        "motor_temps.*"
+      ]
+    },
+    {
+      "id": "controls",
+      "name": "Controls & Vehicle State",
+      "description": "Torque vectoring requests, inverter actual torque & speeds, pedals, steering, IMU/GPS state estimation inputs, and VCU/BMS/SDC state & fault flags",
+      "default_sampling": {
+        "mode": "uniform_grid_hz",
+        "rate_hz": 100.0
+      },
+      "signals": [
+        "INVA_SET.AMK_TorqueSetpoint",
+        "INVB_SET.AMK_TorqueSetpoint",
+        "INVC_SET.AMK_TorqueSetpoint",
+        "INVD_SET.AMK_TorqueSetpoint",
+        "vcu_driver_request.*",
+        "INVA_CRIT.*",
+        "INVB_CRIT.*",
+        "INVC_CRIT.*",
+        "INVD_CRIT.*",
+        "motor_speeds.*",
+        "wheel_speeds.*",
+        "pedals.*",
+        "LWS_Standard.*",
+        "IMU_acceleration.*",
+        "IMU_angular_rate.*",
+        "gps_speed_heading.*",
+        "gps_velocity.*",
+        "main_hb.*",
+        "main_hb_amk.*",
+        "a_box_fault_sync.*",
+        "main_module_fault_sync.*",
+        "vd.understeer_gradient",
+        "vd.wheel_speed_avg_rpm",
+        "powertrain.*"
+      ]
+    },
+    {
+      "id": "raw_all",
+      "name": "All Signals & Derived Channels",
+      "description": "Every available CAN signal and derived formula channel in the selected time window",
+      "default_sampling": {
+        "mode": "sparse_raw"
+      },
+      "signals": [
+        "*"
+      ]
+    }
+  ]
+}

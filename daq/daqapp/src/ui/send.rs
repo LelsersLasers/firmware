@@ -6,7 +6,7 @@ pub struct SendUi {
 
     msg_picker: ui::message_picker::MessagePickerState,
 
-    selected_msg: Option<daqcore::superdbc::message::MessageKey>,
+    selected_msg: Option<daqnative::superdbc::message::MessageKey>,
     signal_values: Vec<SignalValue>,
 
     sending_messages: Vec<SendingMessage>,
@@ -19,7 +19,7 @@ pub struct SendUi {
     error: Option<String>,
 
     // Required to be stored on the struct so Drop can send cancellation messages when the UI closes
-    ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+    ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -38,20 +38,20 @@ struct SignalValue {
 }
 
 struct SendingMessage {
-    pub amount: daqcore::can_thread::tx::SendAmount,
+    pub amount: daqnative::can_thread::tx::SendAmount,
     pub bus_name: String,
     pub msg_name: String,
-    pub key: daqcore::superdbc::message::MessageKey,
+    pub key: daqnative::superdbc::message::MessageKey,
     pub is_extended_id: bool,
     pub msg_bytes: Vec<u8>,
     pub signal_values: Vec<SignalValue>,
     pub adjustable_values_enabled: bool,
-    pub last_sent: daqcore::time::Time,
+    pub last_sent: daqnative::time::Time,
 }
 
 enum SendUiActions {
     DeleteMessage {
-        key: daqcore::superdbc::message::MessageKey,
+        key: daqnative::superdbc::message::MessageKey,
     },
 }
 
@@ -69,7 +69,7 @@ impl Drop for SendUi {
             let key = msg.key;
             if let Err(e) = self
                 .ui_to_can_tx
-                .send(daqcore::can_thread::CanThreadCommand::DeleteSendMessage { key })
+                .send(daqnative::can_thread::CanThreadCommand::DeleteSendMessage { key })
             {
                 // Don't panic in Drop, just log the error
                 log::error!(
@@ -86,7 +86,7 @@ impl Drop for SendUi {
 impl SendUi {
     pub fn new(
         num: usize,
-        ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
     ) -> Self {
         Self {
             title: format!("Send UI {}", num),
@@ -113,7 +113,7 @@ impl SendUi {
         &mut self,
         ui: &mut eframe::egui::Ui,
         database: Option<&app::DatabaseSelection>,
-        formatter: &Option<daqcore::formatter::Formatter>,
+        formatter: &Option<daqnative::formatter::Formatter>,
     ) -> egui_tiles::UiResponse {
         let Some(database) = database else {
             ui::message_picker::no_database_placeholder(ui);
@@ -124,266 +124,285 @@ impl SendUi {
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .stroke(eframe::egui::Stroke::NONE)
             .show(ui, |ui| {
-                eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-                    if let Some(picked) =
-                        self.msg_picker
-                            .show(ui, database, self.selected_msg.is_none())
-                        && let Some(msg) = database.database.message_by_key(picked)
-                    {
-                        self.selected_msg = Some(picked);
-                        self.period_ms = msg.nominal_period_ms().map_or(1000, |ms| ms as usize);
-                        self.signal_values = msg
-                            .signals()
-                            .iter()
-                            .map(|sig| {
-                                let (min, max) = signal_range(sig);
-                                SignalValue {
-                                    name: sig.name().to_owned(),
-                                    value: 0.0_f64.clamp(min, max),
-                                    min,
-                                    max,
-                                }
-                            })
-                            .collect();
-                        self.error = None;
-                    }
+                eframe::egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if let Some(picked) =
+                            self.msg_picker
+                                .show(ui, database, self.selected_msg.is_none())
+                            && let Some(msg) = database.database.message_by_key(picked)
+                        {
+                            self.selected_msg = Some(picked);
+                            self.period_ms = msg.nominal_period_ms().map_or(1000, |ms| ms as usize);
+                            self.signal_values = msg
+                                .signals()
+                                .iter()
+                                .map(|sig| {
+                                    let (min, max) = signal_range(sig);
+                                    SignalValue {
+                                        name: sig.name().to_owned(),
+                                        value: 0.0_f64.clamp(min, max),
+                                        min,
+                                        max,
+                                    }
+                                })
+                                .collect();
+                            self.error = None;
+                        }
 
-                    if let Some(key) = self.selected_msg
-                        && let Some(selected_msg) = database.database.message_by_key(key)
-                    {
-                        ui.separator();
+                        if let Some(key) = self.selected_msg
+                            && let Some(selected_msg) = database.database.message_by_key(key)
+                        {
+                            ui.separator();
 
-                        if let Some(error) = &self.error {
+                            if let Some(error) = &self.error {
+                                ui.label(
+                                    eframe::egui::RichText::new(error)
+                                        .color(ui.visuals().error_fg_color),
+                                );
+                            }
+
+                            let bus_name = database.bus_name(key.bus_id);
                             ui.label(
-                                eframe::egui::RichText::new(error)
-                                    .color(ui.visuals().error_fg_color),
+                                eframe::egui::RichText::new(format!(
+                                    "Selected Message: [{}] {} (0x{:03X})",
+                                    bus_name,
+                                    selected_msg.name(),
+                                    selected_msg.identity()
+                                ))
+                                .strong()
+                                .size(16.0),
                             );
-                        }
 
-                        let bus_name = database.bus_name(key.bus_id);
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "Selected Message: [{}] {} (0x{:03X})",
-                                bus_name,
-                                selected_msg.name(),
-                                selected_msg.identity()
-                            ))
-                            .strong()
-                            .size(16.0),
-                        );
+                            // Send Amount selector
+                            ui.label(eframe::egui::RichText::new("Send Options").strong());
 
-                        // Send Amount selector
-                        ui.label(eframe::egui::RichText::new("Send Options").strong());
-
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut self.send_mode, SendMode::Once, "Once");
-                            ui.selectable_value(
-                                &mut self.send_mode,
-                                SendMode::Infinite,
-                                "Infinite",
-                            );
-                            ui.selectable_value(&mut self.send_mode, SendMode::Finite, "Finite");
-                        });
-
-                        match self.send_mode {
-                            SendMode::Once => {}
-                            SendMode::Infinite => {
-                                ui.horizontal(|ui| {
-                                    ui.label("Period (ms)");
-                                    ui.add(
-                                        eframe::egui::DragValue::new(&mut self.period_ms)
-                                            .speed(1)
-                                            .range(1..=10_000),
-                                    );
-                                });
-                            }
-                            SendMode::Finite => {
-                                ui.horizontal(|ui| {
-                                    ui.label("Amount");
-                                    ui.add(
-                                        eframe::egui::DragValue::new(&mut self.finite_amount)
-                                            .speed(1)
-                                            .range(1..=10_000),
-                                    );
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("Period (ms)");
-                                    ui.add(
-                                        eframe::egui::DragValue::new(&mut self.period_ms)
-                                            .speed(1)
-                                            .range(1..=10_000),
-                                    );
-                                });
-                            }
-                        }
-                        ui.checkbox(&mut self.adjustable_values_enabled, "Adjustable values");
-                        for signal in &mut self.signal_values {
-                            ui.horizontal(|ui| {
-                                ui.label(signal.name.as_str());
-                                let expected_decimals = formatter
-                                    .as_ref()
-                                    .map(|f| f.expected_decimals(selected_msg.name(), &signal.name))
-                                    .unwrap_or(2);
-                                let speed = 10f64.powi(-(expected_decimals as i32));
-                                ui.add(
-                                    eframe::egui::DragValue::new(&mut signal.value)
-                                        .range(signal.min..=signal.max)
-                                        .speed(speed),
+                            ui.horizontal_wrapped(|ui| {
+                                ui.selectable_value(&mut self.send_mode, SendMode::Once, "Once");
+                                ui.selectable_value(
+                                    &mut self.send_mode,
+                                    SendMode::Infinite,
+                                    "Infinite",
+                                );
+                                ui.selectable_value(
+                                    &mut self.send_mode,
+                                    SendMode::Finite,
+                                    "Finite",
                                 );
                             });
+
+                            match self.send_mode {
+                                SendMode::Once => {}
+                                SendMode::Infinite => {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label("Period (ms)");
+                                        ui.add(
+                                            eframe::egui::DragValue::new(&mut self.period_ms)
+                                                .speed(1)
+                                                .range(1..=10_000),
+                                        );
+                                    });
+                                }
+                                SendMode::Finite => {
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label("Amount");
+                                        ui.add(
+                                            eframe::egui::DragValue::new(&mut self.finite_amount)
+                                                .speed(1)
+                                                .range(1..=10_000),
+                                        );
+                                    });
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label("Period (ms)");
+                                        ui.add(
+                                            eframe::egui::DragValue::new(&mut self.period_ms)
+                                                .speed(1)
+                                                .range(1..=10_000),
+                                        );
+                                    });
+                                }
+                            }
+                            ui.checkbox(&mut self.adjustable_values_enabled, "Adjustable values");
+                            for signal in &mut self.signal_values {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(signal.name.as_str());
+                                    let expected_decimals = formatter
+                                        .as_ref()
+                                        .map(|f| {
+                                            f.expected_decimals(selected_msg.name(), &signal.name)
+                                        })
+                                        .unwrap_or(2);
+                                    let speed = 10f64.powi(-(expected_decimals as i32));
+                                    ui.add(
+                                        eframe::egui::DragValue::new(&mut signal.value)
+                                            .range(signal.min..=signal.max)
+                                            .speed(speed),
+                                    );
+                                });
+                            }
+
+                            if ui.button("Send Message").clicked() {
+                                let msg_bytes = match encode_msg_from_signals(
+                                    &database.database,
+                                    key,
+                                    &self.signal_values,
+                                ) {
+                                    Ok(bytes) => bytes,
+                                    Err(error) => {
+                                        self.error = Some(error.to_string());
+                                        return;
+                                    }
+                                };
+
+                                self.error = None;
+
+                                let send_amount = match self.send_mode {
+                                    SendMode::Once => daqnative::can_thread::tx::SendAmount::Once,
+
+                                    SendMode::Infinite => {
+                                        daqnative::can_thread::tx::SendAmount::Infinite {
+                                            period: self.period_ms,
+                                        }
+                                    }
+
+                                    SendMode::Finite => {
+                                        daqnative::can_thread::tx::SendAmount::Finite {
+                                            amount: self.finite_amount,
+                                            period: self.period_ms,
+                                        }
+                                    }
+                                };
+
+                                self.sending_messages.retain(|m| m.key != key);
+
+                                self.sending_messages.push(SendingMessage {
+                                    amount: send_amount,
+                                    bus_name: bus_name.to_owned(),
+                                    msg_name: selected_msg.name().to_owned(),
+                                    key,
+                                    is_extended_id: selected_msg.is_extended_id(),
+                                    msg_bytes: msg_bytes.clone(),
+                                    signal_values: self.signal_values.clone(),
+                                    adjustable_values_enabled: self.adjustable_values_enabled,
+                                    last_sent: daqnative::time::Time::now(),
+                                });
+
+                                let add_send_msg = daqnative::can_thread::tx::AddSendMessage {
+                                    amount: send_amount,
+                                    key,
+                                    is_extended_id: selected_msg.is_extended_id(),
+                                    msg_bytes,
+                                };
+
+                                self.selected_msg = None;
+                                self.signal_values.clear();
+                                self.adjustable_values_enabled = false;
+
+                                self.ui_to_can_tx
+                                    .send(daqnative::can_thread::CanThreadCommand::AddSendMessage(
+                                        add_send_msg,
+                                    ))
+                                    .unwrap_or_else(|error| {
+                                        log::error!("Failed to submit send: {error}")
+                                    });
+                            }
                         }
 
-                        if ui.button("Send Message").clicked() {
-                            let msg_bytes = match encode_msg_from_signals(
-                                &database.database,
-                                key,
-                                &self.signal_values,
+                        ui.separator();
+
+                        let mut all_actions = Vec::new();
+                        let mut updates_to_send = Vec::new();
+                        for idx in (0..self.sending_messages.len()).rev() {
+                            if let Some(action) = self.sending_messages[idx].ui(
+                                ui,
+                                formatter,
+                                idx,
+                                &mut updates_to_send,
                             ) {
+                                all_actions.push(action);
+                            }
+                            ui.add_space(8.0);
+                        }
+
+                        updates_to_send.sort_unstable();
+                        updates_to_send.dedup();
+                        for idx in updates_to_send {
+                            if idx >= self.sending_messages.len() {
+                                continue;
+                            }
+
+                            let msg = &self.sending_messages[idx];
+                            if !msg.adjustable_values_enabled {
+                                continue;
+                            }
+
+                            let encoded = encode_msg_from_signals(
+                                &database.database,
+                                msg.key,
+                                &msg.signal_values,
+                            );
+                            let msg_bytes = match encoded {
                                 Ok(bytes) => bytes,
                                 Err(error) => {
-                                    self.error = Some(error.to_string());
-                                    return;
+                                    self.error = Some(format!("{}: {error}", msg.msg_name));
+                                    continue;
                                 }
                             };
 
+                            self.sending_messages[idx].msg_bytes = msg_bytes.clone();
                             self.error = None;
 
-                            let send_amount = match self.send_mode {
-                                SendMode::Once => daqcore::can_thread::tx::SendAmount::Once,
-
-                                SendMode::Infinite => {
-                                    daqcore::can_thread::tx::SendAmount::Infinite {
-                                        period: self.period_ms,
-                                    }
-                                }
-
-                                SendMode::Finite => daqcore::can_thread::tx::SendAmount::Finite {
-                                    amount: self.finite_amount,
-                                    period: self.period_ms,
-                                },
-                            };
-
-                            self.sending_messages.retain(|m| m.key != key);
-
-                            self.sending_messages.push(SendingMessage {
-                                amount: send_amount,
-                                bus_name: bus_name.to_owned(),
-                                msg_name: selected_msg.name().to_owned(),
-                                key,
-                                is_extended_id: selected_msg.is_extended_id(),
-                                msg_bytes: msg_bytes.clone(),
-                                signal_values: self.signal_values.clone(),
-                                adjustable_values_enabled: self.adjustable_values_enabled,
-                                last_sent: daqcore::time::Time::now(),
-                            });
-
-                            let add_send_msg = daqcore::can_thread::tx::AddSendMessage {
-                                amount: send_amount,
-                                key,
-                                is_extended_id: selected_msg.is_extended_id(),
-                                msg_bytes,
-                            };
-
-                            self.selected_msg = None;
-                            self.signal_values.clear();
-                            self.adjustable_values_enabled = false;
-
                             self.ui_to_can_tx
-                                .send(daqcore::can_thread::CanThreadCommand::AddSendMessage(
-                                    add_send_msg,
+                                .send(daqnative::can_thread::CanThreadCommand::AddSendMessage(
+                                    daqnative::can_thread::tx::AddSendMessage {
+                                        amount: self.sending_messages[idx].amount,
+                                        key: self.sending_messages[idx].key,
+                                        is_extended_id: self.sending_messages[idx].is_extended_id,
+                                        msg_bytes,
+                                    },
                                 ))
                                 .unwrap_or_else(|error| {
                                     log::error!("Failed to submit send: {error}")
                                 });
                         }
-                    }
 
-                    ui.separator();
-
-                    let mut all_actions = Vec::new();
-                    let mut updates_to_send = Vec::new();
-                    for idx in (0..self.sending_messages.len()).rev() {
-                        if let Some(action) =
-                            self.sending_messages[idx].ui(ui, formatter, idx, &mut updates_to_send)
-                        {
-                            all_actions.push(action);
-                        }
-                        ui.add_space(8.0);
-                    }
-
-                    updates_to_send.sort_unstable();
-                    updates_to_send.dedup();
-                    for idx in updates_to_send {
-                        if idx >= self.sending_messages.len() {
-                            continue;
-                        }
-
-                        let msg = &self.sending_messages[idx];
-                        if !msg.adjustable_values_enabled {
-                            continue;
-                        }
-
-                        let encoded = encode_msg_from_signals(
-                            &database.database,
-                            msg.key,
-                            &msg.signal_values,
-                        );
-                        let msg_bytes = match encoded {
-                            Ok(bytes) => bytes,
-                            Err(error) => {
-                                self.error = Some(format!("{}: {error}", msg.msg_name));
-                                continue;
-                            }
-                        };
-
-                        self.sending_messages[idx].msg_bytes = msg_bytes.clone();
-                        self.error = None;
-
-                        self.ui_to_can_tx
-                            .send(daqcore::can_thread::CanThreadCommand::AddSendMessage(
-                                daqcore::can_thread::tx::AddSendMessage {
-                                    amount: self.sending_messages[idx].amount,
-                                    key: self.sending_messages[idx].key,
-                                    is_extended_id: self.sending_messages[idx].is_extended_id,
-                                    msg_bytes,
-                                },
-                            ))
-                            .unwrap_or_else(|error| log::error!("Failed to submit send: {error}"));
-                    }
-
-                    for action in all_actions {
-                        match action {
-                            SendUiActions::DeleteMessage { key } => {
-                                self.sending_messages.retain(|msg| msg.key != key);
-                                self.ui_to_can_tx
+                        for action in all_actions {
+                            match action {
+                                SendUiActions::DeleteMessage { key } => {
+                                    self.sending_messages.retain(|msg| msg.key != key);
+                                    self.ui_to_can_tx
                                     .send(
-                                        daqcore::can_thread::CanThreadCommand::DeleteSendMessage {
+                                        daqnative::can_thread::CanThreadCommand::DeleteSendMessage {
                                             key,
                                         },
                                     )
                                     .unwrap_or_else(|error| {
                                         log::error!("Failed to delete send: {error}")
                                     });
+                                }
                             }
                         }
-                    }
-                });
+                    });
             });
 
         egui_tiles::UiResponse::None
     }
 
     pub fn reset_database(&mut self) {
+        for msg in self.sending_messages.drain(..) {
+            let _ = self
+                .ui_to_can_tx
+                .send(daqnative::can_thread::CanThreadCommand::DeleteSendMessage { key: msg.key });
+        }
         self.msg_picker = ui::message_picker::MessagePickerState::default();
         self.selected_msg = None;
         self.signal_values.clear();
-        self.sending_messages.clear();
         self.adjustable_values_enabled = false;
         self.error = None;
     }
 
-    pub fn handle_can_message(&mut self, msg: &daqcore::can_thread::CanThreadEvent) {
-        if let daqcore::can_thread::CanThreadEvent::SendFailed {
+    pub fn handle_can_message(&mut self, msg: &daqnative::can_thread::CanThreadEvent) {
+        if let daqnative::can_thread::CanThreadEvent::SendFailed {
             key,
             error,
             retrying,
@@ -399,7 +418,7 @@ impl SendUi {
             );
         }
 
-        if let daqcore::can_thread::CanThreadEvent::MessageSent {
+        if let daqnative::can_thread::CanThreadEvent::MessageSent {
             key,
             timestamp,
             amount_left,
@@ -426,7 +445,7 @@ impl SendingMessage {
     fn ui(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        formatter: &Option<daqcore::formatter::Formatter>,
+        formatter: &Option<daqnative::formatter::Formatter>,
         msg_idx: usize,
         updates_to_send: &mut Vec<usize>,
     ) -> Option<SendUiActions> {
@@ -439,7 +458,10 @@ impl SendingMessage {
             .join(" ");
 
         // Header (outside card)
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("🗑").on_hover_text("Delete message").clicked() {
+                delete_action = Some(SendUiActions::DeleteMessage { key: self.key });
+            }
             ui.label(
                 eframe::egui::RichText::new(format!(
                     "[{}] {}  (0x{:03X})",
@@ -455,25 +477,15 @@ impl SendingMessage {
             ui.label(
                 eframe::egui::RichText::new(format!(
                     "~{} ms ago",
-                    (daqcore::time::Time::now().secs(self.last_sent) * 1000.0) as i64
+                    (daqnative::time::Time::now().secs(self.last_sent) * 1000.0) as i64
                 ))
                 .italics()
                 .color(ui.visuals().weak_text_color()),
             );
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    if ui.button("🗑").on_hover_text("Delete message").clicked() {
-                        delete_action = Some(SendUiActions::DeleteMessage { key: self.key });
-                    }
-                    ui.label(
-                        eframe::egui::RichText::new(raw_bytes_str)
-                            .monospace()
-                            .color(ui.visuals().text_color()),
-                    );
-
-                    ui.add_space(2.0);
-                },
+            ui.label(
+                eframe::egui::RichText::new(raw_bytes_str)
+                    .monospace()
+                    .color(ui.visuals().text_color()),
             );
         });
 
@@ -485,46 +497,42 @@ impl SendingMessage {
             .corner_radius(eframe::egui::CornerRadius::same(8))
             .inner_margin(eframe::egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.vertical(|ui| {
                     let total_signals = self.signal_values.len();
                     for (i, signal) in self.signal_values.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label(
                                 eframe::egui::RichText::new(&signal.name)
                                     .monospace()
                                     .color(ui.visuals().text_color()),
                             );
-                            ui.with_layout(
-                                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                                |ui| {
-                                    let expected_decimals = formatter
-                                        .as_ref()
-                                        .map(|f| f.expected_decimals(&self.msg_name, &signal.name))
-                                        .unwrap_or(2);
+                            let expected_decimals = formatter
+                                .as_ref()
+                                .map(|f| f.expected_decimals(&self.msg_name, &signal.name))
+                                .unwrap_or(2);
 
-                                    if self.adjustable_values_enabled {
-                                        let speed = 10f64.powi(-(expected_decimals as i32));
-                                        if ui
-                                            .add(
-                                                eframe::egui::DragValue::new(&mut signal.value)
-                                                    .range(signal.min..=signal.max)
-                                                    .speed(speed),
-                                            )
-                                            .changed()
-                                        {
-                                            updates_to_send.push(msg_idx);
-                                        }
-                                    } else {
-                                        ui.label(
-                                            eframe::egui::RichText::new(format!(
-                                                "{:.*}",
-                                                expected_decimals, signal.value
-                                            ))
-                                            .monospace(),
-                                        );
-                                    }
-                                },
-                            );
+                            if self.adjustable_values_enabled {
+                                let speed = 10f64.powi(-(expected_decimals as i32));
+                                if ui
+                                    .add(
+                                        eframe::egui::DragValue::new(&mut signal.value)
+                                            .range(signal.min..=signal.max)
+                                            .speed(speed),
+                                    )
+                                    .changed()
+                                {
+                                    updates_to_send.push(msg_idx);
+                                }
+                            } else {
+                                ui.label(
+                                    eframe::egui::RichText::new(format!(
+                                        "= {:.*}",
+                                        expected_decimals, signal.value
+                                    ))
+                                    .monospace(),
+                                );
+                            }
                         });
                         if i < total_signals - 1 {
                             ui.separator();
@@ -538,10 +546,10 @@ impl SendingMessage {
 }
 
 fn encode_msg_from_signals(
-    database: &daqcore::superdbc::database::Database,
-    key: daqcore::superdbc::message::MessageKey,
+    database: &daqnative::superdbc::database::Database,
+    key: daqnative::superdbc::message::MessageKey,
     signals: &[SignalValue],
-) -> Result<Vec<u8>, daqcore::superdbc::error::EncodeError> {
+) -> Result<Vec<u8>, daqnative::superdbc::error::EncodeError> {
     let values = signals
         .iter()
         .map(|signal| (signal.name.as_str(), signal.value))
@@ -549,7 +557,7 @@ fn encode_msg_from_signals(
     database.encode(key.bus_id, key.identity, &values)
 }
 
-fn signal_range(signal: &daqcore::superdbc::message::SignalDefinition) -> (f64, f64) {
+fn signal_range(signal: &daqnative::superdbc::message::SignalDefinition) -> (f64, f64) {
     signal
         .limits()
         .filter(|limits| limits.min < limits.max)

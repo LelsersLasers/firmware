@@ -1,18 +1,15 @@
 use std::{env, error, sync::mpsc};
 
-mod action;
+pub use daqviewer::{
+    action, assets, shortcuts, widget_constructor, widget_ids, widgets, workspace, workspace_io,
+    workspace_view,
+};
+
 mod app;
-mod assets;
 mod paths;
 mod settings;
-mod shortcuts;
-mod telemetry;
 mod ui;
 mod util;
-mod widget_constructor;
-mod widget_ids;
-mod widgets;
-mod workspace;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -25,15 +22,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .unwrap_or_else(|| settings::DEFAULT_LOG_FOLDER.into());
     let hil_dir = env::current_dir()?.join("hil_config");
 
-    let config = daqcore::can_thread::CanThreadConfig {
+    let config = daqnative::can_thread::CanThreadConfig {
         log_folder: Some(log_folder),
         hil_dir,
     };
 
-    let can_thread = daqcore::can_thread::spawn_can_thread(config, can_to_ui_tx)?;
+    let can_thread = daqnative::can_thread::spawn_can_thread(config, can_to_ui_tx)?;
 
     if let Some(source) = settings.selected_source.clone() {
-        let command = daqcore::can_thread::CanThreadCommand::Connect(Some(source));
+        let command = daqnative::can_thread::CanThreadCommand::Connect(Some(source));
 
         if let Err(error) = can_thread.command(command) {
             log::error!("Failed to submit initial connection: {error}");

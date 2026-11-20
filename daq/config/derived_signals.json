@@ -1,0 +1,94 @@
+{
+  "derived_signals": [
+    {
+      "id": "battery.voltage_v",
+      "label": "Battery pack voltage (vbatt_adc scaled)",
+      "expression": "pack_stats.vbatt_adc",
+      "unit": "V"
+    },
+    {
+      "id": "battery.power_kw",
+      "label": "Battery power (kW, vbatt source)",
+      "expression": "(battery.voltage_v * pack_stats.pack_current) / 1000.0",
+      "unit": "kW"
+    },
+    {
+      "id": "battery.pack_power_kw",
+      "label": "Battery pack power (kW, pack_voltage * pack_current)",
+      "expression": "(pack_stats.pack_voltage * pack_stats.pack_current) / 1000.0",
+      "unit": "kW"
+    },
+    {
+      "id": "battery.energy_kwh",
+      "label": "Cumulative battery energy (kWh)",
+      "expression": "integral(battery.power_kw) / 3600.0",
+      "unit": "kWh"
+    },
+    {
+      "id": "vd.wheel_speed_avg_rpm",
+      "label": "Average wheel speed",
+      "expression": "(wheel_speeds.front_left + wheel_speeds.front_right + wheel_speeds.rear_left + wheel_speeds.rear_right) / 4.0",
+      "unit": "rpm"
+    },
+    {
+      "id": "vd.total_distance_m",
+      "label": "Total distance traveled",
+      "expression": "integral(max(gps_speed_heading.gps_speed, 0.0))",
+      "unit": "m"
+    },
+    {
+      "id": "vd.front_roll_displacement_mm",
+      "label": "Front roll displacement (FL - FR)",
+      "expression": "front_shockpots.left - front_shockpots.right",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.rear_roll_displacement_mm",
+      "label": "Rear roll displacement (RL - RR)",
+      "expression": "rear_shockpots.left - rear_shockpots.right",
+      "unit": "mm"
+    },
+    {
+      "id": "vd.total_accel_g",
+      "label": "Total horizontal acceleration",
+      "expression": "hypot(IMU_acceleration.X_axis, IMU_acceleration.Y_axis)",
+      "unit": "g"
+    },
+    {
+      "id": "vd.understeer_gradient",
+      "label": "Understeer gradient",
+      "expression": "LWS_Standard.LWS_ANGLE / 4.5 - (1.53 * IMU_angular_rate.Z_axis / max(gps_speed_heading.gps_speed, 2.0))",
+      "unit": "deg"
+    },
+    {
+      "id": "powertrain.total_torque_request",
+      "label": "Total requested torque (MCAN)",
+      "expression": "INVA_SET.AMK_TorqueSetpoint + INVB_SET.AMK_TorqueSetpoint + INVC_SET.AMK_TorqueSetpoint + INVD_SET.AMK_TorqueSetpoint",
+      "unit": "%"
+    },
+    {
+      "id": "powertrain.total_actual_torque",
+      "label": "Total AMK actual torque",
+      "expression": "INVA_CRIT.AMK_ActualTorque + INVB_CRIT.AMK_ActualTorque + INVC_CRIT.AMK_ActualTorque + INVD_CRIT.AMK_ActualTorque",
+      "unit": "%"
+    },
+    {
+      "id": "thermals.max_igbt_temp_c",
+      "label": "Max inverter IGBT temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_IGBTTemp, INVB_TEMPS.AMK_IGBTTemp), max(INVC_TEMPS.AMK_IGBTTemp, INVD_TEMPS.AMK_IGBTTemp))",
+      "unit": "C"
+    },
+    {
+      "id": "thermals.max_motor_temp_c",
+      "label": "Max motor temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_MotorTemp, INVB_TEMPS.AMK_MotorTemp), max(INVC_TEMPS.AMK_MotorTemp, INVD_TEMPS.AMK_MotorTemp))",
+      "unit": "C"
+    },
+    {
+      "id": "thermals.max_inverter_temp_c",
+      "label": "Max inverter cold plate temperature",
+      "expression": "max(max(INVA_TEMPS.AMK_InverterTemp, INVB_TEMPS.AMK_InverterTemp), max(INVC_TEMPS.AMK_InverterTemp, INVD_TEMPS.AMK_InverterTemp))",
+      "unit": "C"
+    }
+  ]
+}

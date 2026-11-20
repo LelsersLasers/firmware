@@ -1,0 +1,97 @@
+{
+  "id": "sensors_controls",
+  "schema_version": 1,
+  "name": "Sensors & Controls — IMU, GPS, Pedals & Steering",
+  "description": "Sensor verification workspace replacing plot_factory/configs/sensors/*.toml: 3-axis Accelerometer, 3-axis Gyroscope, Pedal Commands, Steering Sensor, Shockpots, and GPS Sensor vs Time.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.5, 0.5],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.34, 0.33, 0.33],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Vehicle-Axis Accelerometer vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "IMU_acceleration.X_axis" },
+              { "signal_id": "IMU_acceleration.Y_axis" },
+              { "signal_id": "IMU_acceleration.Z_axis" }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Vehicle-Axis Gyroscope vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "IMU_angular_rate.X_axis" },
+              { "signal_id": "IMU_angular_rate.Y_axis" },
+              { "signal_id": "IMU_angular_rate.Z_axis" }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Pedal Commands vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "pedals.throttle" },
+              { "signal_id": "pedals.regen" },
+              { "signal_id": "pedals.brake" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.34, 0.33, 0.33],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Steering Sensor vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "LWS_Standard.LWS_ANGLE" },
+              { "signal_id": "LWS_Standard.LWS_SPEED" }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "GPS Sensor vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "gps_speed_heading.gps_speed" },
+              { "signal_id": "gps_speed_heading.gps_heading" },
+              { "signal_id": "gps_velocity.gps_vel_e" },
+              { "signal_id": "gps_velocity.gps_vel_n" },
+              { "signal_id": "gps_coordinates.latitude" },
+              { "signal_id": "gps_coordinates.longitude" }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Shockpot Displacements vs Time",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "front_shockpots.left" },
+              { "signal_id": "front_shockpots.right" },
+              { "signal_id": "rear_shockpots.left" },
+              { "signal_id": "rear_shockpots.right" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

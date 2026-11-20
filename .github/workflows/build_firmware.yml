@@ -31,6 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repo
@@ -70,6 +73,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.image.outputs.image || 'ghcr.io/purdueelectricracing/monorepo/per-firmware:latest' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repo

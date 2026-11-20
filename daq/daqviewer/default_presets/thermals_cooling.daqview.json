@@ -1,0 +1,119 @@
+{
+  "id": "thermals_cooling",
+  "schema_version": 1,
+  "name": "Thermals — Inverters, Motors, IGBTs & Pack",
+  "description": "Thermal analysis workspace replacing plot_factory/configs/thermals/*.toml: IGBT, Inverter, Motor, and Pack temperatures vs time and vs total battery power.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.58, 0.42],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.34, 0.33, 0.33],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "IGBT Temperatures",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "INVA_TEMPS.AMK_IGBTTemp" },
+              { "signal_id": "INVB_TEMPS.AMK_IGBTTemp" },
+              { "signal_id": "INVC_TEMPS.AMK_IGBTTemp" },
+              { "signal_id": "INVD_TEMPS.AMK_IGBTTemp" },
+              { "signal_id": "thermals.max_igbt_temp_c" }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Inverter Temperatures",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "thermals.max_inverter_temp_c" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Actual Torque and Cold Plate Temperature vs Time",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVA_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVB_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVC_TEMPS.AMK_InverterTemp" },
+                  { "signal_id": "INVD_TEMPS.AMK_InverterTemp" }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Motor Temperatures",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "INVA_TEMPS.AMK_MotorTemp" },
+              { "signal_id": "INVB_TEMPS.AMK_MotorTemp" },
+              { "signal_id": "INVC_TEMPS.AMK_MotorTemp" },
+              { "signal_id": "INVD_TEMPS.AMK_MotorTemp" },
+              { "signal_id": "thermals.max_motor_temp_c" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.34, 0.33, 0.33],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "xy_scatter",
+            "title": "Battery Voltage vs Pack Temperature",
+            "x_signal": "pack_stats.max_temp",
+            "y_signal": "battery.voltage_v",
+            "z_color_signal": "battery.power_kw",
+            "equal_aspect": false,
+            "show_g_rings": false
+          },
+          {
+            "type": "pane",
+            "widget": "xy_scatter",
+            "title": "IGBT Temperature vs Total Battery Power",
+            "x_signal": "battery.power_kw",
+            "y_signal": "INVA_TEMPS.AMK_IGBTTemp",
+            "z_color_signal": "thermals.max_igbt_temp_c",
+            "equal_aspect": false,
+            "show_g_rings": false
+          },
+          {
+            "type": "pane",
+            "widget": "xy_scatter",
+            "title": "Pack Temperature vs Total Battery Power",
+            "x_signal": "battery.power_kw",
+            "y_signal": "pack_stats.max_temp",
+            "z_color_signal": "battery.voltage_v",
+            "equal_aspect": false,
+            "show_g_rings": false
+          }
+        ]
+      }
+    ]
+  }
+}

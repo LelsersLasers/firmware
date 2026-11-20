@@ -76,6 +76,7 @@ class SignalDeclaration(DeclarationModel):
     offset: FiniteNumber | None = None
     min: FiniteNumber | None = None
     max: FiniteNumber | None = None
+    fault_priority: FaultPriority | None = None
 
     @field_validator("choices")
     @classmethod

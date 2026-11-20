@@ -2,38 +2,38 @@ use std::{path, sync::mpsc};
 
 pub struct Hil {
     pub title: String,
-    pub found_presets: Vec<daqcore::hil::config::PresetInfo>,
-    pub found_tests: Vec<daqcore::hil::config::TestInfo>,
+    pub found_presets: Vec<daqnative::hil::config::PresetInfo>,
+    pub found_tests: Vec<daqnative::hil::config::TestInfo>,
     pub load_errors: Vec<String>,
-    pub snapshot: daqcore::hil::engine::HilSnapshot,
-    ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+    pub snapshot: daqnative::hil::engine::HilSnapshot,
+    ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
 }
 
 impl Hil {
-    pub fn new(ui_to_can_tx: mpsc::Sender<daqcore::can_thread::CanThreadCommand>) -> Self {
+    pub fn new(ui_to_can_tx: mpsc::Sender<daqnative::can_thread::CanThreadCommand>) -> Self {
         let (presets, tests, errors) =
-            daqcore::hil::config::list_available_tests(path::Path::new("hil_config"));
+            daqnative::hil::config::list_available_tests(path::Path::new("hil_config"));
 
         Self {
             title: "HIL".to_string(),
             found_presets: presets,
             found_tests: tests,
             load_errors: errors,
-            snapshot: daqcore::hil::engine::HilSnapshot::idle(),
+            snapshot: daqnative::hil::engine::HilSnapshot::idle(),
             ui_to_can_tx,
         }
     }
 
-    pub fn handle_can_message(&mut self, msg: &daqcore::can_thread::CanThreadEvent) {
-        if let daqcore::can_thread::CanThreadEvent::Hil(snapshot) = msg {
+    pub fn handle_can_message(&mut self, msg: &daqnative::can_thread::CanThreadEvent) {
+        if let daqnative::can_thread::CanThreadEvent::Hil(snapshot) = msg {
             self.snapshot = snapshot.clone();
         }
     }
 
-    fn send_command(&self, command: daqcore::hil::engine::HilCommand) {
+    fn send_command(&self, command: daqnative::hil::engine::HilCommand) {
         if let Err(error) = self
             .ui_to_can_tx
-            .send(daqcore::can_thread::CanThreadCommand::Hil(command))
+            .send(daqnative::can_thread::CanThreadCommand::Hil(command))
         {
             log::error!("Failed to submit HIL command: {error}");
         }
@@ -41,7 +41,7 @@ impl Hil {
 
     fn reload_tests(&mut self) {
         let (presets, tests, errors) =
-            daqcore::hil::config::list_available_tests(path::Path::new("hil_config"));
+            daqnative::hil::config::list_available_tests(path::Path::new("hil_config"));
         self.found_presets = presets;
         self.found_tests = tests;
         self.load_errors = errors;
@@ -49,14 +49,16 @@ impl Hil {
     }
 
     pub fn show(&mut self, ui: &mut eframe::egui::Ui) -> egui_tiles::UiResponse {
-        eframe::egui::ScrollArea::vertical().show(ui, |ui| match self.snapshot.status {
-            daqcore::hil::engine::HilStatus::Idle => {
-                self.show_idle(ui);
-            }
-            daqcore::hil::engine::HilStatus::Running => {
-                self.show_running(ui);
-            }
-        });
+        eframe::egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| match self.snapshot.status {
+                daqnative::hil::engine::HilStatus::Idle => {
+                    self.show_idle(ui);
+                }
+                daqnative::hil::engine::HilStatus::Running => {
+                    self.show_running(ui);
+                }
+            });
 
         egui_tiles::UiResponse::None
     }
@@ -71,7 +73,7 @@ impl Hil {
         if !self.load_errors.is_empty() {
             ui.label("Errors loading tests:");
             for error in &self.load_errors {
-                ui.label(format!("- {}", error));
+                ui.add(eframe::egui::Label::new(format!("- {}", error)).wrap());
             }
             ui.separator();
         }
@@ -86,13 +88,16 @@ impl Hil {
             let mut selected_preset = None;
             for preset in &self.found_presets {
                 let preset_info = format!("{} - {}", preset.name, preset.tests.join(", "));
-                if ui.button(&preset_info).clicked() {
+                if ui
+                    .add(eframe::egui::Button::new(&preset_info).wrap())
+                    .clicked()
+                {
                     selected_preset = Some(preset.clone());
                 }
             }
 
             if let Some(preset) = selected_preset {
-                self.send_command(daqcore::hil::engine::HilCommand::StartPreset(preset));
+                self.send_command(daqnative::hil::engine::HilCommand::StartPreset(preset));
             }
             ui.separator();
         }
@@ -102,13 +107,16 @@ impl Hil {
             let mut selected_test = None;
             for test in &self.found_tests {
                 let test_info = format!("{} [{}]: {}", test.name, test.basename, test.description);
-                if ui.button(&test_info).clicked() {
+                if ui
+                    .add(eframe::egui::Button::new(&test_info).wrap())
+                    .clicked()
+                {
                     selected_test = Some(test.clone());
                 }
             }
 
             if let Some(test) = selected_test {
-                self.send_command(daqcore::hil::engine::HilCommand::StartTest(test));
+                self.send_command(daqnative::hil::engine::HilCommand::StartTest(test));
             }
         }
     }
@@ -120,7 +128,7 @@ impl Hil {
 
         ui.add_space(4.0);
         if self.snapshot.capture_complete {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("Exit").clicked() {
                     stop_requested = true;
                 }
@@ -131,7 +139,7 @@ impl Hil {
                 }
             });
         } else {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if ui.button("Stop").clicked() {
                     stop_requested = true;
                 }
@@ -163,7 +171,11 @@ impl Hil {
                 preset.tests.len()
             ));
             if all_finished {
-                let executed_count = self.snapshot.skipped_from.unwrap_or(tests.len());
+                let executed_count = self
+                    .snapshot
+                    .skipped_from
+                    .unwrap_or(tests.len())
+                    .min(tests.len());
 
                 Self::show_preset_summary(ui, &tests[..executed_count]);
 
@@ -198,11 +210,14 @@ impl Hil {
         }
 
         if stop_requested {
-            self.send_command(daqcore::hil::engine::HilCommand::Stop);
+            self.send_command(daqnative::hil::engine::HilCommand::Stop);
         }
     }
 
-    fn show_preset_summary(ui: &mut eframe::egui::Ui, tests: &[daqcore::hil::run::HilRunningTest]) {
+    fn show_preset_summary(
+        ui: &mut eframe::egui::Ui,
+        tests: &[daqnative::hil::run::HilRunningTest],
+    ) {
         if tests.is_empty() || !tests.iter().all(|t| t.is_finished()) {
             return;
         }
@@ -213,7 +228,7 @@ impl Hil {
             let passed = t
                 .in_progress_expects
                 .iter()
-                .filter(|e| matches!(e.result, daqcore::hil::run::ExpectResult::Passed))
+                .filter(|e| matches!(e.result, daqnative::hil::run::ExpectResult::Passed))
                 .count();
             total_passed += passed;
             total_expects += total;
@@ -240,7 +255,7 @@ impl Hil {
         );
     }
 
-    fn show_test(ui: &mut eframe::egui::Ui, test: &daqcore::hil::run::HilRunningTest) {
+    fn show_test(ui: &mut eframe::egui::Ui, test: &daqnative::hil::run::HilRunningTest) {
         eframe::egui::CollapsingHeader::new(&test.test_info.name)
             .id_salt(&test.test_info.basename)
             .default_open(true)
@@ -258,7 +273,7 @@ impl Hil {
             });
     }
 
-    fn show_test_progress(ui: &mut eframe::egui::Ui, test: &daqcore::hil::run::HilRunningTest) {
+    fn show_test_progress(ui: &mut eframe::egui::Ui, test: &daqnative::hil::run::HilRunningTest) {
         let (not_in_window, in_progress, completed) = test.expect_counts();
         let total = not_in_window + in_progress + completed;
         if total > 0 {
@@ -272,7 +287,7 @@ impl Hil {
 
     fn show_test_finished_summary(
         ui: &mut eframe::egui::Ui,
-        test: &daqcore::hil::run::HilRunningTest,
+        test: &daqnative::hil::run::HilRunningTest,
     ) {
         if !test.is_finished() {
             return;
@@ -282,7 +297,7 @@ impl Hil {
         let passed = test
             .in_progress_expects
             .iter()
-            .filter(|e| matches!(e.result, daqcore::hil::run::ExpectResult::Passed))
+            .filter(|e| matches!(e.result, daqnative::hil::run::ExpectResult::Passed))
             .count();
 
         let color = if passed == total {
@@ -297,7 +312,7 @@ impl Hil {
         );
     }
 
-    fn show_expects_table(ui: &mut eframe::egui::Ui, test: &daqcore::hil::run::HilRunningTest) {
+    fn show_expects_table(ui: &mut eframe::egui::Ui, test: &daqnative::hil::run::HilRunningTest) {
         // Only row addresses are built here; message contents are drawn lazily
         // by the table for the rows currently in view.
         let mut rows = Vec::new();
@@ -334,117 +349,122 @@ impl Hil {
             };
             ((lines as f32) * line_height) + 8.0
         });
-        egui_extras::TableBuilder::new(ui)
-            .id_salt("hil_messages")
-            .cell_layout(eframe::egui::Layout::top_down(eframe::egui::Align::Min))
-            // Message
-            .column(
-                egui_extras::Column::initial(210.0)
-                    .at_least(120.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Time (ms)
-            .column(
-                egui_extras::Column::initial(105.0)
-                    .at_least(75.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Validation
-            .column(
-                egui_extras::Column::initial(155.0)
-                    .at_least(100.0)
-                    .resizable(true)
-                    .clip(true),
-            )
-            // Signals
-            .column(egui_extras::Column::remainder().at_least(150.0).clip(true))
-            .max_scroll_height(400.0)
+        eframe::egui::ScrollArea::horizontal()
+            .id_salt(("hil_hscroll", &test.test_info.basename))
             .auto_shrink([false, true])
-            .header(24.0, |mut header| {
-                for label in ["Message", "Time (ms)", "Validation", "Signals"] {
-                    header.col(|ui| {
-                        ui.strong(label);
-                    });
-                }
-            })
-            .body(|body| {
-                body.heterogeneous_rows(heights, |mut row| {
-                    let (expect_index, message_index) = rows[row.index()];
-                    let ipe = &test.in_progress_expects[expect_index];
-                    let primary = message_index.is_none();
-                    let message = message_index
-                        .map(|i| &ipe.messages[i])
-                        .or_else(|| ipe.selected_message());
-                    let tint = if primary {
-                        // Blue
-                        eframe::egui::Color32::from_rgba_unmultiplied(80, 140, 220, 28)
-                    } else if message.is_some_and(|m| m.is_valid()) {
-                        // Green
-                        eframe::egui::Color32::from_rgba_unmultiplied(60, 180, 120, 24)
-                    } else {
-                        // Red
-                        eframe::egui::Color32::from_rgba_unmultiplied(220, 80, 90, 24)
-                    };
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if primary {
-                            let count = ipe
-                                .messages
-                                .len()
-                                .saturating_sub(usize::from(ipe.selected_message_index.is_some()));
-                            let (id, open) = expanded[expect_index];
-                            let arrow = if open { "v" } else { ">" };
-                            let response = ui.add_enabled(
-                                count > 0,
-                                eframe::egui::Button::new(format!(
-                                    "{arrow} {}",
-                                    ipe.expect.msg_name
-                                ))
-                                .frame(false),
-                            );
-                            if response.clicked() {
-                                ui.ctx().data_mut(|data| data.insert_temp(id, !open));
-                            }
-                            response
-                                .on_hover_text(format!("Show or hide {count} other receptions"));
-                            ui.weak(format!(
-                                "Window: {:.2} - {:.2} ms",
-                                ipe.expect.window[0], ipe.expect.window[1]
-                            ));
-                            ui.weak(format!("{} received", ipe.messages.len()));
+            .show(ui, |ui| {
+                egui_extras::TableBuilder::new(ui)
+                    .id_salt("hil_messages")
+                    .cell_layout(eframe::egui::Layout::top_down(eframe::egui::Align::Min))
+                    // Message
+                    .column(
+                        egui_extras::Column::initial(150.0)
+                            .at_least(90.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Time (ms)
+                    .column(
+                        egui_extras::Column::initial(85.0)
+                            .at_least(60.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Validation
+                    .column(
+                        egui_extras::Column::initial(115.0)
+                            .at_least(80.0)
+                            .resizable(true)
+                            .clip(true),
+                    )
+                    // Signals
+                    .column(egui_extras::Column::remainder().at_least(120.0).clip(true))
+                    .max_scroll_height(400.0)
+                    .auto_shrink([false, true])
+                    .header(24.0, |mut header| {
+                        for label in ["Message", "Time (ms)", "Validation", "Signals"] {
+                            header.col(|ui| {
+                                ui.strong(label);
+                            });
                         }
-                    });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if let Some(message) = message {
-                            ui.monospace(message.elapsed_ms.to_string());
-                        } else {
-                            ui.weak("-");
-                        }
-                    });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        if primary {
-                            ui.colored_label(expect_color(ipe.result), ipe.result.as_str());
-                        }
-                        if let Some(message) = message {
-                            let (color, label) = if message.is_valid() {
-                                (eframe::egui::Color32::GREEN, "Valid")
+                    })
+                    .body(|body| {
+                        body.heterogeneous_rows(heights, |mut row| {
+                            let (expect_index, message_index) = rows[row.index()];
+                            let ipe = &test.in_progress_expects[expect_index];
+                            let primary = message_index.is_none();
+                            let message = message_index
+                                .map(|i| &ipe.messages[i])
+                                .or_else(|| ipe.selected_message());
+                            let tint = if primary {
+                                // Blue
+                                eframe::egui::Color32::from_rgba_unmultiplied(80, 140, 220, 28)
+                            } else if message.is_some_and(|m| m.is_valid()) {
+                                // Green
+                                eframe::egui::Color32::from_rgba_unmultiplied(60, 180, 120, 24)
                             } else {
-                                (eframe::egui::Color32::RED, "Invalid")
+                                // Red
+                                eframe::egui::Color32::from_rgba_unmultiplied(220, 80, 90, 24)
                             };
-                            ui.colored_label(color, label);
-                        } else {
-                            ui.weak("No message received");
-                        }
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if primary {
+                                    let count = ipe.messages.len().saturating_sub(usize::from(
+                                        ipe.selected_message_index.is_some(),
+                                    ));
+                                    let (id, open) = expanded[expect_index];
+                                    let arrow = if open { "v" } else { ">" };
+                                    let response = ui.add_enabled(
+                                        count > 0,
+                                        eframe::egui::Button::new(format!(
+                                            "{arrow} {}",
+                                            ipe.expect.msg_name
+                                        ))
+                                        .frame(false),
+                                    );
+                                    if response.clicked() {
+                                        ui.ctx().data_mut(|data| data.insert_temp(id, !open));
+                                    }
+                                    response.on_hover_text(format!(
+                                        "Show or hide {count} other receptions"
+                                    ));
+                                    ui.weak(format!(
+                                        "Window: {:.2} - {:.2} ms",
+                                        ipe.expect.window[0], ipe.expect.window[1]
+                                    ));
+                                    ui.weak(format!("{} received", ipe.messages.len()));
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if let Some(message) = message {
+                                    ui.monospace(message.elapsed_ms.to_string());
+                                } else {
+                                    ui.weak("-");
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                if primary {
+                                    ui.colored_label(expect_color(ipe.result), ipe.result.as_str());
+                                }
+                                if let Some(message) = message {
+                                    let (color, label) = if message.is_valid() {
+                                        (eframe::egui::Color32::GREEN, "Valid")
+                                    } else {
+                                        (eframe::egui::Color32::RED, "Invalid")
+                                    };
+                                    ui.colored_label(color, label);
+                                } else {
+                                    ui.weak("No message received");
+                                }
+                            });
+                            row.col(|ui| {
+                                Self::paint_message_cell(ui, tint);
+                                Self::show_message_signals(ui, ipe, message, primary);
+                            });
+                        });
                     });
-                    row.col(|ui| {
-                        Self::paint_message_cell(ui, tint);
-                        Self::show_message_signals(ui, ipe, message, primary);
-                    });
-                });
             });
     }
 
@@ -457,8 +477,8 @@ impl Hil {
 
     fn show_message_signals(
         ui: &mut eframe::egui::Ui,
-        ipe: &daqcore::hil::run::InProgressExpect,
-        message: Option<&daqcore::hil::run::CapturedMessage>,
+        ipe: &daqnative::hil::run::InProgressExpect,
+        message: Option<&daqnative::hil::run::CapturedMessage>,
         show_expected: bool,
     ) {
         if ipe.expect.signals.is_empty() {
@@ -467,7 +487,7 @@ impl Hil {
         for (name, range) in &ipe.expect.signals {
             if let Some(message) = message {
                 let raw_value = message.signals.get(name).copied().flatten();
-                let failed = !daqcore::hil::run::signal_in_range(raw_value, *range);
+                let failed = !daqnative::hil::run::signal_in_range(raw_value, *range);
                 let value = raw_value
                     .map(|value| format!("{value:.2}"))
                     .unwrap_or_else(|| "missing".to_owned());
@@ -505,8 +525,8 @@ impl Drop for Hil {
     fn drop(&mut self) {
         if let Err(e) = self
             .ui_to_can_tx
-            .send(daqcore::can_thread::CanThreadCommand::Hil(
-                daqcore::hil::engine::HilCommand::Stop,
+            .send(daqnative::can_thread::CanThreadCommand::Hil(
+                daqnative::hil::engine::HilCommand::Stop,
             ))
         {
             log::error!("Failed to send HIL stop command on drop: {}", e);
@@ -514,12 +534,12 @@ impl Drop for Hil {
     }
 }
 
-fn expect_color(result: daqcore::hil::run::ExpectResult) -> eframe::egui::Color32 {
+fn expect_color(result: daqnative::hil::run::ExpectResult) -> eframe::egui::Color32 {
     match result {
-        daqcore::hil::run::ExpectResult::NotInWindow => eframe::egui::Color32::GRAY,
-        daqcore::hil::run::ExpectResult::InProgress => eframe::egui::Color32::YELLOW,
-        daqcore::hil::run::ExpectResult::Passed => eframe::egui::Color32::GREEN,
-        daqcore::hil::run::ExpectResult::FailedNoMessage
-        | daqcore::hil::run::ExpectResult::FailedValueOutOfRange => eframe::egui::Color32::RED,
+        daqnative::hil::run::ExpectResult::NotInWindow => eframe::egui::Color32::GRAY,
+        daqnative::hil::run::ExpectResult::InProgress => eframe::egui::Color32::YELLOW,
+        daqnative::hil::run::ExpectResult::Passed => eframe::egui::Color32::GREEN,
+        daqnative::hil::run::ExpectResult::FailedNoMessage
+        | daqnative::hil::run::ExpectResult::FailedValueOutOfRange => eframe::egui::Color32::RED,
     }
 }

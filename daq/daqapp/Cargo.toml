@@ -4,29 +4,25 @@ version = "26.0.0"
 edition.workspace = true
 
 [dependencies]
-daqcore.workspace = true
+daqcore = { workspace = true }
+daqnative = { workspace = true }
+daqviewer = { workspace = true }
 
 eframe = "0.33.3"
 egui_tiles = "0.14.1"
-egui_plot = "0.34.1"
-walkers = "0.52.0"
 egui_extras = { version = "0.33.3", features = ["all_loaders"] }
 
 rfd = "0.17.2"
 
+chrono = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 
-chrono.workspace = true
+serialport = { workspace = true }
+rusb = { workspace = true }
 
-hashbrown = "0.16.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
-log.workspace = true
-env_logger.workspace = true
-
-serialport.workspace = true
-rusb.workspace = true
-
-serde.workspace = true
-serde_json.workspace = true
-bytemuck.workspace = true
-csv.workspace = true
-toml = "0.9.8"
+[dev-dependencies]
+tempfile = "3"

@@ -59,6 +59,7 @@ def _signal(signal: CompiledSignal) -> SignalExport:
         unit=signal.unit or "",
         choices=choices or None,
         display_format=signal.display_format,
+        fault_priority=signal.fault_priority,
     )
 
 

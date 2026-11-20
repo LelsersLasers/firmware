@@ -1,0 +1,209 @@
+{
+  "id": "powertrain_accumulator",
+  "schema_version": 1,
+  "name": "Powertrain — Accumulator, Torque & Motor Speeds",
+  "description": "Powertrain and HV accumulator workspace replacing plot_factory/configs/powertrain/*.toml: Battery Power & Current, Motor Speeds, Requested vs Actual Torque, and Power vs Voltage scatters.",
+  "custom_formulas": [],
+  "layout": {
+    "type": "linear",
+    "dir": "horizontal",
+    "shares": [0.6, 0.4],
+    "children": [
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "pane",
+            "widget": "scope",
+            "title": "Battery Power and Current",
+            "x_mode": "utc_time",
+            "channels": [
+              { "signal_id": "battery.power_kw" },
+              { "signal_id": "pack_stats.pack_current" },
+              { "signal_id": "battery.voltage_v" },
+              { "signal_id": "pack_stats.pack_voltage" },
+              { "signal_id": "battery.energy_kwh" }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Requested and Actual Torque",
+                "x_mode": "utc_time",
+                "plot": {
+                  "stacked": false,
+                  "lanes": 2,
+                  "channels": {
+                    "INVA_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVB_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVC_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    },
+                    "INVD_SET.AMK_TorqueSetpoint": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    }
+                  },
+                  "axes": {}
+                },
+                "channels": [
+                  { "signal_id": "INVA_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVB_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVC_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVD_SET.AMK_TorqueSetpoint" },
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Throttle and AMK Actual Torque vs Time",
+                "x_mode": "utc_time",
+                "plot": {
+                  "stacked": false,
+                  "lanes": 2,
+                  "channels": {
+                    "pedals.throttle": {
+                      "width": 1.5,
+                      "opacity": 1.0,
+                      "mode": "dashed",
+                      "points": false,
+                      "envelope": true,
+                      "axis": "",
+                      "lane": 0
+                    }
+                  },
+                  "axes": {}
+                },
+                "channels": [
+                  { "signal_id": "pedals.throttle" },
+                  { "signal_id": "INVA_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVB_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVC_CRIT.AMK_ActualTorque" },
+                  { "signal_id": "INVD_CRIT.AMK_ActualTorque" }
+                ]
+              },
+              {
+                "type": "pane",
+                "widget": "scope",
+                "title": "Wheel / Motor Speeds",
+                "x_mode": "utc_time",
+                "channels": [
+                  { "signal_id": "wheel_speeds.front_left" },
+                  { "signal_id": "wheel_speeds.front_right" },
+                  { "signal_id": "wheel_speeds.rear_left" },
+                  { "signal_id": "wheel_speeds.rear_right" }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "linear",
+        "dir": "vertical",
+        "shares": [0.5, 0.5],
+        "children": [
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Total Battery Power vs Battery Voltage",
+                "x_signal": "battery.voltage_v",
+                "y_signal": "battery.power_kw",
+                "z_color_signal": "battery.energy_kwh",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Motor Overload vs Actual Torque",
+                "x_signal": "INVC_CRIT.AMK_ActualTorque",
+                "y_signal": "INVC_CRIT.AMK_DisplayOverloadMotor",
+                "z_color_signal": "INVC_CRIT.AMK_DisplayOverloadInverter",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Inverter Overload vs Actual Torque",
+                "x_signal": "INVC_CRIT.AMK_ActualTorque",
+                "y_signal": "INVC_CRIT.AMK_DisplayOverloadInverter",
+                "z_color_signal": "INVC_CRIT.AMK_DisplayOverloadMotor",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
+          },
+          {
+            "type": "tabs",
+            "active": 0,
+            "children": [
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "AMK Actual Torque vs Speed",
+                "x_signal": "INVC_CRIT.AMK_ActualSpeed",
+                "y_signal": "INVC_CRIT.AMK_ActualTorque",
+                "z_color_signal": "battery.power_kw",
+                "equal_aspect": false,
+                "show_g_rings": false
+              },
+              {
+                "type": "pane",
+                "widget": "xy_scatter",
+                "title": "Requested vs Actual Torque",
+                "x_signal": "INVC_SET.AMK_TorqueSetpoint",
+                "y_signal": "INVC_CRIT.AMK_ActualTorque",
+                "z_color_signal": "battery.power_kw",
+                "equal_aspect": false,
+                "show_g_rings": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

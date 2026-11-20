@@ -46,7 +46,7 @@ enum CapabilityState {
 pub struct Bootloader {
     pub title: String,
     manifest_path: Option<path::PathBuf>,
-    package: Option<daqcore::firmware::protocol::FirmwarePackage>,
+    package: Option<daqnative::firmware::protocol::FirmwarePackage>,
     status: String,
     running: bool,
     observations: HashMap<String, TargetObservations>,
@@ -79,7 +79,7 @@ impl Bootloader {
     pub fn show(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        ui_to_can_tx: &mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: &mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
     ) -> egui_tiles::UiResponse {
         ui.ctx().request_repaint_after(time::Duration::from_secs(1));
 
@@ -137,10 +137,10 @@ impl Bootloader {
                 if self.running {
                     self.show_run_summary(ui);
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button("Cancel update").clicked() {
                             if ui_to_can_tx
-                                .send(daqcore::can_thread::CanThreadCommand::CancelFirmwareUpdate)
+                                .send(daqnative::can_thread::CanThreadCommand::CancelFirmwareUpdate)
                                 .is_ok()
                             {
                                 self.status = "Cancelling update…".to_string();
@@ -170,7 +170,7 @@ impl Bootloader {
                         now,
                     );
                 } else {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         let upload = ui.add_enabled(
                             !selected_names.is_empty(),
                             eframe::egui::Button::new(format!(
@@ -202,46 +202,18 @@ impl Bootloader {
     fn show_package_panel(&mut self, ui: &mut eframe::egui::Ui) {
         eframe::egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
+            ui.vertical(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.strong("Firmware package");
-                    if let (Some(path), Some(package)) = (&self.manifest_path, &self.package) {
-                        let filename = path
-                            .file_name()
-                            .map(|name| name.to_string_lossy())
-                            .unwrap_or_else(|| path.display().to_string().into());
-                        ui.label(eframe::egui::RichText::new(filename).monospace())
-                            .on_hover_text(path.display().to_string());
-                        let total_bytes: usize =
-                            package.images.iter().map(|image| image.bytes.len()).sum();
-                        ui.label(
-                            eframe::egui::RichText::new(format!(
-                                "{} verified images • {}",
-                                package.images.len(),
-                                format_bytes(total_bytes)
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                    } else {
-                        ui.label("Choose a manifest.json or firmware_*.tar.gz package.");
-                        ui.label(
-                            eframe::egui::RichText::new(
-                                "DaqApp validates every image and checksum before enabling updates.",
-                            )
-                            .small()
-                            .weak(),
-                        );
-                    }
-                });
-                ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
                     let label = if self.package.is_some() {
                         "Change package"
                     } else {
                         "Choose package"
                     };
 
-                    if ui.add_enabled(!self.running, eframe::egui::Button::new(label)).clicked()
+                    if ui
+                        .add_enabled(!self.running, eframe::egui::Button::new(label))
+                        .clicked()
                         && let Some(path) = rfd::FileDialog::new()
                             .add_filter("Firmware package", &["json", "gz"])
                             .pick_file()
@@ -249,13 +221,44 @@ impl Bootloader {
                         self.load_package(path);
                     }
                 });
+                if let (Some(path), Some(package)) = (&self.manifest_path, &self.package) {
+                    let filename = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy())
+                        .unwrap_or_else(|| path.display().to_string().into());
+                    ui.add(
+                        eframe::egui::Label::new(eframe::egui::RichText::new(filename).monospace())
+                            .wrap(),
+                    )
+                    .on_hover_text(path.display().to_string());
+                    let total_bytes: usize =
+                        package.images.iter().map(|image| image.bytes.len()).sum();
+                    ui.label(
+                        eframe::egui::RichText::new(format!(
+                            "{} verified images • {}",
+                            package.images.len(),
+                            format_bytes(total_bytes)
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                } else {
+                    ui.label("Choose a manifest.json or firmware_*.tar.gz package.");
+                    ui.label(
+                        eframe::egui::RichText::new(
+                            "DaqApp validates every image and checksum before enabling updates.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
             });
         });
     }
 
     fn load_package(&mut self, path: path::PathBuf) {
         self.protocol_observations.clear();
-        match daqcore::firmware::protocol::FirmwarePackage::load(path.clone()) {
+        match daqnative::firmware::protocol::FirmwarePackage::load(path.clone()) {
             Ok(package) => {
                 self.manifest_path = Some(path);
                 self.package = Some(package);
@@ -286,7 +289,7 @@ impl Bootloader {
         selected_count: usize,
         now: time::Instant,
     ) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.strong("Targets");
             ui.label(
                 eframe::egui::RichText::new(format!(
@@ -296,38 +299,30 @@ impl Bootloader {
                 .small()
                 .weak(),
             );
-            ui.with_layout(
-                eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                |ui| {
-                    if ui
-                        .add_enabled(
-                            !self.running && !self.selected_targets.is_empty(),
-                            eframe::egui::Button::new("Clear"),
-                        )
-                        .clicked()
-                    {
-                        self.selected_targets.clear();
-                        self.confirming_update = false;
-                    }
-
-                    if ui
-                        .add_enabled(
-                            !self.running && available_count > 0,
-                            eframe::egui::Button::new("Select available"),
-                        )
-                        .clicked()
-                    {
-                        self.selected_targets = target_names
-                            .iter()
-                            .filter(|name| {
-                                self.capability_state(name, now) == CapabilityState::Available
-                            })
-                            .cloned()
-                            .collect();
-                        self.confirming_update = false;
-                    }
-                },
-            );
+            if ui
+                .add_enabled(
+                    !self.running && available_count > 0,
+                    eframe::egui::Button::new("Select available"),
+                )
+                .clicked()
+            {
+                self.selected_targets = target_names
+                    .iter()
+                    .filter(|name| self.capability_state(name, now) == CapabilityState::Available)
+                    .cloned()
+                    .collect();
+                self.confirming_update = false;
+            }
+            if ui
+                .add_enabled(
+                    !self.running && !self.selected_targets.is_empty(),
+                    eframe::egui::Button::new("Clear"),
+                )
+                .clicked()
+            {
+                self.selected_targets.clear();
+                self.confirming_update = false;
+            }
         });
     }
 
@@ -430,7 +425,7 @@ impl Bootloader {
     fn show_update_confirmation(
         &mut self,
         ui: &mut eframe::egui::Ui,
-        ui_to_can_tx: &mpsc::Sender<daqcore::can_thread::CanThreadCommand>,
+        ui_to_can_tx: &mpsc::Sender<daqnative::can_thread::CanThreadCommand>,
         package_names: &[String],
         selected_names: &[String],
         protocol_matches: &[ProtocolMatch],
@@ -510,7 +505,7 @@ impl Bootloader {
                 );
             }
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let start_label = if has_protocol_warning {
                     "Acknowledge warning & start update"
                 } else {
@@ -575,11 +570,11 @@ impl Bootloader {
                         .filter(|image| action_names.contains(&image.name))
                         .cloned()
                         .collect();
-                    let package = daqcore::firmware::protocol::FirmwarePackage { images: action_images };
+                    let package = daqnative::firmware::protocol::FirmwarePackage { images: action_images };
                     let message = if armed {
-                        daqcore::can_thread::CanThreadCommand::ArmFirmwareUpdate(package)
+                        daqnative::can_thread::CanThreadCommand::ArmFirmwareUpdate(package)
                     } else {
-                        daqcore::can_thread::CanThreadCommand::StartFirmwareUpdate(package)
+                        daqnative::can_thread::CanThreadCommand::StartFirmwareUpdate(package)
                     };
 
                     if ui_to_can_tx.send(message).is_ok() {
@@ -691,7 +686,7 @@ impl Bootloader {
             return "—".to_string();
         };
 
-        let suffix = if now.duration_since(observation.last_seen) > CAPABILITY_TIMEOUT {
+        let suffix = if now.saturating_duration_since(observation.last_seen) > CAPABILITY_TIMEOUT {
             " (stale)"
         } else {
             ""
@@ -699,19 +694,23 @@ impl Bootloader {
         format!("0x{git_hash:08X}{suffix}")
     }
 
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
+
     pub fn reset_database(&mut self) {
         self.observations.clear();
     }
 
-    pub fn handle_can_message(&mut self, msg: &daqcore::can_thread::CanThreadEvent) {
+    pub fn handle_can_message(&mut self, msg: &daqnative::can_thread::CanThreadEvent) {
         match msg {
-            daqcore::can_thread::CanThreadEvent::Disconnection
-            | daqcore::can_thread::CanThreadEvent::ConnectionSuccessful
-            | daqcore::can_thread::CanThreadEvent::ConnectionFailed(_) => {
+            daqnative::can_thread::CanThreadEvent::Disconnection
+            | daqnative::can_thread::CanThreadEvent::ConnectionSuccessful
+            | daqnative::can_thread::CanThreadEvent::ConnectionFailed(_) => {
                 self.protocol_observations.clear();
                 return;
             }
-            daqcore::can_thread::CanThreadEvent::Frame(frame) => {
+            daqnative::can_thread::CanThreadEvent::Frame(frame) => {
                 self.observe_protocol_frame(
                     frame.identity,
                     frame.decoded.as_ref().map(|d| d.name()),
@@ -720,7 +719,7 @@ impl Bootloader {
             _ => {}
         }
 
-        if let daqcore::can_thread::CanThreadEvent::Frame(frame) = msg {
+        if let daqnative::can_thread::CanThreadEvent::Frame(frame) = msg {
             let Some(parsed) = frame.decoded_view() else {
                 return;
             };
@@ -796,7 +795,7 @@ impl Bootloader {
             return;
         }
 
-        let daqcore::can_thread::CanThreadEvent::FirmwareProgress(progress) = msg else {
+        let daqnative::can_thread::CanThreadEvent::FirmwareProgress(progress) = msg else {
             return;
         };
         apply_progress(&mut self.board_statuses, &self.run_board_names, progress);
@@ -822,7 +821,7 @@ struct ProtocolMatch {
     boards: Vec<String>,
 }
 
-fn image_protocol_ids(image: &daqcore::firmware::protocol::FirmwareImage) -> [u32; 4] {
+fn image_protocol_ids(image: &daqnative::firmware::protocol::FirmwareImage) -> [u32; 4] {
     [image.start_id, image.crc_id, image.jump_id, image.data_id]
 }
 
@@ -897,10 +896,10 @@ fn capability_state(
 
     let recent_application = observations
         .application
-        .filter(|observation| now.duration_since(observation.last_seen) <= timeout);
+        .filter(|observation| now.saturating_duration_since(observation.last_seen) <= timeout);
     let recent_bootloader = observations
         .bootloader
-        .filter(|observation| now.duration_since(observation.last_seen) <= timeout);
+        .filter(|observation| now.saturating_duration_since(observation.last_seen) <= timeout);
     let Some(observation) = recent_application.or(recent_bootloader) else {
         return CapabilityState::NoRecentTelemetry;
     };
@@ -915,7 +914,7 @@ fn capability_state(
 fn apply_progress(
     statuses: &mut HashMap<String, BoardUpdateStatus>,
     board_names: &[String],
-    progress: &daqcore::firmware::FirmwareProgress,
+    progress: &daqnative::firmware::FirmwareProgress,
 ) {
     if progress.phase == "complete" {
         for status in statuses.values_mut() {

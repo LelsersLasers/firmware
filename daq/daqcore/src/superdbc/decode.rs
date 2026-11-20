@@ -8,8 +8,10 @@ use crate::superdbc;
 #[derive(Debug, Clone)]
 pub struct DecodedMessage {
     key: superdbc::message::MessageKey,
+    bus_name: String,
     name: String,
     tx_node: String,
+    nominal_period_ms: Option<u32>,
     signals: indexmap::IndexMap<String, DecodedSignalValue>,
 }
 
@@ -17,6 +19,11 @@ impl DecodedMessage {
     /// Return the original bus ID and CAN identity.
     pub fn key(&self) -> superdbc::message::MessageKey {
         self.key
+    }
+
+    /// Borrow the bus name copied from the definition when decoding.
+    pub fn bus_name(&self) -> &str {
+        &self.bus_name
     }
 
     /// Borrow the message name copied from the definition when decoding.
@@ -27,6 +34,11 @@ impl DecodedMessage {
     /// Borrow the transmitting node name copied from the definition when decoding.
     pub fn tx_node(&self) -> &str {
         &self.tx_node
+    }
+
+    /// Return the nominal send period in milliseconds copied from the definition when decoding.
+    pub fn nominal_period_ms(&self) -> Option<u32> {
+        self.nominal_period_ms
     }
 
     /// Look up a decoded signal by its exact, case-sensitive name; return `None` if absent.
@@ -60,6 +72,10 @@ pub struct DecodedSignalValue {
     physical: f64,
     raw: superdbc::message::RawValue,
     enum_label: Option<String>,
+    unit: String,
+    description: String,
+    is_discrete: bool,
+    fault_priority: Option<superdbc::message::FaultSeverity>,
 }
 
 impl DecodedSignalValue {
@@ -86,6 +102,26 @@ impl DecodedSignalValue {
     /// Returns `None` for unmapped values and all Float32 signals.
     pub fn enum_label(&self) -> Option<&str> {
         self.enum_label.as_deref()
+    }
+
+    /// Borrow the signal unit copied from the definition when decoding.
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
+    /// Borrow the signal description copied from the definition when decoding.
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Return whether the signal is discrete (has enum choices or is a 1-bit boolean flag).
+    pub fn is_discrete(&self) -> bool {
+        self.is_discrete
+    }
+
+    /// Return the optional fault severity tier copied from the definition when decoding.
+    pub fn fault_priority(&self) -> Option<superdbc::message::FaultSeverity> {
+        self.fault_priority
     }
 
     /// Return an integer suitable for integer, hexadecimal, or binary presentation.
@@ -158,12 +194,20 @@ impl superdbc::message::Message {
                 }
                 superdbc::message::RawValue::Float32(value) => (f64::from(value), None),
             };
+            let is_discrete = signal.choices().next().is_some()
+                || (signal.bit_length() == 1
+                    && (signal.scale() - 1.0).abs() < 1e-9
+                    && signal.offset().abs() < 1e-9);
             signals.insert(
                 signal.name().to_owned(),
                 DecodedSignalValue {
                     physical: numeric_raw * signal.scale() + signal.offset(),
                     raw,
                     enum_label,
+                    unit: signal.unit().to_owned(),
+                    description: signal.description().to_owned(),
+                    is_discrete,
+                    fault_priority: signal.fault_priority(),
                 },
             );
         }
@@ -172,8 +216,10 @@ impl superdbc::message::Message {
         // database replacement without borrowing its definitions.
         Ok(DecodedMessage {
             key: self.key(),
+            bus_name: self.bus_name().to_owned(),
             name: self.name().to_owned(),
             tx_node: self.transmitter().to_owned(),
+            nominal_period_ms: self.nominal_period_ms(),
             signals,
         })
     }

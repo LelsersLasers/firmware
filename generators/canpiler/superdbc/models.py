@@ -4,7 +4,7 @@ from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.declarations import DisplayFormat
+from core.declarations import DisplayFormat, FaultPriority
 
 SchemaVersion = Literal["1.1"]
 SCHEMA_VERSION = get_args(SchemaVersion)[0]
@@ -36,6 +36,7 @@ class SignalExport(ExportModel):
     unit: str
     choices: dict[int, str] | None
     display_format: DisplayFormat | None
+    fault_priority: FaultPriority | None = None
 
 
 class MessageExport(ExportModel):

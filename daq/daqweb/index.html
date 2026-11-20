@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>PER — DaqWeb Telemetry Viewer</title>
+    <link rel="icon" type="image/png" href="/assets/per_logo.png" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        canvas#daqweb_canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="daqweb_canvas" oncontextmenu="return false;"></canvas>
+    <script type="module">
+        import init from '/assets/daqweb.js';
+        init('/assets/daqweb_bg.wasm');
+    </script>
+</body>
+</html>
