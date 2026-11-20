@@ -18,6 +18,12 @@ struct Cli {
     /// Maximum combined in-memory cache size in MiB for tiles and partition preloads (0 to disable)
     #[arg(long)]
     max_cache_mb: Option<usize>,
+    /// Shared password/token required for write endpoints (PUT/POST/PATCH/DELETE). Can also be set via DAQCLOUD_WRITE_TOKEN.
+    #[arg(long)]
+    write_token: Option<String>,
+    /// Automatically allow write requests originating from Tailscale IPs (100.64.0.0/10, fd7a:115c:a1e0::/48)
+    #[arg(long)]
+    trust_tailscale: Option<bool>,
 }
 
 #[tokio::main(worker_threads = 2)]
@@ -80,28 +86,54 @@ async fn main() -> Result<(), db::Error> {
         })
         .unwrap_or(consts::DEFAULT_MAX_CACHE_MB);
 
+    let write_token: Option<String> = cli
+        .write_token
+        .or_else(|| env::var("DAQCLOUD_WRITE_TOKEN").ok())
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
+    let trust_tailscale: bool = cli
+        .trust_tailscale
+        .or_else(|| {
+            env::var("DAQCLOUD_TRUST_TAILSCALE")
+                .ok()
+                .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" => Some(true),
+                    "0" | "false" | "no" => Some(false),
+                    _ => None,
+                })
+        })
+        .unwrap_or(true);
+
     let state = AppState::open_with_cache_budget(
         &db_path,
         &store_dir,
         max_cache_mb.saturating_mul(1024 * 1024),
-    )?;
+    )?
+    .with_write_auth(write_token, trust_tailscale);
+    let write_protected = state.write_token().is_some();
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     log::info!(
-        "daqcloud listening on http://{} (db: {}, store: {}, max_cache: {} MiB)",
+        "daqcloud listening on http://{} (db: {}, store: {}, max_cache: {} MiB, write_auth: {}, trust_tailscale: {})",
         listener.local_addr()?,
         db_path.display(),
         store_dir.display(),
-        max_cache_mb
+        max_cache_mb,
+        if write_protected { "enabled" } else { "open" },
+        trust_tailscale
     );
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            if let Err(error) = tokio::signal::ctrl_c().await {
-                log::error!("Could not listen for shutdown: {error}");
-            }
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            log::error!("Could not listen for shutdown: {error}");
+        }
+    })
+    .await?;
     Ok(())
 }

@@ -1,15 +1,16 @@
-use crate::state::{AppState, CacheHitMarker};
+use crate::state::{AppState, CacheHitMarker, is_tailscale_ip};
 use axum::{
     Json, Router,
     body::Bytes,
     extract::{
-        DefaultBodyLimit, Path, Query, State,
+        ConnectInfo, DefaultBodyLimit, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, put},
 };
+use base64::Engine as _;
 use daqcore::{
     analysis::{DerivedSignalDef, Expr},
     export::{DatasetExportRequest, ExportFormat},
@@ -154,6 +155,74 @@ fn classify_endpoint(method: &axum::http::Method, path: &str) -> (&'static str, 
     ("Other HTTP", true)
 }
 
+pub const WRITE_TOKEN_HEADER: &str = "x-daqcloud-token";
+
+pub fn is_write_request(method: &axum::http::Method, path: &str) -> bool {
+    if path == "/api/v1/export" {
+        // Read-only dataset export (uses POST for JSON query payload).
+        return false;
+    }
+    matches!(
+        *method,
+        axum::http::Method::POST
+            | axum::http::Method::PUT
+            | axum::http::Method::PATCH
+            | axum::http::Method::DELETE
+    )
+}
+
+pub fn has_valid_write_credentials(state: &AppState, headers: &HeaderMap) -> bool {
+    if state.write_token().is_none() {
+        return true;
+    }
+    if let Some(val) = headers
+        .get(WRITE_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        && state.matches_write_token(val)
+    {
+        return true;
+    }
+    if let Some(auth_str) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        let trimmed = auth_str.trim();
+        if trimmed.len() > 7 && trimmed[..7].eq_ignore_ascii_case("bearer ") {
+            if state.matches_write_token(&trimmed[7..]) {
+                return true;
+            }
+        } else if trimmed.len() > 6
+            && trimmed[..6].eq_ignore_ascii_case("basic ")
+            && let Ok(decoded_bytes) =
+                base64::engine::general_purpose::STANDARD.decode(trimmed[6..].trim())
+            && let Ok(decoded_str) = std::str::from_utf8(&decoded_bytes)
+        {
+            if let Some((_user, pass)) = decoded_str.split_once(':') {
+                if state.matches_write_token(pass) {
+                    return true;
+                }
+            } else if state.matches_write_token(decoded_str) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn is_write_authorized(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer_ip: Option<std::net::IpAddr>,
+) -> bool {
+    if state.write_token().is_none() {
+        return true;
+    }
+    if state.trust_tailscale() && peer_ip.is_some_and(is_tailscale_ip) {
+        return true;
+    }
+    has_valid_write_credentials(state, headers)
+}
+
 async fn log_request_middleware(
     State(state): State<AppState>,
     req: axum::extract::Request,
@@ -161,9 +230,27 @@ async fn log_request_middleware(
 ) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
+    let peer_ip = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|ci| ci.0.ip());
     let (category, include_in_overall) = classify_endpoint(&method, uri.path());
     let start = std::time::Instant::now();
-    let resp = {
+    let resp = if is_write_request(&method, uri.path())
+        && !is_write_authorized(&state, req.headers(), peer_ip)
+    {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"daqcloud\""),
+        );
+        (
+            StatusCode::UNAUTHORIZED,
+            headers,
+            "Unauthorized: write password/token or Tailscale connection required\n",
+        )
+            .into_response()
+    } else {
         let _in_flight = state.track_http_in_flight();
         next.run(req).await
     };
@@ -2258,6 +2345,137 @@ mod tests {
         );
 
         let _ = ws_stream.close(None).await;
+        server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_write_auth_and_tailscale_ip_trust() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("auth_registry.sqlite");
+        let store_dir = tmp.path().join("store");
+        let state = AppState::open(&db_path, &store_dir)
+            .unwrap()
+            .with_write_auth(Some("per-secret-token-2026".to_owned()), true);
+        let app = build_router(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base_url = format!("http://{addr}");
+        let server_handle = tokio::spawn(async move {
+            let _ = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await;
+        });
+
+        // 1. Unit assertions on Tailscale IP detection
+        assert!(is_tailscale_ip("100.64.0.1".parse().unwrap()));
+        assert!(is_tailscale_ip("100.105.42.9".parse().unwrap()));
+        assert!(is_tailscale_ip("100.127.255.254".parse().unwrap()));
+        assert!(is_tailscale_ip("::ffff:100.88.1.2".parse().unwrap()));
+        assert!(is_tailscale_ip("fd7a:115c:a1e0::1234".parse().unwrap()));
+        assert!(!is_tailscale_ip("100.63.255.255".parse().unwrap()));
+        assert!(!is_tailscale_ip("100.128.0.1".parse().unwrap()));
+        assert!(!is_tailscale_ip("45.76.8.71".parse().unwrap()));
+        assert!(!is_tailscale_ip("127.0.0.1".parse().unwrap()));
+
+        let client = reqwest::Client::new();
+
+        // 2. Public read endpoints work without credentials
+        let cat_res = client
+            .get(format!("{base_url}/api/v1/catalog"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(cat_res.status(), StatusCode::OK);
+
+        // 3. Unauthenticated writes from non-Tailscale IP (127.0.0.1) are rejected with 401
+        let ann = Annotation {
+            id: "sec_ann_1".to_owned(),
+            track_day_id: "2026-09-06".to_owned(),
+            name: "Protected Note".to_owned(),
+            category: "event".to_owned(),
+            color: "#38bdf8".to_owned(),
+            start_utc_ms: 1_794_500_010_000,
+            end_utc_ms: None,
+            author: "tester".to_owned(),
+            source: "manual".to_owned(),
+            notes: String::new(),
+            updated_at_ms: 100,
+            deleted: false,
+        };
+        let unauth_post = client
+            .post(format!("{base_url}/api/v1/annotations"))
+            .json(&ann)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unauth_post.status(), StatusCode::UNAUTHORIZED);
+
+        let wrong_post = client
+            .post(format!("{base_url}/api/v1/annotations"))
+            .header(header::AUTHORIZATION, "Bearer wrong-token")
+            .json(&ann)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(wrong_post.status(), StatusCode::UNAUTHORIZED);
+
+        // 4. Write with valid Bearer token succeeds
+        let bearer_post = client
+            .post(format!("{base_url}/api/v1/annotations"))
+            .header(header::AUTHORIZATION, "Bearer per-secret-token-2026")
+            .json(&ann)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bearer_post.status(), StatusCode::OK);
+
+        // 5. Write with HTTP Basic Auth (any username, token as password) succeeds
+        let basic_b64 =
+            base64::engine::general_purpose::STANDARD.encode("per:per-secret-token-2026");
+        let basic_patch = client
+            .patch(format!("{base_url}/api/v1/annotations/sec_ann_1"))
+            .header(header::AUTHORIZATION, format!("Basic {basic_b64}"))
+            .json(&AnnotationPatchRequest {
+                name: Some("Updated via Basic Auth".to_owned()),
+                updated_at_ms: Some(200),
+                ..Default::default()
+            })
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(basic_patch.status(), StatusCode::OK);
+
+        // 6. Write with X-Daqcloud-Token header succeeds
+        let hdr_del = client
+            .delete(format!(
+                "{base_url}/api/v1/annotations/sec_ann_1?updated_at_ms=300"
+            ))
+            .header(WRITE_TOKEN_HEADER, "per-secret-token-2026")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(hdr_del.status(), StatusCode::OK);
+
+        // 7. Tailscale peer IP is automatically authorized without any token header
+        let empty_headers = HeaderMap::new();
+        let ts_ip: std::net::IpAddr = "100.90.12.34".parse().unwrap();
+        let pub_ip: std::net::IpAddr = "203.0.113.55".parse().unwrap();
+        assert!(is_write_authorized(&state, &empty_headers, Some(ts_ip)));
+        assert!(!is_write_authorized(&state, &empty_headers, Some(pub_ip)));
+
+        let state_no_ts = state.clone().with_write_auth(
+            Some("per-secret-token-2026".to_owned()),
+            false,
+        );
+        assert!(!is_write_authorized(
+            &state_no_ts,
+            &empty_headers,
+            Some(ts_ip)
+        ));
+
         server_handle.abort();
     }
 }

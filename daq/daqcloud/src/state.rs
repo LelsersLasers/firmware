@@ -367,6 +367,32 @@ fn resolve_default_web_dist_dir() -> path::PathBuf {
 
 type Sha256CacheKey = (path::PathBuf, u64, u64);
 
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Returns `true` if `ip` belongs to the Tailscale CGNAT IPv4 range (`100.64.0.0/10`)
+/// or the Tailscale IPv6 ULA range (`fd7a:115c:a1e0::/48`).
+pub fn is_tailscale_ip(ip: std::net::IpAddr) -> bool {
+    match ip.to_canonical() {
+        std::net::IpAddr::V4(v4) => {
+            let octets = v4.octets();
+            octets[0] == 100 && (octets[1] & 0b1100_0000) == 64
+        }
+        std::net::IpAddr::V6(v6) => {
+            let segs = v6.segments();
+            segs[0] == 0xfd7a && segs[1] == 0x115c && segs[2] == 0xa1e0
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Registry,
@@ -374,6 +400,8 @@ pub struct AppState {
     pub web_dist_dir: path::PathBuf,
     pub ws_tx: broadcast::Sender<CloudWsMessage>,
     max_cache_bytes: usize,
+    write_token: Option<Arc<String>>,
+    trust_tailscale: bool,
     sha256_cache: Arc<Mutex<HashMap<Sha256CacheKey, String>>>,
     tile_cache: Arc<Mutex<EncodedTileLruCache>>,
     preload_cache: Arc<Mutex<PreloadLruCache>>,
@@ -407,6 +435,8 @@ impl AppState {
             web_dist_dir: resolve_default_web_dist_dir(),
             ws_tx,
             max_cache_bytes,
+            write_token: None,
+            trust_tailscale: true,
             sha256_cache: Arc::new(Mutex::new(HashMap::new())),
             tile_cache: Arc::new(Mutex::new(EncodedTileLruCache::new(tile_bytes))),
             preload_cache: Arc::new(Mutex::new(PreloadLruCache::new(preload_bytes))),
@@ -414,6 +444,34 @@ impl AppState {
             decode_semaphore: Arc::new(Semaphore::new(max_decodes)),
             metrics: Arc::new(CloudMetrics::default()),
         })
+    }
+
+    pub fn with_write_auth(mut self, write_token: Option<String>, trust_tailscale: bool) -> Self {
+        self.set_write_auth(write_token, trust_tailscale);
+        self
+    }
+
+    pub fn set_write_auth(&mut self, write_token: Option<String>, trust_tailscale: bool) {
+        self.write_token = write_token
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty())
+            .map(Arc::new);
+        self.trust_tailscale = trust_tailscale;
+    }
+
+    pub fn write_token(&self) -> Option<&str> {
+        self.write_token.as_deref().map(String::as_str)
+    }
+
+    pub fn trust_tailscale(&self) -> bool {
+        self.trust_tailscale
+    }
+
+    pub fn matches_write_token(&self, candidate: &str) -> bool {
+        let Some(expected) = self.write_token() else {
+            return true;
+        };
+        constant_time_eq(expected.as_bytes(), candidate.trim().as_bytes())
     }
 
     pub fn decode_semaphore(&self) -> &Arc<Semaphore> {
